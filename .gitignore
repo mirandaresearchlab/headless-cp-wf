@@ -1,0 +1,19 @@
+# Nextflow runtime state and outputs
+.nextflow/
+.nextflow.log*
+work/
+results/
+results_*/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+

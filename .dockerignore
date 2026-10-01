@@ -1,0 +1,13 @@
+.git
+.gitignore
+.nextflow*
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.py[cod]
+cellprofiler-nf.tar.gz
+results
+results_*
+work
+

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pre-commit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Run hooks and apply corrections
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out pushed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.9"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked Python dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@6c2e22b4d901f0c42ca66c5069f8026df026d165 # v2.1.4
+        with:
+          version: "26.04.6"
+
+      - name: Run pre-commit and apply available corrections
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          status=1
+          for attempt in 1 2 3; do
+            echo "Pre-commit attempt ${attempt}/3"
+            set +e
+            uv run pre-commit run --all-files
+            status=$?
+            set -e
+
+            if [[ "$status" -eq 0 ]]; then
+              break
+            fi
+
+            if git diff --quiet; then
+              echo "Pre-commit failed without producing an automatic correction."
+              exit "$status"
+            fi
+          done
+
+          if [[ "$status" -ne 0 ]]; then
+            echo "Pre-commit still fails after three automatic-correction attempts."
+            exit "$status"
+          fi
+
+          if git diff --quiet; then
+            echo "Pre-commit passed without corrections."
+            exit 0
+          fi
+
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --update
+          git commit -m "style: apply pre-commit corrections [skip ci]"
+          git push origin "HEAD:${BRANCH_NAME}"
