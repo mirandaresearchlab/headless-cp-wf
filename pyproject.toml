@@ -4,7 +4,9 @@ version = "1.0.0"
 description = "Development tooling for the cp-headless Nextflow workflow"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "nextflow>=26.4.6",
+]
 
 [dependency-groups]
 dev = [

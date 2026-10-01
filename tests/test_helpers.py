@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -41,6 +42,48 @@ def test_push_ci_runs_pre_commit_and_only_commits_tracked_fixes():
     assert "git add --all" not in workflow
     assert 'git push origin "HEAD:${BRANCH_NAME}"' in workflow
     assert 'exit "$status"' in workflow
+
+
+def test_nextflow_stub_removes_its_generated_files(tmp_path):
+    bin_dir = tmp_path / "bin"
+    temp_dir = tmp_path / "tmp"
+    bin_dir.mkdir()
+    temp_dir.mkdir()
+    invocation = tmp_path / "nextflow-arguments.txt"
+    fake_nextflow = bin_dir / "nextflow"
+    fake_nextflow.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$@" > "$STUB_INVOCATION"
+run_dir="$(dirname "$2")"
+mkdir -p "$run_dir/work" "$run_dir/results" "$run_dir/.nextflow"
+touch "$run_dir/generated-file"
+""",
+        encoding="utf-8",
+    )
+    fake_nextflow.chmod(0o755)
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{bin_dir}{os.pathsep}{environment['PATH']}",
+            "STUB_INVOCATION": str(invocation),
+            "TMPDIR": str(temp_dir),
+        }
+    )
+    subprocess.run(
+        ["bash", str(ROOT / "scripts" / "test-nextflow.sh")],
+        check=True,
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    arguments = invocation.read_text(encoding="utf-8")
+    assert "-work-dir" in arguments
+    assert "--outdir" in arguments
+    assert list(temp_dir.glob("cp-headless-stub.*")) == []
 
 
 def test_merge_features_adds_stable_global_image_numbers(tmp_path):
