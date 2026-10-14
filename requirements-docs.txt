@@ -1,0 +1,8 @@
+# Documentation toolchain. Pinned: MkDocs 2.0 is incompatible with this setup - do not upgrade to it.
+# Material for MkDocs is in maintenance mode (fixes only); Zensical is the planned successor.
+# After the first successful build, freeze exact versions: pip freeze > requirements-docs.lock
+mkdocs==1.6.1
+mkdocs-material==9.7.6
+# API reference of the bin/ helper scripts, from their numpy docstrings.
+mkdocstrings==1.0.7
+mkdocstrings-python==2.0.9

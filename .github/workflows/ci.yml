@@ -1,3 +1,6 @@
+# Automatic checks on GitHub. Both jobs run on each push to each branch. See docs/about/contributing.md.
+#   pre-commit:   all checks of .pre-commit-config.yaml, and a bot commit with automatic corrections
+#   cellprofiler: the tests with real CellProfiler in Docker
 name: CI
 
 on:
@@ -5,9 +8,11 @@ on:
     branches:
       - "**"
 
+# The pre-commit job needs write permission for its correction commit.
 permissions:
   contents: write
 
+# A new push to the same branch cancels the older run.
 concurrency:
   group: pre-commit-${{ github.ref }}
   cancel-in-progress: true
@@ -18,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # The actions are pinned by commit hash. The comment after each hash is the version.
     steps:
       - name: Check out pushed branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,15 +46,23 @@ jobs:
         with:
           version: "26.04.6"
 
+      # Run the checks up to 3 times. A check that corrects files fails once, and then passes on the
+      # corrected files. These checks correct files: ruff lint (--fix), ruff format and comment spacing
+      # (--fix). If the checks pass after corrections, commit and push the corrections.
+      # If a check fails without a correction, stop with its error.
       - name: Run pre-commit and apply available corrections
         env:
           BRANCH_NAME: ${{ github.ref_name }}
+
+          # The workflow tests start Nextflow many times and need more memory than a GitHub runner has.
+          # They run on your computer before each commit. The short stub test still runs here.
+          SKIP: workflow-tests
         run: |
           status=1
           for attempt in 1 2 3; do
             echo "Pre-commit attempt ${attempt}/3"
             set +e
-            uv run pre-commit run --all-files
+            uv run pre-commit run --all-files --show-diff-on-failure
             status=$?
             set -e
 
@@ -57,7 +71,9 @@ jobs:
             fi
 
             if git diff --quiet; then
-              echo "Pre-commit failed without producing an automatic correction."
+              echo "::error::A pre-commit check failed, and no check could correct it automatically."
+              echo "Read the failed check above, fix it by hand, and push again."
+              echo "To see the same result on your computer, run: uv run pre-commit run --all-files"
               exit "$status"
             fi
           done
@@ -72,9 +88,41 @@ jobs:
             exit 0
           fi
 
+          # Commit only changes to tracked files ("git add --update"), never new files.
+          # "[skip ci]" stops the bot commit from starting this workflow again.
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --update
           git commit -m "style: apply pre-commit corrections [skip ci]"
           git push origin "HEAD:${BRANCH_NAME}"
+
+  # The GitHub runners are Linux on amd64 and have Docker, so the CellProfiler image runs without emulation.
+  cellprofiler:
+    name: Real CellProfiler tests (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out pushed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.9"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked Python dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@6c2e22b4d901f0c42ca66c5069f8026df026d165 # v2.1.4
+        with:
+          version: "26.04.6"
+
+      - name: Run CellProfiler module, patch and end-to-end tests
+        run: uv run pytest -m cellprofiler -v
