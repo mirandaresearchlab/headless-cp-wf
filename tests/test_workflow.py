@@ -131,6 +131,12 @@ def make_images(root, names):
     return root
 
 
+# Resource limits for the stub runs. A CellProfiler job asks for 8 GB by default, and the local executor
+# refuses a job that asks for more memory than the computer has. A GitHub runner has 7.8 GB, so the tests
+# limit the jobs. The stub jobs only make small files.
+SMALL_MACHINE = ("--max_cpus", "2", "--max_memory", "3.GB", "--max_time", "1.h")
+
+
 def run_stub(tmp_path, input_dir, *args, outdir=None):
     """Run main.nf with -profile local -stub-run on an image folder.
 
@@ -171,6 +177,7 @@ def run_stub(tmp_path, input_dir, *args, outdir=None):
             str(input_dir),
             "--outdir",
             str(outdir),
+            *SMALL_MACHINE,
             *map(str, args),
         ],
         cwd=tmp_path,
@@ -528,3 +535,22 @@ def test_berzelius_settings_from_a_site_config_file(tmp_path):
     result, log, job = run_with_fake_sbatch(tmp_path, "-c", str(site), profile="berzelius")
     assert "#SBATCH -p berzelius-hopper-cpu" in job, result.stdout + log
     assert "#SBATCH --account=naiss2026-1-1" in job
+
+
+def test_stub_run_works_on_a_machine_with_little_memory(tmp_path):
+    """Check that the stub run works on a computer with 7.8 GB, like a GitHub runner.
+
+    A job asks for 8 GB by default. The local executor stops such a job on a smaller computer. A test
+    config sets the memory of the executor to 7.8 GB, and run_stub() limits the jobs.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    small = tmp_path / "small.config"
+    small.write_text("executor.memory = '7.8 GB'\nexecutor.cpus = 4\n", encoding="utf-8")
+    images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
+    result = run_stub(tmp_path, images, "-c", small)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "exceeds available memory" not in result.stdout + result.log

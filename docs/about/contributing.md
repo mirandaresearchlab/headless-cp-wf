@@ -106,7 +106,7 @@ The tests have four levels. The fast tests run on each commit.
 | --- | --- | --- |
 | `uv run pytest` | The helper scripts and the Berzelius scripts | seconds |
 | `bash scripts/test-helpers-py38.sh` | The same tests, with the helpers on Python 3.8 | seconds |
-| `uv run pytest -m workflow` | `main.nf` without CellProfiler (`-stub-run`): grouping, checks, parameters, Slurm and Berzelius job scripts | about 1 minute |
+| `uv run pytest -m workflow` | `main.nf` without CellProfiler (`-stub-run`): grouping, checks, parameters, Slurm and Berzelius job scripts | about 1 minute. CI skips it: run it on your computer. |
 | `uv run pytest -m cellprofiler` | Real CellProfiler in Docker: the pipeline preparation, and a complete run of the test data | some minutes |
 
 Other commands:

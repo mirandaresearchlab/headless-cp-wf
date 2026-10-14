@@ -53,6 +53,10 @@ jobs:
       - name: Run pre-commit and apply available corrections
         env:
           BRANCH_NAME: ${{ github.ref_name }}
+
+          # The workflow tests start Nextflow many times and need more memory than a GitHub runner has.
+          # They run on your computer before each commit. The short stub test still runs here.
+          SKIP: workflow-tests
         run: |
           status=1
           for attempt in 1 2 3; do
