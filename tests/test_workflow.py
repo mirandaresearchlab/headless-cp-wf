@@ -1,6 +1,14 @@
 """Workflow-level tests: run main.nf with -stub-run (no CellProfiler) on small file trees.
 
 These need Nextflow and Java 17-26. Run them with `uv run pytest -m workflow`.
+
+Each test makes a small image folder (copies of one test image with new names), runs the real
+main.nf with -stub-run, and checks the result or the error message. The stub blocks in main.nf make
+fake outputs instead of running CellProfiler, so the tests check the grouping, the parameter checks
+and the cluster job scripts in seconds.
+
+The Slurm and Berzelius tests use a fake sbatch program. It saves the job script that Nextflow makes
+and refuses the job, so the tests can read the #SBATCH lines without a cluster.
 """
 
 import json
@@ -15,11 +23,23 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 TIFF = ROOT / "tests" / "images" / "plate1" / "site0_DNA.tif"
 
+# All tests in this file carry the "workflow" mark, so plain `pytest` skips them (see pyproject.toml).
 pytestmark = pytest.mark.workflow
 
 
 def java_major(java):
-    """Major version of a java binary, or None ('openjdk version "21.0.4"' -> 21)."""
+    """Find the major version of a java program.
+
+    Parameters
+    ----------
+    java : str or pathlib.Path
+        Path of the java program.
+
+    Returns
+    -------
+    int or None
+        For example 21 for 'openjdk version "21.0.4"'. None if the program does not run.
+    """
     try:
         out = subprocess.run([str(java), "-version"], capture_output=True, text=True, timeout=30).stderr
     except (OSError, subprocess.TimeoutExpired):
@@ -29,7 +49,19 @@ def java_major(java):
 
 
 def supported_java_home(env):
-    """A JAVA_HOME that Nextflow supports (Java 17-26): the selected one, else an installed one."""
+    """Find a JAVA_HOME that Nextflow supports (Java 17 to 26).
+
+    Parameters
+    ----------
+    env : dict
+        The environment of the test run (JAVA_CMD, JAVA_HOME and PATH are read).
+
+    Returns
+    -------
+    str or None
+        None if the selected Java is already supported. Else the folder of an installed,
+        supported JDK, or None if there is none.
+    """
     selected = env.get("JAVA_CMD") or (env.get("JAVA_HOME") and f"{env['JAVA_HOME']}/bin/java")
     selected = selected or shutil.which("java", path=env["PATH"])
     if selected and 17 <= (java_major(selected) or 0) <= 26:
@@ -50,11 +82,23 @@ def supported_java_home(env):
 
 
 def nextflow_env():
+    """Make the environment for a Nextflow run in a test.
+
+    It puts the Nextflow of .venv on PATH if needed, replaces an unsupported Java, and turns off
+    the colored log.
+
+    Returns
+    -------
+    dict
+        A copy of the current environment with these changes.
+    """
     env = os.environ.copy()
+
     # Nextflow from `uv sync` lives in .venv/bin, which is on PATH only inside `uv run` or an activated venv.
     venv_bin = ROOT / ".venv" / "bin"
     if not shutil.which("nextflow", path=env["PATH"]) and (venv_bin / "nextflow").exists():
         env["PATH"] = f"{venv_bin}{os.pathsep}{env['PATH']}"
+
     # Nextflow supports Java 17-26. Replace an unsupported JVM (for example Java 27) with an installed one.
     java_home = supported_java_home(env)
     if java_home:
@@ -66,6 +110,20 @@ def nextflow_env():
 
 
 def make_images(root, names):
+    """Copy the test image to each name below a folder.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The image folder to make.
+    names : list of str
+        The file names, relative to root. Sub-folders are made as needed.
+
+    Returns
+    -------
+    pathlib.Path
+        The image folder (root).
+    """
     for name in names:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +132,24 @@ def make_images(root, names):
 
 
 def run_stub(tmp_path, input_dir, *args, outdir=None):
+    """Run main.nf with -profile local -stub-run on an image folder.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder for the work folder, the log and the results.
+    input_dir : pathlib.Path
+        The image folder.
+    *args : object
+        More options for `nextflow run`, for example "--chunk_size", 2.
+    outdir : pathlib.Path, optional
+        The output folder. The default is tmp_path / "results".
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The finished Nextflow run. It also has the attribute ``log``: the Nextflow log as text.
+    """
     if not shutil.which("nextflow", path=nextflow_env()["PATH"]):
         pytest.skip("nextflow is not installed (run ./scripts/bootstrap.sh)")
     outdir = outdir or tmp_path / "results"
@@ -107,11 +183,19 @@ def run_stub(tmp_path, input_dir, *args, outdir=None):
     return result
 
 
+# Two sites with two channels each (w1, w2). GROUP_REGEX groups the files by the part before "_w".
 MULTI_CHANNEL = ["P1/A01_s1_w1.tif", "P1/A01_s1_w2.tif", "P1/A02_s1_w1.tif", "P1/A02_s1_w2.tif"]
 GROUP_REGEX = r"^(.+?_s\d+)_w\d"
 
 
 def test_complete_multichannel_sets_are_kept_together(tmp_path):
+    """Check that complete sites stay together: 4 files make 2 image sets in 2 chunks.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", MULTI_CHANNEL)
     result = run_stub(tmp_path, images, "--group_regex", GROUP_REGEX, "--chunk_size", 1)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -120,6 +204,13 @@ def test_complete_multichannel_sets_are_kept_together(tmp_path):
 
 
 def test_image_set_with_missing_channel_fails(tmp_path):
+    """Check that a site with only 1 of its 2 channels stops the run before CellProfiler starts.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", [*MULTI_CHANNEL, "P1/A03_s1_w1.tif"])
     result = run_stub(tmp_path, images, "--group_regex", GROUP_REGEX, "--chunk_size", 1)
     assert result.returncode != 0
@@ -128,6 +219,13 @@ def test_image_set_with_missing_channel_fails(tmp_path):
 
 
 def test_file_not_matching_group_regex_fails(tmp_path):
+    """Check that an extra file (here a thumbnail) that does not match group_regex stops the run.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", [*MULTI_CHANNEL, "P1/A01_s1_thumb.tif"])
     result = run_stub(tmp_path, images, "--group_regex", GROUP_REGEX)
     assert result.returncode != 0
@@ -135,6 +233,13 @@ def test_file_not_matching_group_regex_fails(tmp_path):
 
 
 def test_allow_incomplete_sets_continues_with_warning(tmp_path):
+    """Check that --allow_incomplete_sets true turns the error into a warning.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", [*MULTI_CHANNEL, "P1/A03_s1_w1.tif"])
     result = run_stub(tmp_path, images, "--group_regex", GROUP_REGEX, "--allow_incomplete_sets", "true")
     assert result.returncode == 0, result.stdout + result.stderr
@@ -142,6 +247,15 @@ def test_allow_incomplete_sets_continues_with_warning(tmp_path):
 
 
 def test_outdir_inside_input_dir_fails(tmp_path):
+    """Check that an output folder inside the image folder stops the run.
+
+    A later run would otherwise read the results as images.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", MULTI_CHANNEL)
     result = run_stub(tmp_path, images, "--group_regex", GROUP_REGEX, outdir=images / "results")
     assert result.returncode != 0
@@ -149,6 +263,14 @@ def test_outdir_inside_input_dir_fails(tmp_path):
 
 
 def test_false_boolean_on_command_line_is_false(tmp_path):
+    """Check that `--gzip_features false` on the command line means false.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+
     # Nextflow passes `--gzip_features false` as the string 'false'. Before boolParam() the
     # workflow treated it as true and wrote .csv.gz files.
     images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
@@ -160,6 +282,13 @@ def test_false_boolean_on_command_line_is_false(tmp_path):
 
 
 def test_true_boolean_on_command_line_is_true(tmp_path):
+    """Check that `--gzip_features true` on the command line means true.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
     result = run_stub(tmp_path, images, "--gzip_features", "true")
     assert result.returncode == 0, result.stdout + result.stderr
@@ -167,6 +296,13 @@ def test_true_boolean_on_command_line_is_true(tmp_path):
 
 
 def test_invalid_boolean_fails(tmp_path):
+    """Check that a boolean parameter with another value (here 'maybe') stops the run.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", ["a.tif"])
     result = run_stub(tmp_path, images, "--save_masks", "maybe")
     assert result.returncode != 0
@@ -174,6 +310,13 @@ def test_invalid_boolean_fails(tmp_path):
 
 
 def test_run_info_records_provenance(tmp_path):
+    """Check that run_info.json records the workflow, the pinned container and the parameters.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     images = make_images(tmp_path / "img", ["a.tif"])
     result = run_stub(tmp_path, images, "--save_masks", "false")
     assert result.returncode == 0, result.stdout + result.stderr
@@ -185,11 +328,13 @@ def test_run_info_records_provenance(tmp_path):
     assert info["nextflow"]
 
 
+# The fake sbatch: save the job script that Nextflow made, then refuse the job (exit 1).
 FAKE_SBATCH = """#!/usr/bin/env bash
 cat .command.run >> "$SBATCH_LOG"
 echo "fake sbatch: refused" >&2
 exit 1
 """
+
 # Nextflow pulls the image with `apptainer pull --name <file> docker://...` before it submits a job.
 FAKE_APPTAINER = """#!/usr/bin/env bash
 if [ "$1" = pull ]; then
@@ -203,7 +348,27 @@ echo "apptainer version 1.3.4"
 def run_with_fake_sbatch(tmp_path, *args, profile="slurm", params=(), home=None):
     """Run a cluster profile, where a fake sbatch records the job script and refuses the job.
 
-    Returns (completed process, nextflow log, recorded job scripts).
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder for the fake programs, the images, the work folder and the logs.
+    *args : str
+        Options for nextflow before "run", for example "-c", "site.config".
+    profile : str, optional
+        The Nextflow profile. The default is "slurm".
+    params : tuple, optional
+        More options for `nextflow run`, for example ("--slurm_account", "abc").
+    home : pathlib.Path, optional
+        A folder to use as $HOME for the run. The default keeps the real $HOME.
+
+    Returns
+    -------
+    result : subprocess.CompletedProcess
+        The finished Nextflow run.
+    log : str
+        The Nextflow log.
+    jobs : str
+        All job scripts that reached the fake sbatch ("" if none did).
     """
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir()
@@ -237,12 +402,28 @@ def run_with_fake_sbatch(tmp_path, *args, profile="slurm", params=(), home=None)
 
 
 def test_slurm_profile_without_account_adds_no_account(tmp_path):
+    """Check that without --slurm_account the job script has no --account line.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     _, _, job = run_with_fake_sbatch(tmp_path)
     assert "#SBATCH" in job
     assert "--account" not in job
 
 
 def test_slurm_settings_from_a_site_config_file_reach_the_job(tmp_path):
+    """Check that settings from a -c config file reach the #SBATCH lines.
+
+    Values in a -c file are read after the profiles, so the profile must read them lazily.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     site = tmp_path / "site.config"
     site.write_text(
         "params.slurm_account = 'naiss2026-1-1'\n"
@@ -255,10 +436,20 @@ def test_slurm_settings_from_a_site_config_file_reach_the_job(tmp_path):
     assert "#SBATCH -p shared" in job
 
 
+# A valid account and CPU partition for the Berzelius tests.
 BERZELIUS = ("--slurm_account", "naiss2026-1-1", "--slurm_partition", "berzelius-cpu")
 
 
 def test_berzelius_jobs_go_to_a_cpu_partition_with_local_scratch(tmp_path):
+    """Check the Berzelius job script: CPU partition, account, memory, /scratch/local, no GPU.
+
+    PATCH_PIPELINE asks for 2 GB on 1 core, which is below 7 GB per core.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     cache = tmp_path / "containers"
     cache.mkdir()
     result, log, job = run_with_fake_sbatch(
@@ -274,6 +465,13 @@ def test_berzelius_jobs_go_to_a_cpu_partition_with_local_scratch(tmp_path):
 
 
 def test_berzelius_without_account_stops_before_submitting(tmp_path):
+    """Check that Berzelius without an account stops the run before any job goes to Slurm.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     result, log, job = run_with_fake_sbatch(
         tmp_path, profile="berzelius", params=("--slurm_partition", "berzelius-cpu")
     )
@@ -283,6 +481,13 @@ def test_berzelius_without_account_stops_before_submitting(tmp_path):
 
 
 def test_berzelius_refuses_a_gpu_partition(tmp_path):
+    """Check that Berzelius with a GPU partition stops the run before any job goes to Slurm.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     result, log, job = run_with_fake_sbatch(
         tmp_path, profile="berzelius", params=("--slurm_account", "x", "--slurm_partition", "berzelius")
     )
@@ -292,6 +497,14 @@ def test_berzelius_refuses_a_gpu_partition(tmp_path):
 
 
 def test_berzelius_refuses_a_work_directory_in_home(tmp_path):
+    """Check that Berzelius with the work folder in $HOME (20 GB quota) stops the run.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+
     # tmp_path becomes $HOME, so the work directory tmp_path/work is inside it.
     result, log, job = run_with_fake_sbatch(tmp_path, profile="berzelius", params=BERZELIUS, home=tmp_path)
     assert result.returncode != 0
@@ -300,6 +513,13 @@ def test_berzelius_refuses_a_work_directory_in_home(tmp_path):
 
 
 def test_berzelius_settings_from_a_site_config_file(tmp_path):
+    """Check that Berzelius settings from a -c config file reach the job script.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     site = tmp_path / "berzelius-site.config"
     site.write_text(
         "params.slurm_account = 'naiss2026-1-1'\nparams.slurm_partition = 'berzelius-hopper-cpu'\n",

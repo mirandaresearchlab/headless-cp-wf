@@ -1,3 +1,6 @@
+# Settings of the Python development tools. The workflow itself is not a Python package: this file
+# only describes the tools for tests and checks. See docs/development.md.
+
 [project]
 name = "cp-headless"
 version = "1.0.0"
@@ -8,6 +11,7 @@ dependencies = [
     "nextflow>=26.4.6",
 ]
 
+# Tools for development only. `uv sync --all-groups` installs them into .venv.
 [dependency-groups]
 dev = [
     "pre-commit>=4.3.0",
@@ -19,6 +23,7 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
+
 # Workflow tests start Nextflow and take about a minute: run them with `pytest -m workflow`.
 addopts = "-ra -m 'not workflow and not cellprofiler'"
 testpaths = ["tests"]
@@ -27,16 +32,26 @@ markers = [
     "cellprofiler: runs real CellProfiler in Docker (needs Docker)",
 ]
 
+# Ruff: code style and lint rules for bin/, tests/ and scripts/.
 [tool.ruff]
 line-length = 110
 target-version = "py311"
 
 [tool.ruff.per-file-target-version]
+
 # bin/ runs inside the CellProfiler 4.2.8 container (Python 3.8).
 "bin/*.py" = "py38"
 
+# D = docstring rules. Every module and function needs a docstring in numpy style.
+# D202 is off: the comment rule of this project puts an empty line above a comment, also directly
+# after a docstring (see docs/development.md).
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "D"]
+ignore = ["D202"]
 
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+# merge_features.py chooses between open() and gzip.open() with a lambda, which SIM115 would flag.
 [tool.ruff.lint.per-file-ignores]
 "bin/merge_features.py" = ["SIM115"]

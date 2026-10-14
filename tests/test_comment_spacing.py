@@ -1,0 +1,84 @@
+"""Tests of scripts/check-comment-spacing.py, the check of the comment layout rule.
+
+The rule: every block of full-line comments has an empty line above its first line.
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+CHECKER = ROOT / "scripts" / "check-comment-spacing.py"
+
+
+def check(path, text):
+    """Write text to a file, run the checker on it, and return the finished process.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The file to write and check. Its extension decides the language.
+    text : str
+        The content of the file.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The finished checker, with its exit code and its output.
+    """
+    path.write_text(text, encoding="utf-8")
+    return subprocess.run([sys.executable, str(CHECKER), str(path)], capture_output=True, text=True)
+
+
+def test_comment_block_directly_after_code_is_reported(tmp_path):
+    """Check that a comment directly after a code line is reported, with exit code 1 and the line.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    result = check(tmp_path / "a.sh", "echo one\n# Explain the next step.\necho two\n")
+    assert result.returncode == 1
+    assert "a.sh:2: comment block has no empty line above it" in result.stdout
+
+
+def test_comment_block_with_empty_line_above_passes(tmp_path):
+    """Check that an empty line above the first line of a block is enough.
+
+    The lines inside the block may follow each other directly.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    text = "echo one\n\n# First line of the block.\n# Second line of the block.\necho two\n"
+    result = check(tmp_path / "b.sh", text)
+    assert result.returncode == 0, result.stdout
+
+
+def test_hash_inside_a_python_string_is_not_a_comment(tmp_path):
+    """Check that a '#' inside a Python string does not count as a comment.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    text = 'SCRIPT = """#!/bin/bash\n# not a comment, part of the string\n"""\nx = 1  # end-of-line comment\n'
+    result = check(tmp_path / "c.py", text)
+    assert result.returncode == 0, result.stdout
+
+
+def test_directives_are_not_comments(tmp_path):
+    """Check that shebang and #SBATCH lines are allowed directly after other lines.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    text = "#!/bin/bash\n#SBATCH -n 1\n#SBATCH -c 2\n\nset -e\n"
+    result = check(tmp_path / "d.sbatch", text)
+    assert result.returncode == 0, result.stdout

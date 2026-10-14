@@ -18,6 +18,7 @@ This guide is for people who change the code of cp-headless. Read the [README](.
 ├── scripts/
 │   ├── berzelius/           helper scripts for Berzelius (see docs/berzelius.md)
 │   ├── bootstrap.sh         makes the development environment and installs the Git hook
+│   ├── check-comment-spacing.py  checks the comment layout of the code files
 │   ├── docker-entrypoint.sh starts the workflow in the all-in-one Docker image
 │   ├── test-helpers-py38.sh runs the helper tests on Python 3.8
 │   └── test-nextflow.sh     runs the workflow on the test data without CellProfiler
@@ -27,6 +28,7 @@ This guide is for people who change the code of cp-headless. Read the [README](.
 │   ├── test_helpers.py      tests of the helper scripts in bin/
 │   ├── test_workflow.py     tests of main.nf without CellProfiler (grouping, parameters, Slurm, Berzelius)
 │   ├── test_berzelius_scripts.py  tests of scripts/berzelius/
+│   ├── test_comment_spacing.py    tests of the comment layout check
 │   ├── test_cellprofiler.py tests with real CellProfiler in Docker
 │   └── cp_make_pipeline.py  makes test pipelines in the CellProfiler container
 ├── Dockerfile               the all-in-one image: Nextflow, Java and CellProfiler
@@ -45,6 +47,27 @@ Python 3.8. `scripts/test-helpers-py38.sh` runs the helper tests on Python 3.8.
 
 The helper scripts use only the standard library of Python. Thus they need no extra packages in the
 container.
+
+## Comments in the code
+
+Comments explain what a part of the code does and why. A reader of the raw code must understand the
+steps without other documents. These rules apply to all code files:
+
+- Put an empty line above the first line of each comment block.
+- Keep the lines of one block together, without empty lines between them.
+- You can put a comment at the end of a code line anywhere.
+- In Python, put a comment for a `for`, `if`, `with` or `try` block above that line, not as the first line
+  inside the block. Ruff removes an empty line at the start of such a block.
+- Give each Python module and function a docstring in
+  [numpy style](https://numpydoc.readthedocs.io/en/latest/format.html). Start with a summary line and,
+  if needed, an explanation. Then add the sections `Parameters`, `Returns` and `Raises` where they apply.
+  Write each parameter as `name : type`, with its meaning on the next line.
+
+Ruff checks the docstrings (rules `D`, numpy convention). It does not check that each parameter is
+in the `Parameters` section, so check that yourself.
+`scripts/check-comment-spacing.py` checks the empty lines. It runs before each commit. Run it by hand
+with `uv run python scripts/check-comment-spacing.py`. The script ignores lines that only look like
+comments: `#!` first lines, `#SBATCH` lines and the `# syntax=` line of the Dockerfile.
 
 ## Prepare the development environment
 

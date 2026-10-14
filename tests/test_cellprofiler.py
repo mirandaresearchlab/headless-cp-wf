@@ -36,6 +36,10 @@ REFERENCE_COUNTS = {
 
 @pytest.fixture(scope="module", autouse=True)
 def require_docker():
+    """Skip all tests of this file if Docker is missing, and pull the CellProfiler image if needed.
+
+    pytest runs this fixture once, before the first test of the file (autouse).
+    """
     if not shutil.which("docker"):
         pytest.skip("docker is not on PATH")
     if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
@@ -45,7 +49,23 @@ def require_docker():
 
 
 def in_container(workdir, command):
-    """Run a bash command in the CellProfiler image, with the repo and workdir at the same paths."""
+    """Run a bash command in the CellProfiler image.
+
+    The repository (read-only) and the work folder are mounted at the same paths as on the host,
+    and the command runs as the current user.
+
+    Parameters
+    ----------
+    workdir : pathlib.Path
+        The folder to mount and to start the command in.
+    command : str
+        The bash command.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The finished container, with its exit code and its output.
+    """
     return subprocess.run(
         [
             "docker",
@@ -77,7 +97,24 @@ def in_container(workdir, command):
 
 
 def patch(tmp_path, extra_module=None, chunked=True):
-    """Optionally add a module to tests/test.cppipe, then run patch_cppipe.py on it."""
+    """Optionally add a module to tests/test.cppipe, then run patch_cppipe.py on the pipeline.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder for the pipelines and the report.
+    extra_module : str, optional
+        The module to add and its settings, for example "Groups wants_groups=True".
+        The default (None) adds no module.
+    chunked : bool, optional
+        If True (the default), give --chunked to patch_cppipe.py.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The finished container. It also has the attribute ``report``: the patch report as a
+        dict ({} if no report was written).
+    """
     source = ROOT / "tests" / "test.cppipe"
     steps = []
     if extra_module:
@@ -96,6 +133,13 @@ def patch(tmp_path, extra_module=None, chunked=True):
 
 
 def test_patch_adds_masks_and_removes_batch_module(tmp_path):
+    """Check that the test pipeline gets mask writers for Nuclei and Cells and loses CreateBatchFiles.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     result = patch(tmp_path)
     assert result.returncode == 0, result.stderr
     assert result.report["objects"] == ["Nuclei", "Cells"]
@@ -115,6 +159,17 @@ def test_patch_adds_masks_and_removes_batch_module(tmp_path):
     ],
 )
 def test_chunking_a_pipeline_that_needs_all_image_sets_fails(tmp_path, module):
+    """Check that each module that needs all image sets stops a chunked run.
+
+    The error message must name the module.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    module : str
+        The module to add and its settings (one value per test run, from parametrize).
+    """
     result = patch(tmp_path, module)
     assert result.returncode == 1
     assert "must process all image sets in one CellProfiler run" in result.stderr
@@ -122,23 +177,60 @@ def test_chunking_a_pipeline_that_needs_all_image_sets_fails(tmp_path, module):
 
 
 def test_same_pipeline_without_chunking_is_allowed(tmp_path):
+    """Check that the same pipeline runs without chunking, and that the report still lists the module.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     result = patch(tmp_path, "CorrectIlluminationCalculate each_or_all=All:\\ Across\\ cycles", chunked=False)
     assert result.returncode == 0, result.stderr
     assert "CorrectIlluminationCalculate" in result.report["chunk_unsafe_modules"][0]
 
 
 def test_per_image_illumination_correction_can_be_chunked(tmp_path):
+    """Check that illumination correction per image ('Each') allows chunks.
+
+    This mode does not combine image sets.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     result = patch(tmp_path, "CorrectIlluminationCalculate each_or_all=Each")
     assert result.returncode == 0, result.stderr
     assert result.report["chunk_unsafe_modules"] == []
 
 
 def read_csv(path):
+    """Read a CSV file into a list of dicts.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The CSV file.
+
+    Returns
+    -------
+    list of dict
+        One dict per row, with the column names as keys.
+    """
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 
 def test_test_profile_end_to_end_matches_reference(tmp_path):
+    """Run the test profile with real CellProfiler and compare the results with the reference.
+
+    Each image must have its reference nuclei count, and each image set must have both masks.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     result = subprocess.run(
         [
             "nextflow",

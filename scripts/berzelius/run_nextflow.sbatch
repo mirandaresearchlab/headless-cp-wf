@@ -1,8 +1,13 @@
 #!/bin/bash
+
 # Head job: runs the Nextflow driver of cp-headless on a Berzelius CPU node.
 # Do not submit this file directly. Use scripts/berzelius/submit.sh: it checks the settings and sets the
 # account, the CPU partition, the log file and the CPNF_* variables.
 # To continue a stopped run (for example after the 72 h limit), run the same submit.sh command again.
+
+# Resources of the head job: 1 task with 2 cores for 72 hours (the Berzelius maximum). Nextflow itself
+# needs little: the CellProfiler work runs in separate jobs that Nextflow submits.
+# Slurm reads these lines only if they come before the first command of the script.
 #SBATCH -J cp-headless
 #SBATCH -n 1
 #SBATCH -c 2
@@ -10,6 +15,7 @@
 
 set -euo pipefail
 
+# submit.sh sets these four variables. Stop at once if one is missing.
 : "${CPNF_REPO:?set by submit.sh}" "${CPNF_PARAMS:?set by submit.sh}"
 : "${CPNF_RUN_DIR:?set by submit.sh}" "${CPNF_ENV:?set by submit.sh}"
 
@@ -23,6 +29,7 @@ case "${SLURM_JOB_PARTITION:-}" in
         ;;
 esac
 
+# Load the user's settings: Nextflow, Java, and the cache folders in /proj. Two of them are required.
 # shellcheck source=/dev/null
 source "$CPNF_ENV"
 for name in NXF_HOME NXF_APPTAINER_CACHEDIR; do
@@ -31,12 +38,16 @@ for name in NXF_HOME NXF_APPTAINER_CACHEDIR; do
         exit 2
     fi
 done
+
+# Memory of the Nextflow program itself (Java), and a plain log without screen colors.
 export NXF_OPTS="${NXF_OPTS:--Xms1g -Xmx4g}"
 export NXF_ANSI_LOG=false
 
 # The run folder holds .nextflow/, the cache that -resume needs. Always start from the same folder.
 cd "$CPNF_RUN_DIR"
 mkdir -p pipeline_info
+
+# Write the job, the node and the tool versions into the log, for later questions.
 echo "Head job ${SLURM_JOB_ID:-?} on $(hostname): account ${SLURM_JOB_ACCOUNT:-?}, partition $SLURM_JOB_PARTITION"
 nextflow -version
 apptainer --version

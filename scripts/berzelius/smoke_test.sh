@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # First test of cp-headless on Berzelius. Run it in an interactive job on a CPU node, not on a login node:
 #   interactive -A <account> -p berzelius-cpu -n 1 -c 4 -t 01:00:00
 #   bash scripts/berzelius/smoke_test.sh /proj/<project>/users/$USER/cp-headless.env /proj/<project>/users/$USER/cp-smoke
@@ -7,6 +8,7 @@
 # on this node. It ends with the object counts that the test data must give.
 set -euo pipefail
 
+# Two arguments: the settings file and a new test folder in /proj.
 usage() { echo "Usage: $0 ENV_FILE TEST_DIR   (TEST_DIR: a new folder in /proj)" >&2; }
 [[ $# -eq 2 ]] || {
     usage
@@ -16,6 +18,8 @@ env_file="$1"
 test_dir="$2"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+# Only inside a Slurm job (SLURM_JOB_ID is set), and only on a CPU partition. Login nodes are not
+# for computing, and GPU nodes would charge GPU hours.
 if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     echo "ERROR: run this inside an interactive job on a CPU node, not on a login node:" >&2
     echo "  interactive -A <account> -p berzelius-cpu -n 1 -c 4 -t 01:00:00" >&2
@@ -29,6 +33,7 @@ case "${SLURM_JOB_PARTITION:-}" in
         ;;
 esac
 
+# Load Nextflow, Java and the cache folders from the settings file.
 # shellcheck source=/dev/null
 source "$env_file"
 : "${NXF_APPTAINER_CACHEDIR:?$env_file must set NXF_APPTAINER_CACHEDIR}"
@@ -41,6 +46,7 @@ process.executor = 'local'
 process.scratch = false
 EOF
 
+# Run the berzelius profile with the test data. The account and partition come from this job.
 nextflow -version
 apptainer --version
 nextflow run "$repo" -c local.config -profile berzelius,test -ansi-log false \
@@ -48,6 +54,8 @@ nextflow run "$repo" -c local.config -profile berzelius,test -ansi-log false \
     --slurm_account "${SLURM_JOB_ACCOUNT:?}" --slurm_partition "$SLURM_JOB_PARTITION" \
     --container_cache "$NXF_APPTAINER_CACHEDIR"
 
+# Compare the result with the reference: 6 image sets and 51 nuclei (one table row each, minus the
+# header row). Other numbers mean that CellProfiler behaves differently here than in the tests.
 features="$test_dir/results/features"
 image_sets=$(($(wc -l <"$features/MyExpt_Image.csv") - 1))
 nuclei=$(($(wc -l <"$features/MyExpt_Nuclei.csv") - 1))

@@ -1,3 +1,10 @@
+"""Tests of the helper scripts in bin/ (patch, check and merge steps), without CellProfiler.
+
+Each test writes small CSV files that look like CellProfiler output into a temporary folder, runs one
+helper script as a separate program, and checks its output and its exit code. Exit code 0 means
+"passed", and any other exit code means that the helper found a problem and would stop the job.
+"""
+
 import csv
 import json
 import os
@@ -7,12 +14,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = ROOT / "bin"
+
 # The helpers run inside the CellProfiler container (Python 3.8 for CellProfiler 4.2.8).
 # scripts/test-helpers-py38.sh sets this to run every helper test on that interpreter too.
 HELPER_PYTHON = os.environ.get("CPNF_HELPER_PYTHON") or sys.executable
 
 
 def run_helper(name, *args, check=True):
+    """Run a script from bin/ as a separate program, with HELPER_PYTHON.
+
+    Parameters
+    ----------
+    name : str
+        File name of the script, for example "check_chunk.py".
+    *args : object
+        The command-line arguments. Each one is converted to text.
+    check : bool, optional
+        If True (the default), a script that fails makes the test fail.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The finished script, with its exit code, stdout and stderr.
+    """
     return subprocess.run(
         [HELPER_PYTHON, str(BIN / name), *map(str, args)],
         check=check,
@@ -22,17 +46,31 @@ def run_helper(name, *args, check=True):
 
 
 def write_csv(path, rows):
+    """Write rows to a CSV file.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The file to write.
+    rows : list of list
+        The rows. The first row is the header.
+    """
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerows(rows)
 
 
 def test_dockerfile_runs_the_workflow_without_nested_docker():
+    """Check that the all-in-one image runs the workflow with the local profile.
+
+    Thus the image never needs the Docker socket of the host.
+    """
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "FROM cellprofiler/cellprofiler:${CELLPROFILER_VERSION}" in dockerfile
     assert "JAVA_CMD=/opt/nextflow-java/bin/java" in dockerfile
     assert 'ENTRYPOINT ["cp-headless"]' in dockerfile
     assert "/var/run/docker.sock" not in dockerfile
+
     # nextflow.config includes conf/*.config: the image fails to parse its config without them.
     assert "COPY conf/ ./conf/" in dockerfile
 
@@ -41,6 +79,10 @@ def test_dockerfile_runs_the_workflow_without_nested_docker():
 
 
 def test_push_ci_runs_pre_commit_and_only_commits_tracked_fixes():
+    """Check that the CI bot commits only corrections to tracked files.
+
+    The CI job must also fail when a check cannot be corrected.
+    """
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "uv run pre-commit run --all-files" in workflow
     assert "git add --update" in workflow
@@ -50,6 +92,15 @@ def test_push_ci_runs_pre_commit_and_only_commits_tracked_fixes():
 
 
 def test_nextflow_stub_removes_its_generated_files(tmp_path):
+    """Check that scripts/test-nextflow.sh leaves no files behind.
+
+    A fake nextflow program records its options and makes some files.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     bin_dir = tmp_path / "bin"
     temp_dir = tmp_path / "tmp"
     bin_dir.mkdir()
@@ -92,6 +143,15 @@ touch "$run_dir/generated-file"
 
 
 def test_merge_features_adds_stable_global_image_numbers(tmp_path):
+    """Check that the merge numbers the image sets of all chunks 1, 2, 3.
+
+    ImageNumber starts at 1 again in each chunk, so the merge adds CPNF_GlobalImageNumber.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     first = tmp_path / "features_chunk_0001"
     second = tmp_path / "features_chunk_0002"
     output = tmp_path / "merged"
@@ -122,6 +182,13 @@ def test_merge_features_adds_stable_global_image_numbers(tmp_path):
 
 
 def test_check_chunk_copies_tables_and_writes_qc(tmp_path):
+    """Check a good chunk without masks: tables copied, empty mask list, no errors.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     output = tmp_path / "chunk"
     features = tmp_path / "features"
     output.mkdir()
@@ -161,6 +228,15 @@ def test_check_chunk_copies_tables_and_writes_qc(tmp_path):
 
 
 def test_check_chunk_builds_mask_manifest_with_channel_paths(tmp_path):
+    """Check that the mask list connects each mask to its image set.
+
+    The input paths in the list are relative to input_dir.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     output = tmp_path / "chunk"
     input_dir = tmp_path / "input"
     features = tmp_path / "features"
@@ -239,6 +315,15 @@ def test_check_chunk_builds_mask_manifest_with_channel_paths(tmp_path):
 
 
 def test_merge_features_rejects_mask_path_collisions(tmp_path):
+    """Check that the merge stops when two chunks have the same mask path.
+
+    Otherwise one mask would overwrite the other when the results are published.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     first = tmp_path / "features_chunk_0001"
     second = tmp_path / "features_chunk_0002"
     output = tmp_path / "merged"
@@ -262,6 +347,15 @@ def test_merge_features_rejects_mask_path_collisions(tmp_path):
 
 
 def test_check_chunk_rejects_two_image_sets_mapping_to_one_mask(tmp_path):
+    """Check that two image sets with the same mask file stop the chunk.
+
+    Otherwise one of the two masks would be lost.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     output = tmp_path / "chunk"
     input_dir = tmp_path / "input"
     features = tmp_path / "features"
@@ -317,6 +411,15 @@ def test_check_chunk_rejects_two_image_sets_mapping_to_one_mask(tmp_path):
 
 
 def test_merge_features_unions_columns_in_first_seen_order(tmp_path):
+    """Check that the merged table has all columns of all chunks.
+
+    The columns keep their first order, and missing values stay empty.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     first = tmp_path / "features_chunk_0001"
     second = tmp_path / "features_chunk_0002"
     first.mkdir()
@@ -334,6 +437,22 @@ def test_merge_features_unions_columns_in_first_seen_order(tmp_path):
 
 
 def run_check_chunk_on_image_table(tmp_path, rows, *extra):
+    """Run check_chunk.py on a chunk that has only the given image table (no masks).
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder for the chunk, the log, the report and the outputs.
+    rows : list of list
+        The rows of the image table. The first row is the header.
+    *extra : str
+        More options for check_chunk.py, for example "--required-metadata", "Plate".
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The finished script. A failing script does not raise.
+    """
     output = tmp_path / "chunk"
     output.mkdir()
     write_csv(output / "Image.csv", rows)
@@ -364,12 +483,26 @@ def run_check_chunk_on_image_table(tmp_path, rows, *extra):
 
 
 def test_check_chunk_accepts_complete_required_metadata(tmp_path):
+    """Check that --required-metadata accepts names with and without the Metadata_ prefix.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     rows = [["ImageNumber", "Metadata_Plate", "Metadata_Well"], [1, "P1", "A01"], [2, "P1", "A02"]]
     result = run_check_chunk_on_image_table(tmp_path, rows, "--required-metadata", "Plate,Metadata_Well")
     assert result.returncode == 0, result.stderr
 
 
 def test_check_chunk_rejects_missing_required_metadata_column(tmp_path):
+    """Check that a required metadata column that the pipeline does not make stops the chunk.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     rows = [["ImageNumber", "Metadata_Plate"], [1, "P1"]]
     result = run_check_chunk_on_image_table(tmp_path, rows, "--required-metadata", "Plate,Well")
     assert result.returncode == 1
@@ -377,6 +510,13 @@ def test_check_chunk_rejects_missing_required_metadata_column(tmp_path):
 
 
 def test_check_chunk_rejects_empty_required_metadata(tmp_path):
+    """Check that an image set with an empty required metadata value stops the chunk.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     rows = [["ImageNumber", "Metadata_Plate", "Metadata_Well"], [1, "P1", "A01"], [2, "P1", ""]]
     result = run_check_chunk_on_image_table(tmp_path, rows, "--required-metadata", "Plate,Well")
     assert result.returncode == 1
@@ -384,6 +524,15 @@ def test_check_chunk_rejects_empty_required_metadata(tmp_path):
 
 
 def test_merge_features_rejects_same_site_in_two_chunks(tmp_path):
+    """Check that the same plate, well and site in two chunks stops the merge.
+
+    Such a site was processed twice. Without --unique-metadata, the merge does not check it.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     first = tmp_path / "features_chunk_0001"
     second = tmp_path / "features_chunk_0002"
     first.mkdir()
@@ -410,6 +559,20 @@ def test_merge_features_rejects_same_site_in_two_chunks(tmp_path):
 
 
 def run_check_chunk_on_outdir(tmp_path, output):
+    """Run check_chunk.py on a prepared CellProfiler output folder (no masks).
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder for the log, the report and the outputs.
+    output : pathlib.Path
+        The CellProfiler output folder with the CSV tables.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        The finished script. A failing script does not raise.
+    """
     log = tmp_path / "log.txt"
     log.write_text("done\n", encoding="utf-8")
     report = tmp_path / "patch_report.json"
@@ -424,6 +587,15 @@ def run_check_chunk_on_outdir(tmp_path, output):
 
 
 def test_check_chunk_accepts_counts_that_match_object_tables(tmp_path):
+    """Check that counts that agree with the object table pass.
+
+    The image set without nuclei must be reported as a warning.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     output = tmp_path / "chunk"
     output.mkdir()
     write_csv(output / "Exp_Nuclei.csv", [["ImageNumber", "ObjectNumber"], [1, 1], [1, 2], [2, 1]])
@@ -439,6 +611,15 @@ def test_check_chunk_accepts_counts_that_match_object_tables(tmp_path):
 
 
 def test_check_chunk_rejects_counts_that_disagree_with_object_table(tmp_path):
+    """Check that a count that disagrees with the object table stops the chunk.
+
+    Count_Nuclei says 2 objects, but the Nuclei table has 1 row: the export is incomplete.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
     output = tmp_path / "chunk"
     output.mkdir()
     write_csv(output / "Exp_Nuclei.csv", [["ImageNumber", "ObjectNumber"], [1, 1]])

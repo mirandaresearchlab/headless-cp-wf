@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# Stub test: run the workflow on the test data with -stub-run. The jobs make small fake files instead
+# of running CellProfiler, so the test checks in a few seconds that the steps of main.nf connect.
+# It finds Nextflow and a supported Java itself, and removes all its files at the end.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,6 +18,8 @@ if ! command -v nextflow >/dev/null 2>&1; then
 fi
 
 # Nextflow supports Java 17 through 26. Keep the selected JVM if it is supported, else find one.
+# java_major: the major version of a java program ('openjdk version "21.0.4"' -> 21).
+# supported: true if that version is 17 to 26.
 java_major() {
     "$1" -version 2>&1 | sed -nE '1s/.*version "(1\.)?([0-9]+).*/\2/p'
 }
@@ -22,8 +28,13 @@ supported() {
     major="$(java_major "$1" 2>/dev/null || true)"
     [[ -n "$major" && "$major" -ge 17 && "$major" -le 26 ]]
 }
+
+# The Java that Nextflow would use: JAVA_CMD, else JAVA_HOME, else the java on PATH.
 current_java="${JAVA_CMD:-${JAVA_HOME:+$JAVA_HOME/bin/java}}"
 current_java="${current_java:-$(command -v java || true)}"
+
+# If it is not supported, look for an installed JDK: first the macOS list of JDKs, then the Homebrew
+# folders, then the Linux folder /usr/lib/jvm. Java 21 and 17 come first, because Nextflow tests them most.
 if [[ -z "$current_java" ]] || ! supported "$current_java"; then
     candidates=()
     for major in 21 17 25 24 23 22 26 20 19 18; do
@@ -46,12 +57,15 @@ if [[ -z "$current_java" ]] || ! supported "$current_java"; then
             "and no supported JDK was found. Install one, for example: brew install openjdk@21" >&2
         exit 1
     fi
+
+    # Use the JDK that was found. JAVA_CMD would take priority over JAVA_HOME, so remove it.
     export JAVA_HOME="$found"
     unset JAVA_CMD
     export PATH="$JAVA_HOME/bin:$PATH"
     echo "Using Java $(java_major "$JAVA_HOME/bin/java") from $JAVA_HOME"
 fi
 
+# A new temporary folder for this test, and its removal when the script ends.
 stub_test_dir="$(mktemp -d "${TMPDIR:-/tmp}/cp-headless-stub.XXXXXX")"
 cleanup() {
     rm -rf -- "$stub_test_dir"
