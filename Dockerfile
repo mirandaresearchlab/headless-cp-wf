@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG CELLPROFILER_VERSION=4.2.8
+ARG CELLPROFILER_DIGEST=sha256:fec440caa2b44edf80f9bd440a3d8c6b214d72437332ad2586a32d79e2eae2a4
 ARG NEXTFLOW_VERSION=26.04.6
 
 FROM eclipse-temurin:21-jre-jammy AS java-runtime
@@ -12,10 +13,10 @@ RUN apk add --no-cache curl \
     && curl --fail --location --silent --show-error \
         "https://github.com/nextflow-io/nextflow/releases/download/v${NEXTFLOW_VERSION}/nextflow-${NEXTFLOW_VERSION}-dist" \
         --output /nextflow \
-    && echo "${NEXTFLOW_SHA256}  /nextflow" | sha256sum --check \
+    && echo "${NEXTFLOW_SHA256}  /nextflow" | sha256sum -c - \
     && chmod 0755 /nextflow
 
-FROM cellprofiler/cellprofiler:${CELLPROFILER_VERSION}
+FROM cellprofiler/cellprofiler:${CELLPROFILER_VERSION}@${CELLPROFILER_DIGEST}
 
 ARG CELLPROFILER_VERSION
 ARG NEXTFLOW_VERSION
@@ -34,11 +35,14 @@ ENV JAVA_CMD=/opt/nextflow-java/bin/java \
 
 WORKDIR /opt/cp-headless
 COPY main.nf nextflow.config README.md ./
+COPY conf/ ./conf/
 COPY --chmod=0755 bin/ ./bin/
 COPY tests/ ./tests/
 COPY --chmod=0755 scripts/docker-entrypoint.sh /usr/local/bin/cp-headless
 
-RUN NXF_HOME=/tmp/nextflow-build nextflow -version \
+# Any --user must read the workflow, whatever file modes the build checkout had.
+RUN chmod -R a+rX /opt/cp-headless \
+    && NXF_HOME=/tmp/nextflow-build nextflow -version \
     && cellprofiler --version
 
 # User data and Nextflow's work directory should be mounted under /workspace.

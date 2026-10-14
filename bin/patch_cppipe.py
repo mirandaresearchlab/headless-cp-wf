@@ -58,6 +58,11 @@ def parse_args():
     p.add_argument("--no-masks", action="store_true", help="do not inject mask saving")
     p.add_argument("--plugins-dir", default=None)
     p.add_argument(
+        "--chunked",
+        action="store_true",
+        help="the workflow splits image sets into chunks: fail on modules that need all image sets",
+    )
+    p.add_argument(
         "--allow-unpatched",
         action="store_true",
         help="if patching fails, fall back to the original pipeline instead of failing",
@@ -163,6 +168,43 @@ def provider_names(pipeline, group):
         if nums:
             out[name] = (min(nums), {m.module_name for m, _ in provs})
     return out
+
+
+def setting_value(module, attribute):
+    setting = getattr(module, attribute, None)
+    return str(getattr(setting, "value", ""))
+
+
+def chunk_unsafe_modules(pipeline):
+    """Return enabled modules whose results depend on image sets outside one chunk.
+
+    Each chunk is a separate CellProfiler run, so these modules would silently compute
+    per-chunk results (for example one illumination function per chunk, not per plate).
+    """
+    found = []
+    for module in pipeline.modules():
+        if not is_enabled(module):
+            continue
+        name = module.module_name
+        reason = None
+        if name == "LoadData":
+            reason = "reads its own CSV, so every chunk would process all image sets in it"
+        elif name == "Groups" and module.wants_groups.value:
+            reason = "groups image sets, and chunks can split a group"
+        elif name == "CorrectIlluminationCalculate":
+            mode = setting_value(module, "each_or_all")
+            if mode.startswith("All"):
+                reason = (
+                    f"calculates one illumination function from all images ({mode!r}), "
+                    "but each chunk would calculate its own"
+                )
+        elif name in ("TrackObjects", "MakeProjection", "CalculateStatistics"):
+            reason = "combines measurements or images from several image sets"
+        elif name == "Tile" and "across" in setting_value(module, "tile_method").lower():
+            reason = "tiles images across image sets"
+        if reason:
+            found.append(f"#{module.module_num} {name}: {reason}")
+    return found
 
 
 # --------------------------------------------------------------------------- patch steps
@@ -381,6 +423,17 @@ def main():
         pipeline = load_pipeline(Pipeline, args.input)
     except LoadFailure as exc:
         fatal(str(exc))
+
+    # Checked before patching and never skipped by --allow-unpatched: chunking these
+    # pipelines gives wrong results without any error.
+    report["chunk_unsafe_modules"] = chunk_unsafe_modules(pipeline)
+    if args.chunked and report["chunk_unsafe_modules"]:
+        fatal(
+            "This pipeline must process all image sets in one CellProfiler run, but --chunk_size > 0 "
+            "splits them into chunks:\n  - "
+            + "\n  - ".join(report["chunk_unsafe_modules"])
+            + "\nRun with --chunk_size 0."
+        )
 
     try:
         patch(pipeline, instantiate_module, args, report)

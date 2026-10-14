@@ -19,12 +19,21 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+# Workflow tests start Nextflow and take about a minute: run them with `pytest -m workflow`.
+addopts = "-ra -m 'not workflow and not cellprofiler'"
 testpaths = ["tests"]
+markers = [
+    "workflow: runs main.nf with -stub-run (needs Nextflow and Java)",
+    "cellprofiler: runs real CellProfiler in Docker (needs Docker)",
+]
 
 [tool.ruff]
 line-length = 110
 target-version = "py311"
+
+[tool.ruff.per-file-target-version]
+# bin/ runs inside the CellProfiler 4.2.8 container (Python 3.8).
+"bin/*.py" = "py38"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

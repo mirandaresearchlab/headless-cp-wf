@@ -17,6 +17,7 @@ from pathlib import PurePosixPath
 
 RUNTIME_MARKERS = ("run_module", "run_with_yield", "run_image_set", "post_run", "prepare_run")
 MASK_EXT = {".tif", ".tiff", ".png", ".npy"}
+TASK_PATH_METADATA = {"Metadata_FileLocation"}
 
 
 def set_field_limit():
@@ -51,6 +52,11 @@ def classify(header):
     return "other"
 
 
+def strip_prefix(value, prefix):
+    """str.removeprefix for Python 3.8, which the CellProfiler 4.2.8 container ships."""
+    return value[len(prefix) :] if value.startswith(prefix) else value
+
+
 def safe_relative(path):
     """Return a normalized relative POSIX path, rejecting traversal and absolute paths."""
     normalized = str(path).replace("\\", "/").strip()
@@ -59,7 +65,7 @@ def safe_relative(path):
     value = PurePosixPath(normalized)
     if value.is_absolute() or ".." in value.parts:
         raise ValueError(f"unsafe path outside the input/output root: {path!r}")
-    return value.as_posix().removeprefix("./")
+    return strip_prefix(value.as_posix(), "./")
 
 
 def relative_channel_dir(path_name, input_dir):
@@ -119,10 +125,15 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
         image_rows = list(reader)
 
     file_columns = [column for column in source_columns if column.startswith("FileName_")]
-    metadata_columns = [column for column in source_columns if column.startswith("Metadata_")]
+    # Metadata_FileLocation is a file: URL inside the task work directory: not portable.
+    metadata_columns = [
+        column
+        for column in source_columns
+        if column.startswith("Metadata_") and column not in TASK_PATH_METADATA
+    ]
     channel_columns = []
     for file_column in file_columns:
-        channel = file_column.removeprefix("FileName_")
+        channel = strip_prefix(file_column, "FileName_")
         channel_columns.extend([file_column, f"PathName_{channel}", f"InputPath_{channel}"])
     output_columns = ["ImageNumber", *metadata_columns, *channel_columns, "MaskObject", "MaskPath"]
 
@@ -144,7 +155,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
         channel_values = {}
         invalid_channel = False
         for file_column in file_columns:
-            channel = file_column.removeprefix("FileName_")
+            channel = strip_prefix(file_column, "FileName_")
             path_column = f"PathName_{channel}"
             filename = image_row.get(file_column, "")
             try:
@@ -210,7 +221,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
                 }
             )
 
-    unused_masks = sorted(set(actual_masks) - {path.removeprefix("masks/") for path in used_paths})
+    unused_masks = sorted(set(actual_masks) - {strip_prefix(path, "masks/") for path in used_paths})
     if unused_masks:
         warnings.append(
             f"Found {len(unused_masks)} mask-like file(s) not mapped by the injected mask writers; "
@@ -222,6 +233,80 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
         writer.writeheader()
         writer.writerows(manifest_rows)
     return len(manifest_rows), len(actual_masks)
+
+
+def check_object_counts(features_dir, image_name, tables, errors, warnings):
+    """Count_<Object> in the per-image table must equal the rows of <prefix><Object>.csv.
+
+    ExportToSpreadsheet names tables <prefix>Image.csv and <prefix><Object>.csv, so the
+    prefix comes from the image table name. Objects without their own table are skipped.
+    Returns {object: number of image sets with zero objects}.
+    """
+    prefix = image_name[: -len("Image.csv")] if image_name.endswith("Image.csv") else None
+    if prefix is None:
+        return {}
+    with open(
+        os.path.join(features_dir, image_name), newline="", encoding="utf-8", errors="surrogateescape"
+    ) as fh:
+        rows = list(csv.DictReader(fh))
+    empty_images = {}
+    for column in rows[0].keys() if rows else []:
+        if not column.startswith("Count_"):
+            continue
+        object_name = strip_prefix(column, "Count_")
+        table = f"{prefix}{object_name}.csv"
+        try:
+            counts = [int(float(row[column])) for row in rows]
+        except (TypeError, ValueError):
+            errors.append(f"{image_name}: column {column} has non-numeric values.")
+            continue
+        empty_images[object_name] = sum(1 for count in counts if count == 0)
+        if table in tables and tables[table]["kind"] == "object" and tables[table]["rows"] != sum(counts):
+            errors.append(
+                f"{image_name} counts {sum(counts)} {object_name} objects but {table} has "
+                f"{tables[table]['rows']} rows: the export is incomplete or inconsistent."
+            )
+    for object_name, empty in empty_images.items():
+        if empty:
+            warnings.append(
+                f"{empty} of {len(rows)} image set(s) have no {object_name} objects "
+                "(empty field, out of focus, or a segmentation failure?)."
+            )
+    return empty_images
+
+
+def metadata_columns_from(spec):
+    """'Plate,Well,Metadata_Site' -> ['Metadata_Plate', 'Metadata_Well', 'Metadata_Site']."""
+    names = [name.strip() for name in (spec or "").split(",") if name.strip()]
+    return [name if name.startswith("Metadata_") else f"Metadata_{name}" for name in names]
+
+
+def check_required_metadata(path, columns, errors):
+    """Every image row needs a non-empty, unique value for each required metadata column."""
+    with open(path, newline="", encoding="utf-8", errors="surrogateescape") as handle:
+        reader = csv.DictReader(handle)
+        missing = [column for column in columns if column not in (reader.fieldnames or [])]
+        if missing:
+            errors.append(
+                f"{os.path.basename(path)} has no column(s) {missing} required by --required_metadata. "
+                "Extract them with the Metadata module of your pipeline."
+            )
+            return
+        empty, seen, duplicates = [], set(), []
+        for row in reader:
+            key = tuple(row[column] for column in columns)
+            if any(value.strip() == "" for value in key):
+                empty.append(row.get("ImageNumber", "?"))
+            elif key in seen:
+                duplicates.append(key)
+            seen.add(key)
+    if empty:
+        errors.append(
+            f"{len(empty)} image set(s) in {os.path.basename(path)} have empty {columns}, "
+            f"e.g. ImageNumber {empty[:3]}. Check the Metadata regular expression."
+        )
+    if duplicates:
+        errors.append(f"{len(duplicates)} duplicate {columns} key(s) in one chunk, e.g. {duplicates[:3]}.")
 
 
 def main():
@@ -237,6 +322,9 @@ def main():
     parser.add_argument("--manifest", required=True, help="per-chunk mask manifest CSV to write")
     parser.add_argument("--qc", required=True, help="QC JSON to write")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument(
+        "--required-metadata", default="", help="comma-separated metadata names, e.g. Plate,Well,Site"
+    )
     args = parser.parse_args()
     set_field_limit()
 
@@ -275,11 +363,21 @@ def main():
             "Check the Images/NamesAndTypes filters against your file names."
         )
 
+    images_without_objects = {}
+    for name in image_tables:
+        images_without_objects.update(check_object_counts(args.features_dir, name, tables, errors, warnings))
+
+    required = metadata_columns_from(args.required_metadata)
+    if required:
+        for name in image_tables:
+            check_required_metadata(os.path.join(args.features_dir, name), required, errors)
+
     if args.expected_sets > 0 and image_sets and image_sets != args.expected_sets:
         message = (
-            f"CellProfiler processed {image_sets} image sets but --group_regex predicted "
-            f"{args.expected_sets}. The regex may not match how NamesAndTypes builds image sets, "
-            "so channels of one site could have been split across chunks."
+            f"CellProfiler processed {image_sets} image sets but the workflow predicted "
+            f"{args.expected_sets} (from --group_regex, or one per file without it). --group_regex may "
+            "not match how NamesAndTypes builds image sets, so channels of one site could have been "
+            "split across chunks. Set --strict_image_count false only after you checked the image sets."
         )
         (errors if args.strict else warnings).append(message)
 
@@ -331,6 +429,7 @@ def main():
         "mask_files": mask_count,
         "expected_mask_files": expected_masks,
         "mask_manifest_rows": manifest_rows,
+        "images_without_objects": images_without_objects,
         "tables": tables,
         "warnings": warnings,
         "errors": errors,

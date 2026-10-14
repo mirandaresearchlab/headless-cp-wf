@@ -81,6 +81,11 @@ def main():
     ap.add_argument("chunk_dirs", nargs="+", help="features_<chunk> directories")
     ap.add_argument("--outdir", default=".")
     ap.add_argument("--gzip", action="store_true")
+    ap.add_argument(
+        "--unique-metadata",
+        default="",
+        help="comma-separated metadata names (e.g. Plate,Well,Site) that must identify one image set",
+    )
     args = ap.parse_args()
     set_field_limit()
     os.makedirs(args.outdir, exist_ok=True)
@@ -110,10 +115,20 @@ def main():
 
     summary = {"chunks": len(chunks), "total_image_sets": running, "tables": {}}
     seen_mask_paths = {}
+    unique_columns = [
+        name if name.startswith("Metadata_") else f"Metadata_{name}"
+        for name in (n.strip() for n in args.unique_metadata.split(","))
+        if name
+    ]
     for name, files in sorted(tables.items()):
-        columns = []
+        # Union of columns in first-seen order. A set keeps this linear: tables can have
+        # thousands of features and runs thousands of chunks.
+        columns, known = [], set()
         for key in files:
-            columns += [c for c in headers[key] if c not in columns]
+            for column in headers[key]:
+                if column not in known:
+                    known.add(column)
+                    columns.append(column)
         has_img = "ImageNumber" in columns
         out_cols = ["CPNF_Chunk"] + (["CPNF_GlobalImageNumber"] if has_img else []) + columns
         out_name = name + (".gz" if args.gzip else "")
@@ -124,6 +139,11 @@ def main():
             else (lambda p: open(p, "w", newline="", **ENC))
         )
         rows = 0
+        # Per-image tables: the same metadata key in two chunks means one site was processed twice
+        # (overlapping inputs, re-imaged plates). Joins on these keys downstream would then be wrong.
+        is_image_table = has_img and "ObjectNumber" not in columns
+        check_keys = bool(unique_columns) and is_image_table and set(unique_columns) <= set(columns)
+        seen_keys = {}
         with opener(out_path) as out:
             writer = csv.DictWriter(out, fieldnames=out_cols, restval="", extrasaction="ignore")
             writer.writeheader()
@@ -132,6 +152,15 @@ def main():
                     for row in csv.DictReader(fh):
                         if name == "mask_manifest.csv":
                             validate_manifest_row(row, chunk, seen_mask_paths)
+                        if check_keys:
+                            key = tuple(row.get(column, "") for column in unique_columns)
+                            if key in seen_keys:
+                                image_set = dict(zip(unique_columns, key))
+                                sys.exit(
+                                    f"[merge_features] ERROR: {name}: image set {image_set} "
+                                    f"appears in {seen_keys[key]} and in {chunk}."
+                                )
+                            seen_keys[key] = chunk
                         row["CPNF_Chunk"] = chunk
                         if has_img:
                             try:

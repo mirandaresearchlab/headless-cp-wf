@@ -7,11 +7,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = ROOT / "bin"
+# The helpers run inside the CellProfiler container (Python 3.8 for CellProfiler 4.2.8).
+# scripts/test-helpers-py38.sh sets this to run every helper test on that interpreter too.
+HELPER_PYTHON = os.environ.get("CPNF_HELPER_PYTHON") or sys.executable
 
 
 def run_helper(name, *args, check=True):
     return subprocess.run(
-        [sys.executable, str(BIN / name), *map(str, args)],
+        [HELPER_PYTHON, str(BIN / name), *map(str, args)],
         check=check,
         capture_output=True,
         text=True,
@@ -30,6 +33,8 @@ def test_dockerfile_runs_the_workflow_without_nested_docker():
     assert "JAVA_CMD=/opt/nextflow-java/bin/java" in dockerfile
     assert 'ENTRYPOINT ["cp-headless"]' in dockerfile
     assert "/var/run/docker.sock" not in dockerfile
+    # nextflow.config includes conf/*.config: the image fails to parse its config without them.
+    assert "COPY conf/ ./conf/" in dockerfile
 
     entrypoint = (ROOT / "scripts" / "docker-entrypoint.sh").read_text(encoding="utf-8")
     assert 'nextflow run /opt/cp-headless -profile local "$@"' in entrypoint
@@ -309,3 +314,137 @@ def test_check_chunk_rejects_two_image_sets_mapping_to_one_mask(tmp_path):
 
     assert result.returncode != 0
     assert "Mask path collision" in result.stderr
+
+
+def test_merge_features_unions_columns_in_first_seen_order(tmp_path):
+    first = tmp_path / "features_chunk_0001"
+    second = tmp_path / "features_chunk_0002"
+    first.mkdir()
+    second.mkdir()
+    write_csv(first / "Image.csv", [["ImageNumber", "A", "B"], [1, "a1", "b1"]])
+    write_csv(second / "Image.csv", [["ImageNumber", "C", "A"], [1, "c2", "a2"]])
+
+    run_helper("merge_features.py", "--outdir", tmp_path / "merged", first, second)
+
+    with (tmp_path / "merged" / "Image.csv").open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    assert reader.fieldnames == ["CPNF_Chunk", "CPNF_GlobalImageNumber", "ImageNumber", "A", "B", "C"]
+    assert [(row["A"], row["B"], row["C"]) for row in rows] == [("a1", "b1", ""), ("a2", "", "c2")]
+
+
+def run_check_chunk_on_image_table(tmp_path, rows, *extra):
+    output = tmp_path / "chunk"
+    output.mkdir()
+    write_csv(output / "Image.csv", rows)
+    log = tmp_path / "cellprofiler.log"
+    log.write_text("done\n", encoding="utf-8")
+    patch_report = tmp_path / "patch_report.json"
+    patch_report.write_text('{"masks_managed": []}\n', encoding="utf-8")
+    features = tmp_path / "features"
+    return run_helper(
+        "check_chunk.py",
+        "--outdir",
+        output,
+        "--log",
+        log,
+        "--patch-report",
+        patch_report,
+        "--input-dir",
+        tmp_path / "input",
+        "--features-dir",
+        features,
+        "--manifest",
+        features / "mask_manifest.csv",
+        "--qc",
+        tmp_path / "qc.json",
+        *extra,
+        check=False,
+    )
+
+
+def test_check_chunk_accepts_complete_required_metadata(tmp_path):
+    rows = [["ImageNumber", "Metadata_Plate", "Metadata_Well"], [1, "P1", "A01"], [2, "P1", "A02"]]
+    result = run_check_chunk_on_image_table(tmp_path, rows, "--required-metadata", "Plate,Metadata_Well")
+    assert result.returncode == 0, result.stderr
+
+
+def test_check_chunk_rejects_missing_required_metadata_column(tmp_path):
+    rows = [["ImageNumber", "Metadata_Plate"], [1, "P1"]]
+    result = run_check_chunk_on_image_table(tmp_path, rows, "--required-metadata", "Plate,Well")
+    assert result.returncode == 1
+    assert "['Metadata_Well'] required by --required_metadata" in result.stderr
+
+
+def test_check_chunk_rejects_empty_required_metadata(tmp_path):
+    rows = [["ImageNumber", "Metadata_Plate", "Metadata_Well"], [1, "P1", "A01"], [2, "P1", ""]]
+    result = run_check_chunk_on_image_table(tmp_path, rows, "--required-metadata", "Plate,Well")
+    assert result.returncode == 1
+    assert "1 image set(s) in Image.csv have empty" in result.stderr
+
+
+def test_merge_features_rejects_same_site_in_two_chunks(tmp_path):
+    first = tmp_path / "features_chunk_0001"
+    second = tmp_path / "features_chunk_0002"
+    first.mkdir()
+    second.mkdir()
+    header = ["ImageNumber", "Metadata_Plate", "Metadata_Well", "Metadata_Site"]
+    write_csv(first / "Image.csv", [header, [1, "P1", "A01", "1"]])
+    write_csv(second / "Image.csv", [header, [1, "P1", "A01", "1"]])
+
+    result = run_helper(
+        "merge_features.py",
+        "--outdir",
+        tmp_path / "merged",
+        "--unique-metadata",
+        "Plate,Well,Site",
+        first,
+        second,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "appears in chunk_0001 and in chunk_0002" in result.stderr
+
+    # Without the option the merge keeps its old behaviour.
+    run_helper("merge_features.py", "--outdir", tmp_path / "merged2", first, second)
+
+
+def run_check_chunk_on_outdir(tmp_path, output):
+    log = tmp_path / "log.txt"
+    log.write_text("done\n", encoding="utf-8")
+    report = tmp_path / "patch_report.json"
+    report.write_text('{"masks_managed": []}\n', encoding="utf-8")
+    features = tmp_path / "features"
+    return run_helper(
+        "check_chunk.py",
+        *("--outdir", output, "--log", log, "--patch-report", report, "--input-dir", tmp_path),
+        *("--features-dir", features, "--manifest", features / "m.csv", "--qc", tmp_path / "qc.json"),
+        check=False,
+    )
+
+
+def test_check_chunk_accepts_counts_that_match_object_tables(tmp_path):
+    output = tmp_path / "chunk"
+    output.mkdir()
+    write_csv(output / "Exp_Nuclei.csv", [["ImageNumber", "ObjectNumber"], [1, 1], [1, 2], [2, 1]])
+    rows = [["ImageNumber", "Count_Nuclei"], [1, "2.0"], [2, "1.0"], [3, "0.0"]]
+    write_csv(output / "Exp_Image.csv", rows)
+
+    result = run_check_chunk_on_outdir(tmp_path, output)
+
+    assert result.returncode == 0, result.stderr
+    qc = json.loads((tmp_path / "qc.json").read_text(encoding="utf-8"))
+    assert qc["images_without_objects"] == {"Nuclei": 1}
+    assert "1 of 3 image set(s) have no Nuclei objects" in result.stderr
+
+
+def test_check_chunk_rejects_counts_that_disagree_with_object_table(tmp_path):
+    output = tmp_path / "chunk"
+    output.mkdir()
+    write_csv(output / "Exp_Nuclei.csv", [["ImageNumber", "ObjectNumber"], [1, 1]])
+    write_csv(output / "Exp_Image.csv", [["ImageNumber", "Count_Nuclei"], [1, "2.0"]])
+
+    result = run_check_chunk_on_outdir(tmp_path, output)
+
+    assert result.returncode == 1
+    assert "counts 2 Nuclei objects but Exp_Nuclei.csv has 1 rows" in result.stderr
