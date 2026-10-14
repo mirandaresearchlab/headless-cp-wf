@@ -60,7 +60,7 @@ wrong. It does not continue with an error that nobody sees.
 ```text
  image folder ──► 1. find the images ──► 2. group them into image sets ──► 3. divide them into chunks
                                                                                     │
- .cppipe file ──► 4. prepare the pipeline (once) ─────────────────────────────────►│
+ .cppipe file ──► 4. prepare the pipeline (once) ────────────────────────────────-─►│
                                                                                     ▼
                                     5. run CellProfiler on each chunk, at the same time, and check each result
                                                                                     │
