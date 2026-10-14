@@ -1,6 +1,9 @@
 # Checks that run before each commit (after ./scripts/bootstrap.sh), and on GitHub for each push.
 # Run all of them by hand with: uv run pre-commit run --all-files
 # Each check runs only when a file that matches its "files" pattern changed.
+# The folders of the coding-agent skills hold other people's code. No check of this project covers them.
+exclude: ^(\.claude|\.agent)/
+
 minimum_pre_commit_version: "4.0.0"
 default_install_hook_types: [pre-commit]
 
@@ -30,9 +33,10 @@ repos:
         types: [python]
 
       # Every full-line comment block needs an empty line above it (see the script for the rule).
+      # --fix adds the missing empty lines, so that the CI correction commit can include them.
       - id: comment-spacing
         name: comment spacing
-        entry: uv run python scripts/check-comment-spacing.py
+        entry: uv run python scripts/check-comment-spacing.py --fix
         language: system
         files: \.(nf|config|py|sh|sbatch|ya?ml|toml|example)$|Dockerfile$
 

@@ -46,9 +46,10 @@ jobs:
         with:
           version: "26.04.6"
 
-      # Run the checks up to 3 times. A check that corrects files (for example ruff format) fails
-      # once, and then passes on the corrected files. If the checks pass after corrections, commit
-      # and push the corrections. If a check fails without a correction, stop with its error.
+      # Run the checks up to 3 times. A check that corrects files fails once, and then passes on the
+      # corrected files. These checks correct files: ruff lint (--fix), ruff format and comment spacing
+      # (--fix). If the checks pass after corrections, commit and push the corrections.
+      # If a check fails without a correction, stop with its error.
       - name: Run pre-commit and apply available corrections
         env:
           BRANCH_NAME: ${{ github.ref_name }}
@@ -57,7 +58,7 @@ jobs:
           for attempt in 1 2 3; do
             echo "Pre-commit attempt ${attempt}/3"
             set +e
-            uv run pre-commit run --all-files
+            uv run pre-commit run --all-files --show-diff-on-failure
             status=$?
             set -e
 
@@ -66,7 +67,9 @@ jobs:
             fi
 
             if git diff --quiet; then
-              echo "Pre-commit failed without producing an automatic correction."
+              echo "::error::A pre-commit check failed, and no check could correct it automatically."
+              echo "Read the failed check above, fix it by hand, and push again."
+              echo "To see the same result on your computer, run: uv run pre-commit run --all-files"
               exit "$status"
             fi
           done

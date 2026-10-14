@@ -82,3 +82,40 @@ def test_directives_are_not_comments(tmp_path):
     text = "#!/bin/bash\n#SBATCH -n 1\n#SBATCH -c 2\n\nset -e\n"
     result = check(tmp_path / "d.sbatch", text)
     assert result.returncode == 0, result.stdout
+
+
+def test_fix_adds_the_missing_empty_line_and_the_file_then_passes(tmp_path):
+    """Check that --fix adds the empty line above a comment block, and that the file then passes.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    path = tmp_path / "e.sh"
+    path.write_text("echo one\n# First line.\n# Second line.\necho two\n", encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(CHECKER), "--fix", str(path)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout
+    assert path.read_text(encoding="utf-8") == "echo one\n\n# First line.\n# Second line.\necho two\n"
+
+
+def test_fix_leaves_a_python_comment_at_the_top_of_a_block(tmp_path):
+    """Check that --fix does not touch a comment right after a line with a colon, and still reports it.
+
+    Ruff removes an empty line at the start of a block, so a fix there would start a loop of changes.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    path = tmp_path / "f.py"
+    text = "def f():\n    # Comment at the top.\n    return 1\n"
+    path.write_text(text, encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(CHECKER), "--fix", str(path)], capture_output=True, text=True
+    )
+    assert result.returncode == 1
+    assert path.read_text(encoding="utf-8") == text
