@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Check the settings for a cp-headless run on Berzelius, then submit the head job.
-# Run it on a login node. The guide is docs/berzelius.md, step 7.
+# Run it on a login node. The guide is docs/how-to/run-on-berzelius.md, step 7.
 set -euo pipefail
 
 # The folder of this script, and the repository folder two levels up (the workflow to run).

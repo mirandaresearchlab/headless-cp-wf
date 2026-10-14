@@ -1,0 +1,192 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/mirandaresearchlab/headless-cp-wf/main/nextflow_schema.json",
+    "title": "cp-headless parameters",
+    "description": "Run a CellProfiler pipeline headless on a folder of microscope images, in chunks, and merge the feature tables and masks.",
+    "type": "object",
+    "$defs": {
+        "input_output": {
+            "title": "Input and output",
+            "type": "object",
+            "description": "The CellProfiler pipeline, the image folder, and where the results go.",
+            "required": ["pipeline", "input_dir"],
+            "properties": {
+                "pipeline": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "The CellProfiler pipeline: a .cppipe or .cpproj file.",
+                    "help_text": "Make it in the CellProfiler program. It must come from the CellProfiler version of the container (DateRevision 428 = 4.2.8)."
+                },
+                "input_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "The image folder. The workflow also searches its sub-folders, and skips hidden files."
+                },
+                "outdir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "default": "results",
+                    "description": "The output folder. It must not be inside input_dir."
+                },
+                "publish_mode": {
+                    "type": "string",
+                    "default": "copy",
+                    "enum": ["copy", "symlink", "link"],
+                    "description": "How the results go to outdir.",
+                    "help_text": "copy keeps the results when you remove the work folder. symlink and link use less space, but need the work folder."
+                },
+                "gzip_features": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Write the merged tables as .csv.gz."
+                },
+                "extensions": {
+                    "type": "string",
+                    "default": "tif,tiff,png,jpg,jpeg,bmp,c01,dib,flex,czi,nd2,lif,lsm,oib,oif,ims,zvi",
+                    "description": "The file extensions of the images, separated by commas. Upper case and lower case are the same."
+                }
+            }
+        },
+        "image_sets": {
+            "title": "Image sets and chunks",
+            "type": "object",
+            "description": "How the workflow groups files into image sets (one site, all channels), divides them into chunks, and checks them.",
+            "properties": {
+                "group_regex": {
+                    "type": "string",
+                    "description": "A regular expression that finds the files of one image set.",
+                    "help_text": "The workflow applies it to each file path relative to input_dir. The capture groups make the name of the image set. Example: '^(.+?_s\\d+)_w\\d' for A01_s1_w1.tif and A01_s1_w2.tif."
+                },
+                "chunk_size": {
+                    "type": "integer",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "The number of image sets per CellProfiler job. 0 puts all image sets into one job.",
+                    "help_text": "On a cluster, choose a size that gives jobs of 15 to 60 minutes."
+                },
+                "strict_image_count": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Stop if CellProfiler makes a different number of image sets than the workflow predicted.",
+                    "help_text": "A difference usually means that the channels of a site were split between two chunks. false gives a warning only."
+                },
+                "allow_incomplete_sets": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Continue with a warning when a file does not match group_regex or an image set has a missing channel.",
+                    "help_text": "Each file that does not match then becomes an image set of its own."
+                },
+                "required_metadata": {
+                    "type": "string",
+                    "pattern": "^\\s*\\w+(\\s*,\\s*\\w+)*\\s*$",
+                    "description": "Metadata names that each image set must have, unique, for example Plate,Well,Site.",
+                    "help_text": "Use the names that the Metadata module of your pipeline makes. The workflow stops if a value is missing or empty, or if two image sets have the same values."
+                }
+            }
+        },
+        "cellprofiler": {
+            "title": "Masks and CellProfiler",
+            "type": "object",
+            "description": "The segmentation masks that the workflow adds, and how CellProfiler runs.",
+            "properties": {
+                "save_masks": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Save a mask (16-bit label image) for each object type of the pipeline."
+                },
+                "mask_objects": {
+                    "type": "string",
+                    "description": "Save masks only for these objects, separated by commas, for example Nuclei,Cells. Empty = all objects."
+                },
+                "mask_format": {
+                    "type": "string",
+                    "default": "tiff",
+                    "enum": ["tiff", "png", "npy"],
+                    "description": "The file format of the masks. tiff and png are 16-bit images. npy holds the raw label numbers."
+                },
+                "allow_unpatched": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If the preparation of the pipeline fails, run the original pipeline. Masks and tables are then not certain."
+                },
+                "container": {
+                    "type": "string",
+                    "default": "cellprofiler/cellprofiler:4.2.8@sha256:fec440caa2b44edf80f9bd440a3d8c6b214d72437332ad2586a32d79e2eae2a4",
+                    "description": "The CellProfiler container image. Use the CellProfiler version of your pipeline.",
+                    "help_text": "The default is pinned by its digest, so each run uses the same image."
+                },
+                "plugins_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "A folder with CellProfiler plugins."
+                },
+                "cellprofiler_args": {
+                    "type": "string",
+                    "default": "",
+                    "description": "More options for the cellprofiler command, for example '--conserve-memory True'."
+                }
+            }
+        },
+        "resources": {
+            "title": "Computer resources",
+            "type": "object",
+            "description": "The maximum resources of one job. A new try after a memory or time error asks for more, up to these limits.",
+            "properties": {
+                "max_cpus": {
+                    "type": "integer",
+                    "default": 16,
+                    "minimum": 1,
+                    "description": "The maximum number of CPU cores of one job. Set it to the size of your computer or node."
+                },
+                "max_memory": {
+                    "type": "string",
+                    "default": "64.GB",
+                    "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+                    "description": "The maximum memory of one job, for example 32.GB. Set it to the size of your computer or node."
+                },
+                "max_time": {
+                    "type": "string",
+                    "default": "48.h",
+                    "description": "The maximum time of one job, for example 48.h."
+                }
+            }
+        },
+        "cluster": {
+            "title": "Clusters and containers",
+            "type": "object",
+            "description": "Settings for the slurm and berzelius profiles, and for Apptainer or Singularity.",
+            "properties": {
+                "slurm_account": {
+                    "type": "string",
+                    "description": "The Slurm account of each job. Most clusters need one. Required for the berzelius profile."
+                },
+                "slurm_partition": {
+                    "type": "string",
+                    "description": "The Slurm partition. Empty = the default partition of the cluster.",
+                    "help_text": "For the berzelius profile, use berzelius-cpu (Ampere) or berzelius-hopper-cpu (Hopper)."
+                },
+                "slurm_scratch": {
+                    "type": "string",
+                    "description": "A folder on the local disk of the node for each job, for example '$TMPDIR'.",
+                    "help_text": "Set it only if the nodes have a local disk. The berzelius profile uses /scratch/local."
+                },
+                "slurm_cluster_options": {
+                    "type": "string",
+                    "description": "More sbatch options for each job, for example '--qos=normal'."
+                },
+                "container_cache": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "A shared folder for Apptainer or Singularity images. Do not use your home folder."
+                }
+            }
+        }
+    },
+    "allOf": [
+        {"$ref": "#/$defs/input_output"},
+        {"$ref": "#/$defs/image_sets"},
+        {"$ref": "#/$defs/cellprofiler"},
+        {"$ref": "#/$defs/resources"},
+        {"$ref": "#/$defs/cluster"}
+    ]
+}

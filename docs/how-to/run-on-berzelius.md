@@ -6,7 +6,12 @@ the **CPU nodes** of Berzelius. It never uses a GPU node, because your project t
 nothing.
 
 This guide tells you how to run the workflow on Berzelius, step by step. Read the
-[README](../README.md) first for the meaning of the workflow and its terms.
+[home page](../index.md) and the [tutorial](../tutorials/first-run.md) first.
+
+!!! note "Testing status"
+    The tests of the workflow check the Berzelius job scripts with fake `sbatch` and `apptainer` programs.
+    We ran `smoke_test.sh` with Docker in place of Apptainer. Nobody has run the workflow on Berzelius itself
+    yet. Run step 5 (the smoke test) before your first real run.
 
 > **Do not put sensitive data on Berzelius.** Berzelius does not allow sensitive personal data, for example
 > data that the GDPR protects. Ask NAISS support for a different system for such data.
@@ -150,8 +155,8 @@ chunk_size: 150
 required_metadata: Plate,Well,Site
 ```
 
-See the README for [`group_regex`](../README.md#group-the-files-of-one-site-group_regex) and
-[`required_metadata`](../README.md#metadata-for-profiling). See [Choose the chunk size](#choose-the-chunk-size)
+See [Run on your data](../usage.md) for [`group_regex`](../usage.md#group-the-files-of-one-site) and
+[`required_metadata`](../usage.md#metadata-for-profiling). See [Choose the chunk size](#choose-the-chunk-size)
 for `chunk_size`.
 
 ## Step 7. Start the run

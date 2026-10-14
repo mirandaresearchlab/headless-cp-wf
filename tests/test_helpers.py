@@ -1,8 +1,8 @@
 """Tests of the helper scripts in bin/ (patch, check and merge steps), without CellProfiler.
 
-Each test writes small CSV files that look like CellProfiler output into a temporary folder, runs one
-helper script as a separate program, and checks its output and its exit code. Exit code 0 means
-"passed", and any other exit code means that the helper found a problem and would stop the job.
+Each test writes small CSV files that look like CellProfiler output into a temporary folder. Then it runs
+one helper script as a separate program, and checks its output and its exit code. Exit code 0 means
+"passed". Any other exit code means that the helper found a problem and would stop the job.
 """
 
 import csv
@@ -28,7 +28,7 @@ def run_helper(name, *args, check=True):
     name : str
         File name of the script, for example "check_chunk.py".
     *args : object
-        The command-line arguments. Each one is converted to text.
+        The command-line arguments. The function changes each one into text.
     check : bool, optional
         If True (the default), a script that fails makes the test fail.
 
@@ -317,7 +317,7 @@ def test_check_chunk_builds_mask_manifest_with_channel_paths(tmp_path):
 def test_merge_features_rejects_mask_path_collisions(tmp_path):
     """Check that the merge stops when two chunks have the same mask path.
 
-    Otherwise one mask would overwrite the other when the results are published.
+    Otherwise one mask would replace the other when the workflow publishes the results.
 
     Parameters
     ----------
@@ -526,7 +526,7 @@ def test_check_chunk_rejects_empty_required_metadata(tmp_path):
 def test_merge_features_rejects_same_site_in_two_chunks(tmp_path):
     """Check that the same plate, well and site in two chunks stops the merge.
 
-    Such a site was processed twice. Without --unique-metadata, the merge does not check it.
+    The workflow processed such a site twice. Without --unique-metadata, the merge does not check it.
 
     Parameters
     ----------

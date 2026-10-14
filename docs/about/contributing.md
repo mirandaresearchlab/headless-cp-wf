@@ -1,6 +1,6 @@
-# Development guide
+# Contributing
 
-This guide is for people who change the code of cp-headless. Read the [README](../README.md) first.
+This guide is for people who change the code of cp-headless. Read the [home page](../index.md) first.
 
 ## Code layout
 
@@ -8,6 +8,7 @@ This guide is for people who change the code of cp-headless. Read the [README](.
 .
 ├── main.nf                  the Nextflow workflow: processes, checks and the order of the steps
 ├── nextflow.config          parameters, resources, profiles and run reports
+├── nextflow_schema.json     description of each parameter (source of the parameter reference page)
 ├── conf/
 │   ├── slurm.config         settings for -profile slurm
 │   └── berzelius.config     settings for -profile berzelius (loaded after slurm.config)
@@ -16,7 +17,7 @@ This guide is for people who change the code of cp-headless. Read the [README](.
 │   ├── check_chunk.py       checks the result of one CellProfiler job and makes its mask list
 │   └── merge_features.py    merges the tables of all chunks
 ├── scripts/
-│   ├── berzelius/           helper scripts for Berzelius (see docs/berzelius.md)
+│   ├── berzelius/           helper scripts for Berzelius (see the Berzelius guide)
 │   ├── bootstrap.sh         makes the development environment and installs the Git hook
 │   ├── check-comment-spacing.py  checks the comment layout of the code files
 │   ├── docker-entrypoint.sh starts the workflow in the all-in-one Docker image
@@ -29,10 +30,15 @@ This guide is for people who change the code of cp-headless. Read the [README](.
 │   ├── test_workflow.py     tests of main.nf without CellProfiler (grouping, parameters, Slurm, Berzelius)
 │   ├── test_berzelius_scripts.py  tests of scripts/berzelius/
 │   ├── test_comment_spacing.py    tests of the comment layout check
+│   ├── test_schema.py       tests that nextflow_schema.json agrees with nextflow.config
 │   ├── test_cellprofiler.py tests with real CellProfiler in Docker
 │   └── cp_make_pipeline.py  makes test pipelines in the CellProfiler container
+├── docs/                    this documentation site (MkDocs). docs/.hooks/ makes the reference pages.
+├── mkdocs.yml               settings and menu of the documentation site
+├── requirements-docs.txt    the exact versions of the documentation tools
 ├── Dockerfile               the all-in-one image: Nextflow, Java and CellProfiler
 ├── .github/workflows/ci.yml the automatic checks on GitHub
+├── .github/workflows/docs.yml  builds the documentation site and publishes it on GitHub Pages
 ├── pyproject.toml           settings of the Python development tools
 └── uv.lock                  the exact versions of the Python development tools
 ```
@@ -145,6 +151,49 @@ git add --update
 git commit -m "style: apply pre-commit corrections"
 git push
 ```
+
+## Documentation
+
+The documentation site uses [MkDocs](https://www.mkdocs.org/) and the
+[Material](https://squidfunk.github.io/mkdocs-material/) theme. Its pages are in `docs/`, and its menu is in
+`mkdocs.yml`. The pages follow four types:
+
+| Folder | Type | Content |
+| --- | --- | --- |
+| `tutorials/` | Tutorial | One guided run on the test data |
+| `how-to/` | How-to guide | Steps for one task |
+| `reference/` | Reference | Parameters, scripts, file formats: complete, for looking up |
+| `explanation/` | Explanation | How and why the workflow works as it does |
+
+The build makes some reference pages from the code. Do not edit them by hand:
+
+| Page | Made from |
+| --- | --- |
+| `reference/parameters.md` | `nextflow_schema.json` |
+| `reference/cli.md` | the `--help` text of the scripts in `bin/` |
+| `reference/api.md` | the numpy docstrings of the scripts in `bin/` |
+| `about/changelog.md` | `CHANGELOG.md` |
+
+When you add or change a parameter, change `nextflow.config` and `nextflow_schema.json` together.
+`tests/test_schema.py` fails if they disagree. A change to behaviour, a parameter or an output changes the
+documentation in the same commit.
+
+See the site on your computer while you edit it (at http://127.0.0.1:8000):
+
+```bash
+uv run --with-requirements requirements-docs.txt mkdocs serve
+```
+
+Check the site as the automatic check does. `--strict` stops on broken links and missing pages:
+
+```bash
+uv run --with-requirements requirements-docs.txt mkdocs build --strict
+```
+
+**Publishing.** `.github/workflows/docs.yml` builds the site for each pull request. For each push to `main`,
+it also publishes the site on GitHub Pages, at https://mirandaresearchlab.github.io/headless-cp-wf/. Once,
+an owner of the repository must turn this on: **Settings → Pages → Build and deployment → Source:
+GitHub Actions**.
 
 ## Update the CellProfiler version
 

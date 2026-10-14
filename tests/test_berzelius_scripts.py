@@ -2,7 +2,7 @@
 
 These tests need no cluster. Each fake program writes its folder and its arguments to <name>.args, so
 a test can check how a script called it. The tests also check that wrong settings stop the scripts
-before anything is submitted.
+before they submit anything.
 """
 
 import os
@@ -53,7 +53,7 @@ def run(script, *args, env=None, cwd=None):
     script : pathlib.Path
         The script.
     *args : object
-        The arguments of the script. Each one is converted to text.
+        The arguments of the script. The function changes each one into text.
     env : dict, optional
         The environment. The default is the current environment.
     cwd : pathlib.Path, optional

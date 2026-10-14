@@ -86,4 +86,4 @@ done
 
 echo
 echo "Next: copy scripts/berzelius/berzelius.env.example to /proj, fill it in, and run"
-echo "scripts/berzelius/smoke_test.sh in an interactive CPU job (see docs/berzelius.md)."
+echo "scripts/berzelius/smoke_test.sh in an interactive CPU job (see docs/how-to/run-on-berzelius.md)."

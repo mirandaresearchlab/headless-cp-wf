@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
-"""Validate one CellProfiler chunk and build its mask manifest.
+"""Check the result of one CellProfiler job (one chunk), and make its mask list.
 
-The manifest contains one row per image set and mask object, including normalized
-paths for every input channel and the actual mask path under the published results.
-The command fails on missing, ambiguous, unsafe, or colliding mask mappings.
-
-It runs at the end of each CELLPROFILER job (main.nf), inside the CellProfiler container. CellProfiler
-can end with exit code 0 even after errors, so this script is the real test of a job. It does this:
-  1. looks in the CellProfiler log for errors while modules ran,
-  2. copies the CSV tables into features_<chunk>/ and counts their rows,
-  3. checks the image sets: present, the expected number, object counts that agree, required metadata,
-  4. connects each mask file to its image set (mask_manifest.csv),
-  5. writes qc_<chunk>.json, and stops with exit code 1 if any check failed.
+The script runs at the end of each CELLPROFILER job (main.nf), in the CellProfiler container.
+CellProfiler can end with exit code 0 after errors. Thus this script is the real check of a job.
+It does these steps:
+  1. It looks in the CellProfiler log for errors while the modules ran.
+  2. It copies the CSV tables into features_<chunk>/ and counts their rows.
+  3. It checks the image sets: they are present, their number is correct, the object counts agree,
+     and the required metadata is present.
+  4. It connects each mask file to its image set (mask_manifest.csv). Each mask must exist once, and two
+     image sets must not share a mask.
+  5. It writes qc_<chunk>.json, and stops with exit code 1 if a check failed.
 
 Notes
 -----
-It uses only the Python standard library, and it must work on Python 3.8 (the container's Python).
-Exit codes: 0 = all checks passed, 1 = at least one check failed.
+The script uses only the Python standard library. It must work on Python 3.8 (the Python of the
+container). Exit codes: 0 = all checks passed, 1 = at least one check failed.
 """
 
 import argparse
@@ -35,14 +34,14 @@ RUNTIME_MARKERS = ("run_module", "run_with_yield", "run_image_set", "post_run", 
 # The file types that the mask writers can save.
 MASK_EXT = {".tif", ".tiff", ".png", ".npy"}
 
-# Metadata columns that hold a path in the job folder. They are left out of the mask list.
+# Metadata columns that hold a path in the job folder. The mask list does not include them.
 TASK_PATH_METADATA = {"Metadata_FileLocation"}
 
 
 def set_field_limit():
     """Allow very long CSV fields.
 
-    CellProfiler can write long values, and the default limit of the csv module is small.
+    CellProfiler can write long values, but the default limit of the csv module is small.
     """
 
     # Try the largest limit first. Some systems refuse it, so make it 10 times smaller until it works.
@@ -56,7 +55,7 @@ def set_field_limit():
 
 
 def runtime_tracebacks(log_text):
-    """Return traceback blocks that come from running the pipeline, not from imports.
+    """Find the tracebacks that come from the modules of the pipeline, not from imports.
 
     Parameters
     ----------
@@ -66,8 +65,8 @@ def runtime_tracebacks(log_text):
     Returns
     -------
     list of str
-        Each traceback that names a module-run function (see RUNTIME_MARKERS), cut to
-        2,000 characters.
+        Each traceback that names a function that runs modules (see RUNTIME_MARKERS). The function
+        keeps the first 2,000 characters of each traceback.
     """
     blocks = re.split(r"(?=Traceback \(most recent call last\))", log_text)
     return [block[:2000] for block in blocks[1:] if any(marker in block for marker in RUNTIME_MARKERS)]
@@ -105,9 +104,9 @@ def classify(header):
     Returns
     -------
     str
-        "object" for one row per object (ImageNumber and ObjectNumber, for example Nuclei.csv),
-        "image" for one row per image set (ImageNumber only, for example Image.csv), or
-        "other" (for example Experiment.csv).
+        "object" for one row per object (ImageNumber and ObjectNumber, for example Nuclei.csv).
+        "image" for one row per image set (ImageNumber only, for example Image.csv).
+        "other" for all other tables (for example Experiment.csv).
     """
     columns = set(header)
     if "ImageNumber" in columns and "ObjectNumber" in columns:
@@ -118,9 +117,9 @@ def classify(header):
 
 
 def strip_prefix(value, prefix):
-    """Remove a prefix from a text, like str.removeprefix (Python 3.9+).
+    """Remove a prefix from a text, as str.removeprefix does in Python 3.9 and newer.
 
-    The CellProfiler 4.2.8 container ships Python 3.8, which has no str.removeprefix.
+    The CellProfiler 4.2.8 container has Python 3.8, which has no str.removeprefix.
 
     Parameters
     ----------
@@ -132,23 +131,23 @@ def strip_prefix(value, prefix):
     Returns
     -------
     str
-        The text without the prefix, or the text unchanged if it does not start with the prefix.
+        The text without the prefix. If the text does not start with the prefix, the same text.
     """
     return value[len(prefix) :] if value.startswith(prefix) else value
 
 
 def safe_relative(path):
-    """Return a normalized relative POSIX path, rejecting traversal and absolute paths.
+    """Make a relative path with "/" separators, and refuse paths that can point outside the folder.
 
     Parameters
     ----------
     path : str or os.PathLike
-        The path to check. Backslashes count as folder separators.
+        The path to check. A backslash counts as a folder separator.
 
     Returns
     -------
     str
-        The path with "/" separators and without a leading "./" ("" for "" or ".").
+        The path with "/" separators and without "./" at the start. "" for "" or ".".
 
     Raises
     ------
@@ -165,7 +164,7 @@ def safe_relative(path):
 
 
 def relative_channel_dir(path_name, input_dir):
-    """Normalize CellProfiler's task-local PathName_* value relative to input_dir.
+    """Make the folder of a PathName_<channel> value relative to the image folder.
 
     CellProfiler writes the full folder of each image, for example /work/ab/12.../input/plate1.
     The mask list needs only the part below the image folder: plate1.
@@ -175,7 +174,7 @@ def relative_channel_dir(path_name, input_dir):
     path_name : str
         The value of a PathName_<channel> column.
     input_dir : str
-        The staged image folder of the job ($PWD/input).
+        The image folder of the job ($PWD/input, a link to --input_dir).
 
     Returns
     -------
@@ -185,7 +184,7 @@ def relative_channel_dir(path_name, input_dir):
     Raises
     ------
     ValueError
-        If the folder is not below the image folder, or is unsafe (see safe_relative).
+        If the folder is not below the image folder, or is not safe (see safe_relative).
     """
     value = str(path_name or "").replace("\\", "/").rstrip("/")
     root = str(input_dir).replace("\\", "/").rstrip("/")
@@ -196,8 +195,8 @@ def relative_channel_dir(path_name, input_dir):
     if value.startswith(f"{root}/"):
         return safe_relative(value[len(root) + 1 :])
 
-    # Containers can rewrite the work-directory prefix, but the staged input
-    # directory remains named "input".
+    # In a container, the start of the job folder path can be different. But the image folder of the job
+    # is always the link "input".
     marker = "/input/"
     if marker in value:
         return safe_relative(value.rsplit(marker, 1)[1])
@@ -217,8 +216,8 @@ def find_mask_files(mask_root):
     Returns
     -------
     list of str
-        The paths relative to mask_root, with "/" separators, for example
-        "plate1/a_Nuclei_mask.tiff". Empty if the folder does not exist.
+        The paths relative to mask_root, with "/" separators, for example "plate1/a_Nuclei_mask.tiff".
+        An empty list if the folder does not exist.
     """
     found = []
     if not os.path.isdir(mask_root):
@@ -244,39 +243,39 @@ def write_empty_manifest(manifest):
 
 
 def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, errors, warnings):
-    """Map injected masks to image rows and fail closed on incomplete mappings.
+    """Connect each mask to its image set, and record an error for each mask that is not correct.
 
     For each image set and each object type, the expected mask name is
     <folder of the reference image>/<reference image name><suffix>, for example
-    plate1/site1_DNA_Nuclei_mask.tiff. Each expected mask must exist exactly once, and no two
-    image sets may share a mask.
+    plate1/site1_DNA_Nuclei_mask.tiff. Each expected mask must exist exactly once. Two image sets
+    must not share a mask.
 
     Parameters
     ----------
     image_csv : str
         The per-image table of the chunk.
     report : dict
-        The patch report (patch_report.json): the mask writers and the reference image.
+        The report of patch_cppipe.py (patch_report.json): the mask writers and the reference image.
     mask_root : str
         The masks/ folder of the CellProfiler output.
     input_dir : str
-        The staged image folder of the job.
+        The image folder of the job.
     manifest : str
         Path of the mask_manifest.csv file to write.
     errors : list of str
-        Problems that stop the job are added to this list.
+        The function adds each problem that stops the job to this list.
     warnings : list of str
-        Problems that only need attention are added to this list.
+        The function adds each problem that only needs attention to this list.
 
     Returns
     -------
     manifest_rows : int
-        The number of rows written to the mask list.
+        The number of rows in the mask list.
     mask_files : int
-        The number of mask files found below mask_root.
+        The number of mask files below mask_root.
     """
 
-    # The mask writers that the patch step added (from patch_report.json).
+    # The mask writers that patch_cppipe.py added (from patch_report.json).
     masks = report.get("masks_managed", report.get("masks_added", []))
     if not masks:
         write_empty_manifest(manifest)
@@ -293,11 +292,11 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
         source_columns = reader.fieldnames or []
         image_rows = list(reader)
 
-    # Choose the columns of the mask list: ImageNumber, the metadata, three columns per channel
-    # (file name, folder, path in input_dir), and the mask object and path.
+    # Choose the columns of the mask list. They are ImageNumber, the metadata, and three columns per
+    # channel (file name, folder, path in input_dir). The last two are the mask object and the mask path.
     file_columns = [column for column in source_columns if column.startswith("FileName_")]
 
-    # Metadata_FileLocation is a file: URL inside the task work directory: not portable.
+    # Metadata_FileLocation is a file: URL in the job folder. It is not correct outside the job.
     metadata_columns = [
         column
         for column in source_columns
@@ -345,7 +344,8 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
         if invalid_channel:
             continue
 
-        # The masks are named after the reference image, so its path decides the expected mask names.
+        # The mask writers name the masks after the reference image.
+        # Thus the path of the reference image gives the expected mask names.
         reference_path = channel_values.get(f"InputPath_{reference_image}", "")
         if not reference_path:
             errors.append(
@@ -380,7 +380,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
                 )
                 continue
 
-            # Two image sets with the same mask file would mean that one mask is lost: refuse it.
+            # Two image sets with the same mask file means that one mask is lost. Record an error.
             mask_path = f"masks/{candidates[0]}"
             owner = (image_number, object_name)
             if mask_path in used_paths:
@@ -399,7 +399,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
                 }
             )
 
-    # Mask-like files that no image set claims: probably saved by the user's own SaveImages. Only warn.
+    # Mask files that belong to no image set probably come from the user's own SaveImages. Only warn.
     unused_masks = sorted(set(actual_masks) - {strip_prefix(path, "masks/") for path in used_paths})
     if unused_masks:
         warnings.append(
@@ -415,10 +415,10 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
 
 
 def check_object_counts(features_dir, image_name, tables, errors, warnings):
-    """Check that Count_<Object> in the per-image table equals the rows of <prefix><Object>.csv.
+    """Check that Count_<Object> in the per-image table agrees with the rows of <prefix><Object>.csv.
 
-    ExportToSpreadsheet names tables <prefix>Image.csv and <prefix><Object>.csv, so the
-    prefix comes from the image table name. Objects without their own table are skipped.
+    ExportToSpreadsheet names its tables <prefix>Image.csv and <prefix><Object>.csv. Thus the prefix
+    comes from the name of the image table. The function skips objects without their own table.
 
     Parameters
     ----------
@@ -429,9 +429,9 @@ def check_object_counts(features_dir, image_name, tables, errors, warnings):
     tables : dict
         ``{file name: {"kind": ..., "rows": ..., "columns": ...}}`` for all tables of the chunk.
     errors : list of str
-        A count that does not agree, or a column with text values, is added to this list.
+        The function adds each count that does not agree, and each column with text values.
     warnings : list of str
-        Image sets without objects are reported in this list.
+        The function adds a warning for each object type with image sets without objects.
 
     Returns
     -------
@@ -447,8 +447,8 @@ def check_object_counts(features_dir, image_name, tables, errors, warnings):
         rows = list(csv.DictReader(fh))
     empty_images = {}
 
-    # Each Count_<Object> column of the image table: add the counts of all image sets and compare
-    # the sum with the number of rows in the object table.
+    # For each Count_<Object> column of the image table, add the counts of all image sets.
+    # Then compare the sum with the number of rows in the object table.
     for column in rows[0].keys() if rows else []:
         if not column.startswith("Count_"):
             continue
@@ -466,7 +466,7 @@ def check_object_counts(features_dir, image_name, tables, errors, warnings):
                 f"{tables[table]['rows']} rows: the export is incomplete or inconsistent."
             )
 
-    # Images without objects are allowed (for example an empty well), but the user should know.
+    # An image without objects is not an error (for example an empty well), but the user must know about it.
     for object_name, empty in empty_images.items():
         if empty:
             warnings.append(
@@ -477,12 +477,12 @@ def check_object_counts(features_dir, image_name, tables, errors, warnings):
 
 
 def metadata_columns_from(spec):
-    """Turn metadata names into column names.
+    """Change metadata names into column names.
 
     Parameters
     ----------
     spec : str or None
-        Comma-separated names, for example "Plate,Well,Metadata_Site".
+        Names, separated by commas, for example "Plate,Well,Metadata_Site".
 
     Returns
     -------
@@ -494,7 +494,7 @@ def metadata_columns_from(spec):
 
 
 def check_required_metadata(path, columns, errors):
-    """Check that every image row has a non-empty, unique value for each required metadata column.
+    """Check that each image row has a value in each required metadata column, and unique values.
 
     Parameters
     ----------
@@ -503,7 +503,7 @@ def check_required_metadata(path, columns, errors):
     columns : list of str
         The required columns, for example ["Metadata_Plate", "Metadata_Well"].
     errors : list of str
-        Missing columns, empty values and duplicate keys are added to this list.
+        The function adds missing columns, empty values and keys that occur twice.
     """
     with open(path, newline="", encoding="utf-8", errors="surrogateescape") as handle:
         reader = csv.DictReader(handle)
@@ -538,7 +538,7 @@ def check_required_metadata(path, columns, errors):
 def main():
     """Run all checks on one chunk.
 
-    The function ends the program with exit code 1 if at least one check failed.
+    If at least one check failed, the function stops the program with exit code 1.
     """
 
     # The options come from the CELLPROFILER script in main.nf.
@@ -623,7 +623,7 @@ def main():
         )
         (errors if args.strict else warnings).append(message)
 
-    # Step 4: the masks. Each image set needs one mask per object type that the patch step added.
+    # Step 4: the masks. Each image set needs one mask for each object type that patch_cppipe.py added.
     with open(args.patch_report, encoding="utf-8") as handle:
         patch_report = json.load(handle)
     managed_masks = patch_report.get("masks_managed", patch_report.get("masks_added", []))

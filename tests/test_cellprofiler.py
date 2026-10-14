@@ -51,8 +51,8 @@ def require_docker():
 def in_container(workdir, command):
     """Run a bash command in the CellProfiler image.
 
-    The repository (read-only) and the work folder are mounted at the same paths as on the host,
-    and the command runs as the current user.
+    The function mounts the repository (read-only) and the work folder at the same paths as on the host.
+    The command runs as the current user.
 
     Parameters
     ----------
@@ -113,7 +113,7 @@ def patch(tmp_path, extra_module=None, chunked=True):
     -------
     subprocess.CompletedProcess
         The finished container. It also has the attribute ``report``: the patch report as a
-        dict ({} if no report was written).
+        dict ({} if patch_cppipe.py wrote no report).
     """
     source = ROOT / "tests" / "test.cppipe"
     steps = []

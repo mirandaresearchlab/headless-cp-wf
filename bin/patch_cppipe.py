@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""Make a CellProfiler pipeline safe for headless, chunked execution.
+"""Prepare a CellProfiler pipeline for headless runs in chunks.
 
-What it does (everything is recorded in a JSON report):
-  * fails fast if the CellProfiler in this environment cannot load the pipeline
-    (missing plugin, pipeline saved by a newer CellProfiler, ...);
-  * removes CreateBatchFiles (it stops a headless run after writing a batch file);
-  * redirects output modules that write to an absolute path ("Elsewhere...") or into
-    the input folder, so every chunk writes into its own task directory and nothing
-    is ever written back into your raw-image folder;
-  * adds ConvertObjectsToImage (uint16 labels) + SaveImages for every object set
-    that is not already saved, so you always get segmentation masks;
-  * adds ExportToSpreadsheet if the pipeline has none, so you always get features.
+"Headless" means without the window of CellProfiler. This script uses the Python API of CellProfiler
+to read and change the pipeline. It makes these changes, and writes each one into a JSON report:
+  * It stops at once if CellProfiler cannot load the pipeline. Two usual causes are a missing plugin
+    and a pipeline from a newer CellProfiler.
+  * It removes CreateBatchFiles. In a headless run, this module writes a batch file and stops the run.
+  * It moves each output folder that points outside the job, or into the image folder, into the job
+    folder. Thus each chunk writes into its own folder, and nothing goes into your image folder.
+  * For each object type without a mask, it adds ConvertObjectsToImage (16-bit labels) and SaveImages.
+    Thus you always get segmentation masks.
+  * It adds ExportToSpreadsheet if the pipeline has none. Thus you always get feature tables.
 
-It runs once per workflow run (process PATCH_PIPELINE in main.nf), inside the CellProfiler
-container, and uses CellProfiler's own Python API to read and write the pipeline. All chunk jobs
-then use the patched pipeline.
+The script runs once per workflow run (process PATCH_PIPELINE in main.nf), in the CellProfiler container.
+All chunk jobs then use the changed pipeline.
 
 Notes
 -----
-Exit codes: 0 = ok, 1 = cannot load / cannot patch (and --allow-unpatched not set).
+Exit codes: 0 = success. 1 = CellProfiler cannot load the pipeline, or the script cannot change it
+(and you did not set --allow-unpatched).
 """
 
 import argparse
@@ -50,7 +50,7 @@ UNSAFE_DIR_CHOICES = {
     "Default Input Folder sub-folder",
 }
 MASK_SUBDIR = "masks"
-PREFIX = "CPNF"  # marks names we add, keeps re-patching idempotent
+PREFIX = "CPNF"  # start of the names that this script adds. A second run finds and reuses them.
 
 
 class LoadFailure(RuntimeError):
@@ -58,7 +58,7 @@ class LoadFailure(RuntimeError):
 
 
 class PatchFailure(RuntimeError):
-    """The pipeline loads, but a change cannot be made (for example an unknown object name)."""
+    """The pipeline loads, but the script cannot make a change (for example an unknown object name)."""
 
 
 def parse_args():
@@ -97,10 +97,9 @@ def parse_args():
 
 
 def init_cellprofiler(plugins_dir):
-    """Start CellProfiler without a window, load its modules (and plugins), and return its tools.
+    """Start CellProfiler without a window, load its modules and plugins, and return its tools.
 
-    The imports are inside the function, so that a missing CellProfiler gives a clear error
-    in main().
+    The imports are inside the function. Thus a missing CellProfiler gives a clear error in main().
 
     Parameters
     ----------
@@ -126,7 +125,7 @@ def init_cellprofiler(plugins_dir):
 
         try:
             set_plugin_directory(plugins_dir, globally=False)
-        except TypeError:  # older signature
+        except TypeError:  # the older function has no 'globally' argument
             set_plugin_directory(plugins_dir)
 
     from cellprofiler_core.utilities.core.modules import fill_modules, instantiate_module
@@ -144,7 +143,7 @@ def init_cellprofiler(plugins_dir):
 
 
 def version_as_revision(version):
-    """Turn a CellProfiler version into the DateRevision number of .cppipe files.
+    """Change a CellProfiler version into the DateRevision number of .cppipe files.
 
     Parameters
     ----------
@@ -173,8 +172,8 @@ def pipeline_revision(path):
     Returns
     -------
     int or None
-        The DateRevision number (428 means CellProfiler 4.2.8). None for a .cpproj file
-        (HDF5) or a header without the line.
+        The DateRevision number (428 means CellProfiler 4.2.8). None for a .cpproj file (HDF5),
+        or for a header without the line.
     """
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -184,14 +183,14 @@ def pipeline_revision(path):
                     return int(line.split(":", 1)[1].strip())
     except (OSError, ValueError):
         pass
-    return None  # .cpproj (HDF5) or unusual header
+    return None  # a .cpproj file (HDF5) or a header without the line
 
 
 def load_pipeline(Pipeline, path):
-    """Load the pipeline with CellProfiler and raise LoadFailure on any problem.
+    """Load the pipeline with CellProfiler, and stop on any problem.
 
-    CellProfiler reports some problems (for example an unknown module) as events, not as
-    exceptions. A listener collects these events, so that no problem passes without a message.
+    CellProfiler tells about some problems (for example an unknown module) with events, not with
+    exceptions. A listener collects these events. Thus each problem gives a message.
 
     Parameters
     ----------
@@ -208,20 +207,20 @@ def load_pipeline(Pipeline, path):
     Raises
     ------
     LoadFailure
-        If CellProfiler cannot load the file, or reports a problem while it loads it.
+        If CellProfiler cannot load the file, or tells about a problem while it loads it.
     """
     pipeline = Pipeline()
     problems = []
 
     def listener(_caller, event):
-        """Collect the load problems that CellProfiler reports as events.
+        """Collect the load problems that CellProfiler sends as events.
 
         Parameters
         ----------
         _caller : object
             The object that sends the event (not used).
         event : object
-            The event. Only events of type LoadException are collected.
+            The event. The listener collects only events of the type LoadException.
         """
         if type(event).__name__ == "LoadException":
             name = getattr(event, "module_name", None) or "unknown module"
@@ -248,7 +247,7 @@ def load_pipeline(Pipeline, path):
 def is_enabled(module):
     """Tell if a module is on.
 
-    A user can turn modules off in CellProfiler. Those modules do not run.
+    A user can turn a module off in CellProfiler. Such a module does not run.
 
     Parameters
     ----------
@@ -264,7 +263,7 @@ def is_enabled(module):
 
 
 def set_value(setting, value, label):
-    """Set a module setting, and check the value of a choice setting first.
+    """Set a module setting. For a choice setting, first check that it allows the value.
 
     Parameters
     ----------
@@ -311,9 +310,9 @@ def append_module(pipeline, instantiate_module, name):
 
 
 def provider_names(pipeline, group):
-    """List the image or object names that the pipeline makes.
+    """List the image names or the object names that the pipeline makes.
 
-    Modules that are off are ignored.
+    The function ignores modules that are off.
 
     Parameters
     ----------
@@ -326,7 +325,7 @@ def provider_names(pipeline, group):
     Returns
     -------
     dict
-        ``{name: (number of the first module that makes it, set of names of those modules)}``.
+        ``{name: (number of the first module that makes it, set of the names of those modules)}``.
     """
     providers = pipeline.get_provider_dictionary(group)
     out = {}
@@ -357,10 +356,10 @@ def setting_value(module, attribute):
 
 
 def chunk_unsafe_modules(pipeline):
-    """Return enabled modules whose results depend on image sets outside one chunk.
+    """Find the modules that need image sets from more than one chunk.
 
-    Each chunk is a separate CellProfiler run, so these modules would silently compute
-    per-chunk results (for example one illumination function per chunk, not per plate).
+    Each chunk is a separate CellProfiler run. Thus such a module calculates a result for each chunk,
+    without an error. For example, it calculates one illumination correction per chunk, not per plate.
 
     Parameters
     ----------
@@ -370,8 +369,8 @@ def chunk_unsafe_modules(pipeline):
     Returns
     -------
     list of str
-        One line per module, with its number, name and the reason, for example
-        "#4 CorrectIlluminationCalculate: calculates one illumination function ...".
+        One line per module that is on. Each line gives the module number, the name and the reason.
+        Example: "#4 CorrectIlluminationCalculate: calculates one illumination function ...".
     """
     found = []
 
@@ -414,7 +413,7 @@ def remove_batch_modules(pipeline, report):
     pipeline : cellprofiler_core.pipeline.Pipeline
         The pipeline to change.
     report : dict
-        The report. Each removed module is added to ``report["removed_modules"]``.
+        The report. The function adds each removed module to ``report["removed_modules"]``.
     """
 
     # Go from the end to the start, so that removing a module does not change the numbers of the rest.
@@ -425,25 +424,25 @@ def remove_batch_modules(pipeline, report):
 
 
 def redirect_outputs(pipeline, report):
-    """Send every output folder that points outside the job (or into the image folder) to the job.
+    """Move each output folder that points outside the job, or into the image folder, into the job folder.
 
-    "Elsewhere...|/home/me/out" becomes "Default Output Folder sub-folder|out". Thus each chunk
-    writes into its own folder, and nothing is written into the image folder.
+    For example, "Elsewhere...|/home/me/out" becomes "Default Output Folder sub-folder|out". Thus each
+    chunk writes into its own folder, and nothing goes into the image folder.
 
     Parameters
     ----------
     pipeline : cellprofiler_core.pipeline.Pipeline
         The pipeline to change.
     report : dict
-        The report. Each change goes to ``report["redirected"]``, and a warning about
-        numbered file names goes to ``report["warnings"]``.
+        The report. Each change goes to ``report["redirected"]``. A warning about numbered file
+        names goes to ``report["warnings"]``.
     """
     for module in pipeline.modules():
         if module.module_name not in OUTPUT_MODULES or not is_enabled(module):
             continue
 
-        # SaveImages.root_dir describes where *input* images live (for mirroring
-        # sub-folders); it must keep pointing at the input side.
+        # SaveImages.root_dir tells where the input images are, so that SaveImages can copy their sub-folders.
+        # It must keep pointing at the input side. Thus this loop does not change it.
         input_side = {id(getattr(module, "root_dir", None))}
 
         # A folder setting has the form "<choice>|<custom path>". Keep only the last folder name of
@@ -474,11 +473,10 @@ def redirect_outputs(pipeline, report):
 
 
 def managed_mask_writers(pipeline):
-    """Return canonical mask writers previously injected by cp-headless.
+    """Find the mask writers that an earlier run of this script added.
 
-    A pipeline that cp-headless already patched has its own mask modules (names that start
-    with CPNF_). The patch finds and reuses them, so that a second patch adds no second set
-    of masks.
+    The script names its mask modules with the start CPNF_. In a pipeline that the script already
+    changed, the function finds these modules. Thus a second run adds no second set of masks.
 
     Parameters
     ----------
@@ -524,11 +522,10 @@ def managed_mask_writers(pipeline):
 
 
 def add_masks(pipeline, instantiate_module, objects, ref_image, fmt, report):
-    """Add two modules for each object type: one that makes a label image, and one that saves it.
+    """Add two modules for each object type: one makes a label image, and one saves it.
 
-    ConvertObjectsToImage turns the objects into a 16-bit image: 0 = background, 1..N = objects.
-    SaveImages writes it as
-    masks/<sub-folder of the input>/<reference image name>_<Object>_mask.<ext>.
+    ConvertObjectsToImage changes the objects into a 16-bit image: 0 = background, 1 to N = objects.
+    SaveImages writes it as masks/<sub-folder of the input>/<reference image name>_<Object>_mask.<ext>.
 
     Parameters
     ----------
@@ -543,7 +540,7 @@ def add_masks(pipeline, instantiate_module, objects, ref_image, fmt, report):
     fmt : str
         The file format: "tiff", "png" or "npy".
     report : dict
-        The report. Each new mask writer is added to ``report["masks_added"]``.
+        The report. The function adds each new mask writer to ``report["masks_added"]``.
 
     Returns
     -------
@@ -582,14 +579,14 @@ def add_masks(pipeline, instantiate_module, objects, ref_image, fmt, report):
             set_value(save.bit_depth, "16-bit integer", "SaveImages.bit_depth")
         set_value(save.pathname, f"{DEFAULT_OUTPUT_SUB}|{MASK_SUBDIR}", "SaveImages.pathname")
 
-        # Never overwrite: two image sets mapping to the same mask file must fail loudly,
-        # not silently lose a mask.
+        # Never overwrite a file. If two image sets get the same mask name, CellProfiler stops with an error.
+        # Otherwise one mask would replace the other without a message.
         set_value(save.overwrite, False, "SaveImages.overwrite")
         set_value(save.when_to_save, "Every cycle", "SaveImages.when_to_save")
         set_value(save.update_file_names, False, "SaveImages.update_file_names")
 
-        # Mirror the input folder tree under masks/ so plate1/A01.tif and plate2/A01.tif
-        # do not collide. The workflow runs CellProfiler with -i <input root>.
+        # Copy the sub-folders of the image folder below masks/. Thus plate1/A01.tif and plate2/A01.tif get
+        # different mask paths. The workflow runs CellProfiler with -i <image folder>.
         set_value(save.create_subdirectories, True, "SaveImages.create_subdirectories")
         set_value(save.root_dir, "Default Input Folder|", "SaveImages.root_dir")
 
@@ -601,7 +598,7 @@ def add_masks(pipeline, instantiate_module, objects, ref_image, fmt, report):
 def ensure_export(pipeline, instantiate_module, report):
     """Add ExportToSpreadsheet if the pipeline has none.
 
-    Without it, CellProfiler writes no feature tables.
+    Without this module, CellProfiler writes no feature tables.
 
     Parameters
     ----------
@@ -610,7 +607,7 @@ def ensure_export(pipeline, instantiate_module, report):
     instantiate_module : callable
         Makes a module from its name (from init_cellprofiler).
     report : dict
-        The report. ``report["export_added"]`` becomes True if the module was added.
+        The report. ``report["export_added"]`` becomes True if the function adds the module.
 
     Returns
     -------
@@ -631,18 +628,18 @@ def patch(pipeline, instantiate_module, args, report):
     Parameters
     ----------
     pipeline : cellprofiler_core.pipeline.Pipeline
-        The loaded pipeline. It is changed in place.
+        The loaded pipeline. The function changes it in place.
     instantiate_module : callable
         Makes a module from its name (from init_cellprofiler).
     args : argparse.Namespace
         The command-line options (from parse_args).
     report : dict
-        The report. Each step records its changes in it.
+        The report. Each step writes its changes into it.
 
     Raises
     ------
     PatchFailure
-        If a requested object does not exist, or no input image exists to name the masks after.
+        If a requested object does not exist, or if no input image exists to name the masks after.
     """
 
     # 1. Remove what stops a headless run, and keep all outputs in the job folder.
@@ -673,7 +670,7 @@ def patch(pipeline, instantiate_module, args, report):
         report["masks_managed"] = list(managed)
         todo = [obj for obj in wanted if obj not in done]
 
-        # The masks are named after the first input image of the pipeline (the reference image).
+        # The workflow names the masks after the first input image of the pipeline (the reference image).
         if not report["objects"]:
             report["warnings"].append("Pipeline defines no objects: no segmentation masks will be produced.")
         else:
@@ -698,7 +695,7 @@ def patch(pipeline, instantiate_module, args, report):
     added += ensure_export(pipeline, instantiate_module, report)
 
     # 5. Let CellProfiler check the settings of each new module.
-    for module in added:  # raises ValidationError if a setting is inconsistent
+    for module in added:  # raises ValidationError if two settings do not agree
         module.test_valid(pipeline)
 
 
@@ -719,13 +716,13 @@ def write_report(path, report):
 
 
 def main():
-    """Load, check and patch the pipeline. Write the patched pipeline and the report.
+    """Load, check and change the pipeline. Write the changed pipeline and the report.
 
-    The function ends the program with exit code 1 (through ``fatal``) if a step fails.
+    If a step fails, the function stops the program with exit code 1 (with ``fatal``).
     """
     args = parse_args()
 
-    # The report starts empty. Each step below adds to it, and it is written even if a step fails.
+    # The report starts empty. Each step below adds to it. fatal() writes it, also when a step fails.
     report = {
         "input": args.input,
         "cellprofiler_version": None,
@@ -743,7 +740,7 @@ def main():
     }
 
     def fatal(msg):
-        """Record the error in the report, write the report, and stop with exit code 1.
+        """Write the error into the report, write the report, and stop with exit code 1.
 
         Parameters
         ----------
@@ -757,11 +754,11 @@ def main():
 
     try:
         Pipeline, instantiate_module, version = init_cellprofiler(args.plugins_dir)
-    except Exception as exc:  # wrong container / environment
+    except Exception as exc:  # wrong container, or CellProfiler is not installed
         fatal(f"Could not import CellProfiler ({exc}). Check the container or local install.")
     report["cellprofiler_version"] = version
 
-    # A pipeline from a newer CellProfiler can load but behave differently: warn about it.
+    # A pipeline from a newer CellProfiler can load, but can give different results. Warn about it.
     running, saved = version_as_revision(version), report["pipeline_date_revision"]
     if running and saved and saved > running:
         report["warnings"].append(
@@ -774,8 +771,8 @@ def main():
     except LoadFailure as exc:
         fatal(str(exc))
 
-    # Checked before patching and never skipped by --allow-unpatched: chunking these
-    # pipelines gives wrong results without any error.
+    # Do this check before the changes, and also with --allow-unpatched. Chunks of such a pipeline give
+    # wrong results without any error.
     report["chunk_unsafe_modules"] = chunk_unsafe_modules(pipeline)
     if args.chunked and report["chunk_unsafe_modules"]:
         fatal(
@@ -785,8 +782,8 @@ def main():
             + "\nRun with --chunk_size 0."
         )
 
-    # Patch the pipeline and save it. Never embed a file list: the workflow supplies one per chunk
-    # via --file-list. If patching fails, stop, unless the user allowed the original pipeline.
+    # Change the pipeline and save it, without a file list: the workflow gives each chunk its own list
+    # (--file-list). If a change fails, stop, unless the user allowed the original pipeline.
     try:
         patch(pipeline, instantiate_module, args, report)
         with open(args.output, "w", encoding="utf-8") as fh:

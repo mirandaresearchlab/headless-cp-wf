@@ -16,15 +16,26 @@ Cells values as the original prototype, apart from work-folder paths and executi
   - The workflow stops if the work folder, the results or the image cache is in `$HOME`.
 - `scripts/berzelius/`: `preflight.sh`, `smoke_test.sh`, `submit.sh`, the head job `run_nextflow.sbatch` and a
   template for the settings file. A second `submit.sh` with the same run folder continues the run.
-- [docs/berzelius.md](docs/berzelius.md): a guide in eight steps.
+- [Run on Berzelius](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-berzelius/): a guide in eight steps.
 - On a cluster, the workflow warns when more than 500 image sets run as one job (`chunk_size 0`).
 - CellProfiler jobs ignore your own Python packages (`PYTHONNOUSERSITE=1`).
+
+### Added: documentation site
+
+- A documentation site with MkDocs and the Material theme, published on GitHub Pages at
+  <https://mirandaresearchlab.github.io/headless-cp-wf/>. It has a tutorial, how-to guides, reference pages
+  and explanations. `.github/workflows/docs.yml` builds it for each pull request and publishes it from `main`.
+- `nextflow_schema.json` describes each parameter. The site makes its parameter reference from it, and
+  `tests/test_schema.py` checks that it agrees with `nextflow.config`.
+- The site makes its command-line and API reference pages from the `--help` text and the numpy docstrings of
+  the scripts in `bin/`.
+- The README is now short: what the workflow does, a quickstart, and links to the site.
 
 ### Changed: documentation
 
 - The README now explains the workflow for a general audience, in simple English. It has a list of terms
   and a list of all checks.
-- The information for developers moved to [docs/development.md](docs/development.md).
+- The information for developers moved to [Contributing](https://mirandaresearchlab.github.io/headless-cp-wf/about/contributing/).
 
 ### Fixed
 

@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Merge per-chunk CellProfiler ExportToSpreadsheet tables into one table per name.
+"""Merge the tables of all chunks into one table per name.
 
-ImageNumber restarts at 1 in every chunk, so naive concatenation silently mixes up
-objects from different images. Every merged table therefore gets two leading columns:
-  CPNF_Chunk             - which chunk the row came from
-  CPNF_GlobalImageNumber - ImageNumber made unique across chunks (same value in the
-                           per-image and per-object tables, so you can join on it)
-Columns are unioned across chunks (missing values left empty). Streams row by row,
-standard library only, so it works on large object tables and in any python3.
+CellProfiler starts ImageNumber at 1 in each chunk. If you only put the tables one after the other,
+objects of different images get the same ImageNumber. Thus each merged table gets two columns in front:
+  CPNF_Chunk             - the chunk of the row.
+  CPNF_GlobalImageNumber - an image number that is unique in the run. It has the same value in the
+                           per-image and the per-object tables. Thus you can join the tables on it.
 
-The merge also stops the run in two cases: two chunks wrote the same mask file, or (with
---unique-metadata) the same plate/well/site occurs in two chunks.
+The merged table has all columns of all chunks. A value that a chunk does not have stays empty. The
+script reads and writes one row at a time, with only the Python standard library. Thus it works on large
+object tables and with any python3.
+
+The merge also stops the run in two cases. In the first case, two chunks wrote the same mask file.
+In the second case (with --unique-metadata), the same plate, well and site occur in two chunks.
 
 Examples
 --------
-chunk_0001 has image sets 1-150 and chunk_0002 has image sets 1-150. In the merged tables,
-chunk_0002's image set 1 gets CPNF_GlobalImageNumber 151.
+chunk_0001 has image sets 1-150, and chunk_0002 has image sets 1-150. In the merged tables,
+image set 1 of chunk_0002 gets CPNF_GlobalImageNumber 151.
 """
 
 import argparse
@@ -34,7 +36,7 @@ ENC = dict(encoding="utf-8", errors="surrogateescape")
 def set_field_limit():
     """Allow very long CSV fields.
 
-    CellProfiler can write long values, and the default limit of the csv module is small.
+    CellProfiler can write long values, but the default limit of the csv module is small.
     """
 
     # Try the largest limit first. Some systems refuse it, so make it 10 times smaller until it works.
@@ -113,7 +115,7 @@ def max_image_number(path):
     Returns
     -------
     int
-        The highest ImageNumber, or 0 if the table has none. Rows with bad values are skipped.
+        The highest ImageNumber, or 0 if the table has none. The function skips rows with bad values.
     """
     best = 0
     with open(path, newline="", **ENC) as fh:
@@ -124,10 +126,10 @@ def max_image_number(path):
 
 
 def validate_manifest_row(row, chunk, seen_paths):
-    """Reject incomplete, unsafe, or globally colliding published mask paths.
+    """Check one row of a mask list: the row must be complete, and its mask path safe and unique in the run.
 
-    All chunks publish their masks into the same results/masks/ folder. If two chunks had the
-    same mask path, one mask would overwrite the other.
+    All chunks publish their masks into the same results/masks/ folder. If two chunks had the same
+    mask path, one mask would replace the other.
 
     Parameters
     ----------
@@ -136,12 +138,12 @@ def validate_manifest_row(row, chunk, seen_paths):
     chunk : str
         The chunk of the row, for example "chunk_0002".
     seen_paths : dict
-        ``{mask path: (chunk, ImageNumber, object)}`` of all rows so far. The row is added to it.
+        ``{mask path: (chunk, ImageNumber, object)}`` of all rows so far. The function adds the row to it.
 
     Raises
     ------
     SystemExit
-        If the row has no mask path or object, the path is unsafe, or another row has the
+        If the row has no mask path or no object, if the path is not safe, or if another row has the
         same path.
     """
     mask_path = row.get("MaskPath", "")
@@ -164,7 +166,7 @@ def validate_manifest_row(row, chunk, seen_paths):
 def main():
     """Merge each table name over all chunks, and write merge_report.json.
 
-    The function ends the program with an error message if a check fails.
+    If a check fails, the function stops the program with an error message.
     """
 
     # The options come from the MERGE_FEATURES script in main.nf.
@@ -181,7 +183,7 @@ def main():
     set_field_limit()
     os.makedirs(args.outdir, exist_ok=True)
 
-    # Find all tables. The chunks are sorted by name (chunk_0001, chunk_0002, ...), so the merged rows
+    # Find all tables. Sort the chunks by name (chunk_0001, chunk_0002, ...), so that the merged rows
     # always come in the same order.
     chunks = sorted(args.chunk_dirs, key=chunk_name)
     tables = defaultdict(list)  # table file name -> [(chunk, path)]
@@ -192,7 +194,7 @@ def main():
     if not tables:
         sys.exit("[merge_features] ERROR: no CSV files found in any chunk.")
 
-    # Offsets that make ImageNumber unique: taken from the per-image table(s) of each chunk.
+    # Offsets that make ImageNumber unique. They come from the per-image tables of each chunk.
     headers = {(c, p): header_of(p) for files in tables.values() for c, p in files}
     max_img = defaultdict(int)
     for (chunk, path), hdr in headers.items():
@@ -219,8 +221,8 @@ def main():
     ]
 
     # Merge one table name at a time (for example all MyExpt_Nuclei.csv files).
-    # The union of columns keeps the first-seen order. A set keeps this linear: tables can have
-    # thousands of features and runs thousands of chunks.
+    # The merged table gets all columns of all chunks, in the order in which they first occur.
+    # The set makes this fast: a table can have thousands of columns, and a run thousands of chunks.
     for name, files in sorted(tables.items()):
         columns, known = [], set()
         for key in files:
@@ -239,8 +241,9 @@ def main():
         )
         rows = 0
 
-        # Per-image tables: the same metadata key in two chunks means one site was processed twice
-        # (overlapping inputs, re-imaged plates). Joins on these keys downstream would then be wrong.
+        # Per-image tables: the same metadata key in two chunks means that the workflow processed a site
+        # twice. Causes are the same images given twice, or a plate imaged two times.
+        # Joins on these keys would then be wrong.
         is_image_table = has_img and "ObjectNumber" not in columns
         check_keys = bool(unique_columns) and is_image_table and set(unique_columns) <= set(columns)
         seen_keys = {}

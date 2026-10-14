@@ -2,10 +2,10 @@
 
 These need Nextflow and Java 17-26. Run them with `uv run pytest -m workflow`.
 
-Each test makes a small image folder (copies of one test image with new names), runs the real
+Each test makes a small image folder (copies of one test image with new names). Then it runs the real
 main.nf with -stub-run, and checks the result or the error message. The stub blocks in main.nf make
-fake outputs instead of running CellProfiler, so the tests check the grouping, the parameter checks
-and the cluster job scripts in seconds.
+fake outputs and do not run CellProfiler. Thus the tests check the grouping, the parameter checks and
+the cluster job scripts in seconds.
 
 The Slurm and Berzelius tests use a fake sbatch program. It saves the job script that Nextflow makes
 and refuses the job, so the tests can read the #SBATCH lines without a cluster.
@@ -54,7 +54,7 @@ def supported_java_home(env):
     Parameters
     ----------
     env : dict
-        The environment of the test run (JAVA_CMD, JAVA_HOME and PATH are read).
+        The environment of the test run. The function reads JAVA_CMD, JAVA_HOME and PATH.
 
     Returns
     -------
@@ -117,7 +117,7 @@ def make_images(root, names):
     root : pathlib.Path
         The image folder to make.
     names : list of str
-        The file names, relative to root. Sub-folders are made as needed.
+        The file names, relative to root. The function makes sub-folders as needed.
 
     Returns
     -------
@@ -417,7 +417,7 @@ def test_slurm_profile_without_account_adds_no_account(tmp_path):
 def test_slurm_settings_from_a_site_config_file_reach_the_job(tmp_path):
     """Check that settings from a -c config file reach the #SBATCH lines.
 
-    Values in a -c file are read after the profiles, so the profile must read them lazily.
+    Nextflow reads the values of a -c file after the profiles. Thus the profile must read them for each job.
 
     Parameters
     ----------
@@ -505,7 +505,7 @@ def test_berzelius_refuses_a_work_directory_in_home(tmp_path):
         Temporary folder from pytest, removed after the test.
     """
 
-    # tmp_path becomes $HOME, so the work directory tmp_path/work is inside it.
+    # tmp_path becomes $HOME, so the work folder tmp_path/work is inside it.
     result, log, job = run_with_fake_sbatch(tmp_path, profile="berzelius", params=BERZELIUS, home=tmp_path)
     assert result.returncode != 0
     assert "is in your home directory" in result.stdout + log

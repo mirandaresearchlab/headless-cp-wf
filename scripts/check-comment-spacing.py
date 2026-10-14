@@ -2,8 +2,8 @@
 """Check the comment layout of the project's code files.
 
 House rule: every block of full-line comments has an empty line directly above its first line. The
-lines of one block stay together, without empty lines between them. A comment at the end of a code
-line is allowed anywhere.
+lines of one block stay together, without empty lines between them. You can put a comment at the end of a
+code line anywhere.
 
 These lines are directives, not comments, so the rule ignores them: a "#!" first line, "#SBATCH"
 lines and Docker's "# syntax=" line.
@@ -19,6 +19,9 @@ import tokenize
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Folders of coding-agent skills: not workflow code, so the rule does not cover them.
+AGENT_FOLDERS = (".claude/", ".agent/")
 
 # Files that use "//" comments (Groovy). Lines that start with "#" in these files are bash comments
 # inside a process script block, so they count as comments too.
@@ -106,8 +109,8 @@ def check(path):
     Returns
     -------
     list of str
-        One message for each comment block that has no empty line above it, in the form
-        "<file>:<line>: comment block has no empty line above it".
+        One message for each comment block that has no empty line above it.
+        Each message has the form "<file>:<line>: comment block has no empty line above it".
     """
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
@@ -130,7 +133,7 @@ def check(path):
 
 
 def default_files():
-    """List all tracked and new code files of the repository, without the .claude folder.
+    """List all tracked and new code files of the repository, without the agent folders (.claude/, .agent/).
 
     Returns
     -------
@@ -144,7 +147,7 @@ def default_files():
         text=True,
         check=True,
     ).stdout.splitlines()
-    return [ROOT / name for name in names if not name.startswith(".claude/")]
+    return [ROOT / name for name in names if not name.startswith(AGENT_FOLDERS)]
 
 
 def is_code_file(path):

@@ -42,7 +42,7 @@ repos:
         entry: uv run pytest -q
         language: system
         pass_filenames: false
-        files: ^(bin/.*\.py|tests/.*\.py|scripts/.*|pyproject\.toml|uv\.lock|Dockerfile|\.dockerignore|\.github/workflows/.*\.ya?ml)$
+        files: ^(bin/.*\.py|tests/.*\.py|scripts/.*|pyproject\.toml|uv\.lock|Dockerfile|\.dockerignore|\.github/workflows/.*\.ya?ml|nextflow\.config|nextflow_schema\.json)$
 
       # The same tests, with the helpers on Python 3.8 (the Python of the CellProfiler container).
       - id: pytest-py38
@@ -66,3 +66,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^(main\.nf|nextflow\.config|conf/.*\.config|bin/.*\.py|tests/.*)$
+
+      # The documentation site: --strict stops on broken links and missing pages (see docs/about/contributing.md).
+      # uv installs the pinned docs tools from requirements-docs.txt the first time.
+      - id: docs-build
+        name: documentation site (mkdocs build --strict)
+        entry: uv run --with-requirements requirements-docs.txt mkdocs build --strict --quiet
+        language: system
+        pass_filenames: false
+        files: ^(docs/.*|mkdocs\.yml|requirements-docs\.txt|nextflow_schema\.json|README\.md|CHANGELOG\.md|bin/.*\.py)$

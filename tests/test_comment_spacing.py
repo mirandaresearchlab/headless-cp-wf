@@ -31,7 +31,7 @@ def check(path, text):
 
 
 def test_comment_block_directly_after_code_is_reported(tmp_path):
-    """Check that a comment directly after a code line is reported, with exit code 1 and the line.
+    """Check that the checker reports a comment directly after a code line, with exit code 1 and the line.
 
     Parameters
     ----------
@@ -72,7 +72,7 @@ def test_hash_inside_a_python_string_is_not_a_comment(tmp_path):
 
 
 def test_directives_are_not_comments(tmp_path):
-    """Check that shebang and #SBATCH lines are allowed directly after other lines.
+    """Check that shebang and #SBATCH lines can follow other lines directly.
 
     Parameters
     ----------

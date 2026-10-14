@@ -1,4 +1,4 @@
-# Automatic checks on GitHub. Both jobs run on each push to each branch. See docs/development.md.
+# Automatic checks on GitHub. Both jobs run on each push to each branch. See docs/about/contributing.md.
 #   pre-commit:   all checks of .pre-commit-config.yaml, and a bot commit with automatic corrections
 #   cellprofiler: the tests with real CellProfiler in Docker
 name: CI

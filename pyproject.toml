@@ -1,5 +1,5 @@
 # Settings of the Python development tools. The workflow itself is not a Python package: this file
-# only describes the tools for tests and checks. See docs/development.md.
+# only describes the tools for tests and checks. See docs/about/contributing.md.
 
 [project]
 name = "cp-headless"
@@ -44,7 +44,7 @@ target-version = "py311"
 
 # D = docstring rules. Every module and function needs a docstring in numpy style.
 # D202 is off: the comment rule of this project puts an empty line above a comment, also directly
-# after a docstring (see docs/development.md).
+# after a docstring (see docs/about/contributing.md).
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "D"]
 ignore = ["D202"]

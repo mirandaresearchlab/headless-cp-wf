@@ -4,7 +4,7 @@
 #   1. make the Python environment .venv (Python 3.12, shell prompt "cp-headless"),
 #   2. install the exact tool versions from uv.lock (Nextflow, Ruff, pytest, pre-commit),
 #   3. install the Git hook that runs the checks of .pre-commit-config.yaml before each commit.
-# See docs/development.md.
+# See docs/about/contributing.md.
 set -euo pipefail
 
 # Work in the repository folder, wherever the script is started from.
