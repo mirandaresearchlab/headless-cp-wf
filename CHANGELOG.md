@@ -77,7 +77,7 @@ Cells values as the original prototype, apart from work-folder paths and executi
 
 - After a real task error, running tasks finish before the workflow stops (`errorStrategy 'finish'`). Before, the
   workflow killed them (`'terminate'`), so their work was lost for `-resume`.
-- The workflow pins the default container by digest: `cellprofiler/cellprofiler:4.2.8@sha256:fec440ca…`.
+- The workflow pins the default container by digest: `cellprofiler/cellprofiler@sha256:fec440ca…`.
 - CellProfiler runs with `QT_QPA_PLATFORM=offscreen`, `MPLBACKEND=Agg` and `-t` set to the task's temporary folder.
 - The `slurm` profile moved to `conf/slurm.config`. It has new parameters: `slurm_account`, `slurm_partition`,
   `slurm_scratch` and `slurm_cluster_options`. The parameters also work from a `-c` config file. The job queue
