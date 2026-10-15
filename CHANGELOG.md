@@ -14,11 +14,30 @@ Cells values as the original prototype, apart from work-folder paths and executi
   - Jobs run on the local disk `/scratch/local`. CellProfiler runs in Apptainer.
   - The queue holds 64 jobs or fewer. No job asks for more than 72 hours.
   - The workflow stops if the work folder, the results or the image cache is in `$HOME`.
-- `scripts/berzelius/`: `preflight.sh`, `smoke_test.sh`, `submit.sh`, the head job `run_nextflow.sbatch` and a
-  template for the settings file. A second `submit.sh` with the same run folder continues the run.
+- `scripts/berzelius/`: `preflight.sh`, `smoke_test.sh`, `submit.sh`, the head job `run_nextflow.sbatch` and
+  `make_env.sh`, which writes the settings file from options. A second `submit.sh` with the same run folder continues the run.
 - [Run on Berzelius](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-berzelius/): a guide in eight steps.
 - On a cluster, the workflow warns when more than 500 image sets run as one job (`chunk_size 0`).
 - CellProfiler jobs ignore your own Python packages (`PYTHONNOUSERSITE=1`).
+
+### Added: image folder guide
+
+- [Prepare your image folder](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/format-image-folder/):
+  folder layouts for one channel and for several channels, a `--group_regex` for each layout, a check with
+  `-stub-run`, and how to name the channels in the NamesAndTypes module of your pipeline.
+
+### Changed: Berzelius guide
+
+- `smoke_test.sh` ran on a CPU node of the Ampere system and gave the expected 6 image sets and 51 nuclei.
+- The guide explains the project account (it can differ from the folder name in `/proj`) and what to do if you
+  cannot find it.
+- Step 3 sets `PROJ` with `export` on the compute node, and loads `Miniforge3` without a version.
+- `make_env.sh` replaces the copy-and-edit step. The template `berzelius.env.example` is gone.
+- The troubleshooting table has new rows, and a new section tells how to solve a `mamba` lock.
+- New guide: [Run with rootless Docker](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-with-rootless-docker/)
+  (not tested yet).
+- The default container is `cellprofiler/cellprofiler@sha256:...`, without the tag. Apptainer cannot pull a
+  reference that has both a tag and a digest.
 
 ### Added: documentation site
 
@@ -77,7 +96,7 @@ Cells values as the original prototype, apart from work-folder paths and executi
 
 - After a real task error, running tasks finish before the workflow stops (`errorStrategy 'finish'`). Before, the
   workflow killed them (`'terminate'`), so their work was lost for `-resume`.
-- The workflow pins the default container by digest: `cellprofiler/cellprofiler:4.2.8@sha256:fec440ca…`.
+- The workflow pins the default container by digest: `cellprofiler/cellprofiler@sha256:fec440ca…`.
 - CellProfiler runs with `QT_QPA_PLATFORM=offscreen`, `MPLBACKEND=Agg` and `-t` set to the task's temporary folder.
 - The `slurm` profile moved to `conf/slurm.config`. It has new parameters: `slurm_account`, `slurm_partition`,
   `slurm_scratch` and `slurm_cluster_options`. The parameters also work from a `-c` config file. The job queue

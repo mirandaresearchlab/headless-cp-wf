@@ -23,3 +23,5 @@
 | Cluster (HPC) | A group of many computers. A scheduler, for example Slurm, gives jobs to the computers. |
 | Head job | The long cluster job that runs Nextflow. Nextflow then submits the other jobs. |
 | Stub run | A run with `-stub-run`: the jobs make small fake files instead of running CellProfiler. It checks how the steps connect. |
+| Project account | The name of your project in Slurm. Each job on a cluster needs it (`-A`). On Berzelius, `projinfo` shows it. It can differ from the name of the storage folder in `/proj`. |
+| Rootless Docker | Docker with a service that runs as your own user. It needs no root rights. |

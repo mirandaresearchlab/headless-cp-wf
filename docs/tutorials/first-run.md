@@ -36,7 +36,7 @@ outdir       : results_test
 group_regex  : ^(.+)$
 chunk_size   : 2
 save_masks   : true (tiff)
-container    : cellprofiler/cellprofiler:4.2.8@sha256:fec440ca...
+container    : cellprofiler/cellprofiler@sha256:fec440ca...
 =================================================================================
 [cp-headless] image sets have 1 file(s) each (most common size)
 [cp-headless] 6 image set(s), 6 file(s) -> 3 chunk(s)

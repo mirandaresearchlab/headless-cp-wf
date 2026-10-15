@@ -9,9 +9,10 @@ This guide tells you how to run the workflow on Berzelius, step by step. Read th
 [home page](../index.md) and the [tutorial](../tutorials/first-run.md) first.
 
 !!! note "Testing status"
-    The tests of the workflow check the Berzelius job scripts with fake `sbatch` and `apptainer` programs.
-    We ran `smoke_test.sh` with Docker in place of Apptainer. Nobody has run the workflow on Berzelius itself
-    yet. Run step 5 (the smoke test) before your first real run.
+    On 2026-10-15, `smoke_test.sh` ran on a CPU node of the Ampere system (`berzelius-cpu`). It gave the
+    expected result: 6 image sets and 51 nuclei. The tests of the workflow also check the job scripts with
+    fake `sbatch` and `apptainer` programs. Nobody has run a large run with `submit.sh` yet. Run step 5
+    (the smoke test) before your first real run.
 
 > **Do not put sensitive data on Berzelius.** Berzelius does not allow sensitive personal data, for example
 > data that the GDPR protects. Ask NAISS support for a different system for such data.
@@ -20,6 +21,7 @@ This guide tells you how to run the workflow on Berzelius, step by step. Read th
 
 - [What the `berzelius` profile does](#what-the-berzelius-profile-does)
 - [What you need](#what-you-need)
+- [Find your project account](#find-your-project-account)
 - [Step 1. Get the code](#step-1-get-the-code)
 - [Step 2. Check your project](#step-2-check-your-project)
 - [Step 3. Install Nextflow](#step-3-install-nextflow)
@@ -32,6 +34,7 @@ This guide tells you how to run the workflow on Berzelius, step by step. Read th
 - [Cost](#cost)
 - [Storage and file counts](#storage-and-file-counts)
 - [Troubleshooting](#troubleshooting)
+- [Run without Apptainer](#run-without-apptainer)
 - [Sources](#sources)
 
 ## What the `berzelius` profile does
@@ -55,7 +58,7 @@ The helper scripts are in `scripts/berzelius/`:
 | Script | Use |
 | --- | --- |
 | `preflight.sh` | Shows your projects, quotas, partitions and software. It changes nothing. |
-| `berzelius.env.example` | A template for your settings file. |
+| `make_env.sh` | Writes your settings file from options. You do not edit a file. |
 | `smoke_test.sh` | Runs the test data on one compute node. Use it before your first real run. |
 | `submit.sh` | Checks your settings and starts the run. |
 | `run_nextflow.sbatch` | The Slurm job that runs Nextflow. `submit.sh` submits it for you. |
@@ -66,11 +69,54 @@ Collect these facts before you start. Do not guess them.
 
 | Fact | How to find it |
 | --- | --- |
-| Your project account | Run `projinfo` on a login node. |
+| Your project account | The Slurm account of your project, for example `berzelius-2026-177`. See [Find your project account](#find-your-project-account). |
 | Your system: Ampere or Hopper | Your project allocation decides it. Log in to `berzelius.nsc.liu.se` for Ampere or to `berzelius-hopper.nsc.liu.se` for Hopper. |
-| Your project folder | Usually `/proj/<project>/users/$USER`. In this guide, `$PROJ` means this folder. |
+| Your project folder | Usually `/proj/<project>/users/$USER`. In this guide, `$PROJ` means this folder. The name of this folder can differ from the name of the account. |
 | Your images | Copy them into `/proj`, for example with `rsync -av --partial`. First look in `/proj/common-datasets`. |
 | Your CellProfiler pipeline | A `.cppipe` file from CellProfiler 4.2.8. |
+
+## Find your project account
+
+Slurm needs the **project account** for each job (`-A <project-account>`). It is the name of your project in
+Slurm. It is **not** your user name (the one that starts with `x_`). It can also differ from the name of
+your storage folder in `/proj`. For example, the folder `/proj/berzelius-2025-380` can belong to the account
+`berzelius-2026-177`.
+
+On a login node, run:
+
+```bash
+projinfo
+```
+
+```text
+You are a member of 1 active project.
+
+Berzelius-2026-177
+══════════════════
+Principal Investigator (PI):   <name of the PI>
+Project storage directory:     /proj/berzelius-2025-380
+Slurm account:                 berzelius-2026-177
+```
+
+Use the line `Slurm account` for `-A`. Use the line `Project storage directory` for `$PROJ`. In this
+example, the two names differ.
+
+Test the account before you use it. An interactive job on a CPU node must start:
+
+```bash
+interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 00:05:00
+```
+
+**If you cannot find your account:**
+
+1. Run `sacctmgr show assoc user=$USER format=account%30,partition%20`. The column `Account` lists the
+   accounts that you can use.
+2. Compare it with the message that you get. `Invalid account or account/partition combination specified`
+   means that the account name is wrong, or that your user does not belong to the project.
+3. If `projinfo` says that you are a member of no project, or the list is empty, ask the PI of your
+   project to add you to the project in [SUPR](https://supr.naiss.se). Then log in again and run `projinfo`.
+4. If it still does not work, write to berzelius-support@nsc.liu.se. Give your user name, the account name
+   that you tried and the full error message.
 
 ## Step 1. Get the code
 
@@ -78,13 +124,18 @@ Log in to a login node and put the code into your project folder, not into your 
 
 ```bash
 ssh <user>@berzelius.nsc.liu.se        # or berzelius-hopper.nsc.liu.se
-PROJ=/proj/<project>/users/$USER
+export PROJ=/proj/<project>/users/$USER
 git clone <repository-url> "$PROJ/cp-headless"
 cd "$PROJ/cp-headless"
 ```
 
 Use login nodes only to edit files, to copy small files and to submit jobs. Do not run CellProfiler on a
 login node.
+
+!!! warning "Run the Berzelius commands on Berzelius"
+    Check the prompt before you run a command. On Berzelius it looks like `[x_erser@berzelius1 ...]$`. If
+    you see the name of your own computer, you are not on Berzelius. On a Mac, the command
+    `mkdir /proj/...` then fails with `Read-only file system`.
 
 ## Step 2. Check your project
 
@@ -100,26 +151,69 @@ finds. It warns if Nextflow or Apptainer files are in your home folder.
 Nextflow needs Java 17 to 26. First, look for a module with `module avail nextflow`. If there is no module,
 make a conda environment in `/proj`. Do this in an interactive job on a CPU node:
 
-```bash
-interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 01:00:00
-module load Miniforge3/<version>                 # see: module avail Miniforge3
-mamba create -p "$PROJ/envs/nextflow" -c conda-forge -c bioconda nextflow=26.04.6 openjdk=21
-exit
-```
+1. Start the job:
 
-Write down the exact versions. The settings file in the next step loads them for each run.
+   ```bash
+   interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 01:00:00
+   ```
+
+2. **Set `PROJ` again on the node, with `export`.** A job starts a new shell. It does not keep a variable that
+   you set without `export` on the login node. If `PROJ` is empty, the path `"$PROJ/envs/nextflow"` becomes
+   `/envs/nextflow`, and `mamba` stops with `Permission denied`.
+
+   ```bash
+   export PROJ=/proj/<project>/users/$USER
+   echo "$PROJ"          # it must show your folder, not an empty line
+   ```
+
+3. Load Miniforge and make the environment:
+
+   ```bash
+   module load Miniforge3
+   mamba create -p "$PROJ/envs/nextflow" -c conda-forge -c bioconda nextflow=26.04.6 openjdk=21
+   ```
+
+   `module load Miniforge3` loads the default version. You do not need to name a version. To use one
+   exact version, name it, for example `module load Miniforge3/25.3.1-0`. `module avail Miniforge3` lists the
+   versions. The default is marked with `(D)`.
+
+4. Check the result, then leave the job:
+
+   ```bash
+   "$PROJ/envs/nextflow/bin/nextflow" -version
+   exit
+   ```
+
+If `mamba` stops with an error about a lock, see [`mamba` stops because of a lock](#mamba-stops-because-of-a-lock).
+
+!!! tip "The `mamba` message about security"
+    `mamba` asks `Confirm changes: [Y/n]` and shows a warning about package scripts. This is normal for the
+    conda-forge and bioconda channels. Type `y`.
 
 ## Step 4. Make your settings file
 
+The script `make_env.sh` writes the settings file from your options. You do not copy or edit a file.
+
 ```bash
-cp scripts/berzelius/berzelius.env.example "$PROJ/cp-headless.env"
-nano "$PROJ/cp-headless.env"
+bash scripts/berzelius/make_env.sh -p "$PROJ"
 ```
 
-Replace each `<...>` in the file. The file does these things:
+| Option | Meaning |
+| --- | --- |
+| `-p` | Your project folder in `/proj` (required) |
+| `-m` | The Miniforge module. The default is `Miniforge3` (the default version). To pin a version: `-m Miniforge3/25.3.1-0` |
+| `-c` | The conda environment with Nextflow. The default is `$PROJ/envs/nextflow`. |
+| `-o` | The file to write. The default is `$PROJ/cp-headless.env`. |
+| `-f` | Replace the file if it exists |
 
-- It loads Nextflow and Java (as a module or from your conda environment).
-- It sets `NXF_HOME`, `NXF_APPTAINER_CACHEDIR` and `APPTAINER_CACHEDIR` to folders in `/proj`.
+The script stops, and writes nothing, if the path has a `<placeholder>`, is in your home folder, or if the
+file exists (use `-f`). The file that it writes does these things:
+
+- It loads Miniforge and your conda environment, so that `nextflow` and Java work.
+- It exports `PROJ`, `NXF_HOME`, `NXF_APPTAINER_CACHEDIR` and `APPTAINER_CACHEDIR`. All of them point to
+  folders in `/proj`.
+
+To change a value, run the script again with `-f`.
 
 ## Step 5. Run the test on a compute node
 
@@ -128,6 +222,7 @@ images. It shows you that Nextflow, Apptainer and CellProfiler work on Berzelius
 
 ```bash
 interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 01:00:00
+export PROJ=/proj/<project>/users/$USER      # again: a job starts a new shell
 cd "$PROJ/cp-headless"
 bash scripts/berzelius/smoke_test.sh "$PROJ/cp-headless.env" "$PROJ/cp-smoke"
 exit
@@ -154,6 +249,8 @@ group_regex: '^(.+?_s\d+)_w\d'
 chunk_size: 150
 required_metadata: Plate,Well,Site
 ```
+
+A YAML file does not expand `$USER`. Write your own user name for `<user>`. `echo $USER` shows it.
 
 See [Run on your data](../usage.md) for [`group_regex`](../usage.md#group-the-files-of-one-site) and
 [`required_metadata`](../usage.md#metadata-for-profiling). See [Choose the chunk size](#choose-the-chunk-size)
@@ -272,13 +369,55 @@ There is no backup of `/proj`. Keep a copy of your raw images in a different pla
 | Jobs wait with reason `Resources` or `Priority` | The CPU nodes are busy. Wait, or use a larger chunk size, which gives fewer jobs. |
 | Jobs wait with reason `AssocGrpGRESRunMinutes` | Your project used its allocation for this month. `projinfo` shows it. |
 | `Disk quota exceeded` | Run `nscquota`. Usually there are too many files. Remove old work folders. |
+| `Invalid account or account/partition combination specified` | The account name is wrong. Your user name (`x_...`) is not an account. See [Find your project account](#find-your-project-account). |
+| `mamba` stops with `Permission denied [/envs/nextflow/...]` | `PROJ` is empty in this shell, so the path starts at `/`. Run `export PROJ=/proj/<project>/users/$USER`, check it with `echo "$PROJ"`, and run `mamba create` again (step 3). |
+| `mamba` stops with `Read-only file system ["/proj"]` | You run the command on your own computer. Run it on Berzelius. |
+| `mamba` stops because of a lock | See [`mamba` stops because of a lock](#mamba-stops-because-of-a-lock). |
+| `Docker references with both a tag and digest are currently not supported` | Apptainer cannot pull `image:tag@sha256:...`. Use `--container 'cellprofiler/cellprofiler@sha256:<digest>'` (no tag). The default of the workflow already has this form. Update the code with `git pull`. |
 | A job cannot download the image | Run step 5 again. It puts the image into the cache before the run. |
 | The head job stopped after 72 hours | Run the same `submit.sh` command again. The run continues. |
 | CellProfiler is slower than expected | Check that your pipeline uses no GPU plugin, for example Cellpose. On CPU nodes, such plugins are very slow. |
 
+### `mamba` stops because of a lock
+
+A lock error means that another `mamba` or `conda` process holds a lock file, or that an earlier run stopped
+and left one. The quickest way to solve it:
+
+1. Check that no other `mamba` of yours is running (for example in a second terminal):
+
+   ```bash
+   pgrep -u "$USER" -a mamba
+   ```
+
+   If it lists a running process, wait until it ends. A line that ends with `<defunct>` in `ps` is a finished
+   process that the system has not cleaned up yet. It holds no lock. Ignore it.
+
+2. Remove the lock files. Look first, then remove them:
+
+   ```bash
+   find ~/.mamba ~/.conda "$PROJ/envs" -name "*.lock" 2>/dev/null
+   find ~/.mamba ~/.conda "$PROJ/envs" -name "*.lock" -delete 2>/dev/null
+   ```
+
+3. If the first run stopped in the middle, remove the half-made environment. Then run `mamba create` again:
+
+   ```bash
+   rm -rf "$PROJ/envs/nextflow"
+   ```
+
+   Check that `echo "$PROJ"` shows your folder before you run `rm -rf`. An empty `PROJ` points `rm` to `/envs`.
+
+If the error stays, write the full message to berzelius-support@nsc.liu.se. We have not tested these steps
+on Berzelius.
+
 To ask for help, write to berzelius-support@nsc.liu.se. Write one message for each problem. Give the job ID,
 the script, the full error message and the versions of your modules. The system status is at
 https://www.nsc.liu.se/systemstatus/.
+
+## Run without Apptainer
+
+Berzelius has no Docker, so this guide uses Apptainer. On a server where you have no root rights but
+rootless Docker is available, see [Run with rootless Docker](run-with-rootless-docker.md).
 
 ## Sources
 

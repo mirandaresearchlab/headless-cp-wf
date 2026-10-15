@@ -25,11 +25,17 @@ images/
     └── ...
 ```
 
+For more layouts (one folder for each channel, one folder for each well), see
+[Prepare your image folder](how-to/format-image-folder.md).
+
 !!! warning "Keep the image folder clean"
     Thumbnails, overlays or old results in the image folder stop the run, because they do not match
     `group_regex`. The output folder must not be in the image folder.
 
 ## Group the files of one site
+
+The workflow does not name your channels. Your pipeline does that, in the NamesAndTypes module. See
+[Define the channels in your pipeline](how-to/format-image-folder.md#define-the-channels-in-your-pipeline).
 
 A microscope usually saves one file per channel. CellProfiler must get all channel files of a site in the
 same job. `--group_regex` is a regular expression for this. The workflow applies it to the path of each file
@@ -46,6 +52,9 @@ belong to the same image set.
 The workflow then checks the image sets before CellProfiler starts. Every file must match the pattern, and
 every image set must have the same number of files. If a check fails, the run stops and shows examples. See
 [Data checks and design](explanation/design.md).
+
+To test your pattern before a large run, run the workflow with `-stub-run`. It makes the checks and starts no
+CellProfiler job. See [Check the folder before a large run](how-to/format-image-folder.md#check-the-folder-before-a-large-run).
 
 ## Choose the chunk size
 

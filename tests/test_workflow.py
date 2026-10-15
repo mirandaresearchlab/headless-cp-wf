@@ -329,7 +329,7 @@ def test_run_info_records_provenance(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     info = json.loads((tmp_path / "results" / "pipeline_info" / "run_info.json").read_text())
     assert info["workflow"]["name"] == "cp-headless"
-    assert info["container"].startswith("cellprofiler/cellprofiler:4.2.8@sha256:")
+    assert info["container"].startswith("cellprofiler/cellprofiler@sha256:")
     assert info["params"]["save_masks"] == "false"
     assert info["run"]["stub_run"] is True
     assert info["nextflow"]
@@ -468,7 +468,7 @@ def test_berzelius_jobs_go_to_a_cpu_partition_with_local_scratch(tmp_path):
     assert "nxf_mktemp /scratch/local" in job  # node-local NVMe
     assert "apptainer exec" in job and "docker run" not in job
     assert "--gpus" not in job and "gres" not in job
-    assert list(cache.glob("cellprofiler-cellprofiler-4.2.8@sha256-*.img"))
+    assert list(cache.glob("cellprofiler-cellprofiler@sha256-*.img"))
 
 
 def test_berzelius_without_account_stops_before_submitting(tmp_path):

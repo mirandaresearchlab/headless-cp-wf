@@ -41,7 +41,7 @@ The segmentation masks that the workflow adds, and how CellProfiler runs.
 | `--mask_objects` | string |  | Save masks only for these objects, separated by commas, for example Nuclei,Cells. Empty = all objects. |
 | `--mask_format` | string<br><small>one of `tiff`, `png`, `npy`</small> | `tiff` | The file format of the masks. tiff and png are 16-bit images. npy holds the raw label numbers. |
 | `--allow_unpatched` | boolean | `false` | If the preparation of the pipeline fails, run the original pipeline. Masks and tables are then not certain. |
-| `--container` | string | `cellprofiler/cellprofiler:4.2.8@sha256:fec440caa2b44edf80f9bd440a3d8c6b214d72437332ad2586a32d79e2eae2a4` | The CellProfiler container image. Use the CellProfiler version of your pipeline.<br><small>The default is pinned by its digest, so each run uses the same image.</small> |
+| `--container` | string | `cellprofiler/cellprofiler@sha256:fec440caa2b44edf80f9bd440a3d8c6b214d72437332ad2586a32d79e2eae2a4` | The CellProfiler container image. Use the CellProfiler version of your pipeline.<br><small>The default is pinned by its digest, so each run uses the same image.</small> |
 | `--plugins_dir` | string<br><small>directory-path</small> |  | A folder with CellProfiler plugins. |
 | `--cellprofiler_args` | string | `""` | More options for the cellprofiler command, for example '--conserve-memory True'. |
 
