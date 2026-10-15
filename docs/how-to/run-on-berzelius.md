@@ -125,7 +125,7 @@ Log in to a login node and put the code into your project folder, not into your 
 ```bash
 ssh <user>@berzelius.nsc.liu.se        # or berzelius-hopper.nsc.liu.se
 export PROJ=/proj/<project>/users/$USER
-git clone <repository-url> "$PROJ/cp-headless"
+git clone https://github.com/mirandaresearchlab/headless-cp-wf.git "$PROJ/cp-headless"
 cd "$PROJ/cp-headless"
 ```
 

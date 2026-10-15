@@ -3,6 +3,11 @@
 This guide tells you how to use your own CellProfiler pipeline with the workflow, and how to check it before a
 large run. The requirements are in [CellProfiler pipelines](../reference/pipelines.md).
 
+!!! info "Before you start"
+    This guide assumes that you cloned the repository, installed the tools and activated the environment.
+    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
+    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+
 ## 1. Make or change the pipeline in CellProfiler 4.2.8
 
 Use the same CellProfiler version as the container. A pipeline from a newer CellProfiler can fail to load, or
@@ -25,7 +30,16 @@ In the pipeline:
 
 ## 2. Test the pipeline on a few images
 
-Copy the images of a few sites into a test folder, then run the workflow on them:
+Copy the images of a few sites into a test folder. First do a dry run. It checks the grouping and your
+parameters in seconds, and it does not start CellProfiler:
+
+```bash
+nextflow run . -profile local -stub-run \
+    --pipeline analysis.cppipe --input_dir test_images --outdir test_stub \
+    --group_regex '^(.+?_s\d+)_w\d' --chunk_size 2
+```
+
+Then run the workflow on the same folder with real CellProfiler:
 
 ```bash
 nextflow run . -profile docker \

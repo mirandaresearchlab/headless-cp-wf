@@ -5,6 +5,11 @@ several channels. It also tells you how the workflow uses the channels, and wher
 
 Read [Run on your data](../usage.md) for the other parts of a run.
 
+!!! info "Before you start"
+    This guide assumes that you cloned the repository, installed the tools and activated the environment.
+    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
+    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+
 ## What the workflow does with your folder
 
 1. It searches `--input_dir` and all its sub-folders for files with an image extension (`--extensions`).

@@ -3,6 +3,11 @@
 This page tells you how to prepare your images and your pipeline, and how to start a run.
 Do the [tutorial](tutorials/first-run.md) first.
 
+!!! info "Before you start"
+    This guide assumes that you cloned the repository, installed the tools and activated the environment.
+    If you did not, do [Installation](getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
+    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+
 ## Prepare the input
 
 You need two things.
@@ -108,6 +113,7 @@ Choose one or more profiles with `-profile`, separated by commas.
 | --- | --- |
 | `test` | You want to run the included test data |
 | `docker` | You run on a laptop or workstation with Docker |
+| `rootless` | You run on a shared Linux server with rootless Docker (see [Run with rootless Docker](how-to/run-with-rootless-docker.md)) |
 | `apptainer`, `singularity` | You run on a computer with Apptainer or Singularity |
 | `local` | You installed CellProfiler on your computer (no container) |
 | `slurm` | You run on a Slurm cluster. See [Run on a Slurm cluster](how-to/run-on-hpc.md). |

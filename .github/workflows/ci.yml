@@ -1,6 +1,7 @@
-# Automatic checks on GitHub. Both jobs run on each push to each branch. See docs/about/contributing.md.
+# Automatic checks on GitHub. All jobs run on each push to each branch. See docs/about/contributing.md.
 #   pre-commit:   all checks of .pre-commit-config.yaml, and a bot commit with automatic corrections
 #   cellprofiler: the tests with real CellProfiler in Docker
+#   rootless:     the same end-to-end run with rootless Docker and -profile test,rootless
 name: CI
 
 on:
@@ -126,3 +127,44 @@ jobs:
 
       - name: Run CellProfiler module, patch and end-to-end tests
         run: uv run pytest -m cellprofiler -v
+
+  # The same runner, but Docker runs in rootless mode, like on a shared server without sudo. The action
+  # installs a rootless daemon for the runner user and makes it the default Docker context.
+  rootless:
+    name: Real CellProfiler tests (rootless Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out pushed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.9"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked Python dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Install Nextflow
+        uses: nf-core/setup-nextflow@6c2e22b4d901f0c42ca66c5069f8026df026d165 # v2.1.4
+        with:
+          version: "26.04.6"
+
+      - name: Start rootless Docker
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5.5.0
+        with:
+          rootless: true
+
+      # Stop here if the daemon is not rootless. Otherwise the tests below would skip and the job would pass.
+      - name: Check that Docker is rootless
+        run: docker info --format '{{json .SecurityOptions}}' | grep rootless
+
+      # The rootless tests, and the configuration tests of the rootless profile.
+      - name: Run rootless tests
+        run: uv run pytest -v -m "rootless or workflow" -k "rootless or docker_profile"

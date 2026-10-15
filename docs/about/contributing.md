@@ -100,7 +100,7 @@ uv run pre-commit install
 
 ## Tests
 
-The tests have four levels. The fast tests run on each commit.
+The tests have five levels. The fast tests run on each commit.
 
 | Command | What it tests | Time |
 | --- | --- | --- |
@@ -108,6 +108,7 @@ The tests have four levels. The fast tests run on each commit.
 | `bash scripts/test-helpers-py38.sh` | The same tests, with the helpers on Python 3.8 | seconds |
 | `uv run pytest -m workflow` | `main.nf` without CellProfiler (`-stub-run`): grouping, checks, parameters, Slurm and Berzelius job scripts | about 1 minute. CI skips it: run it on your computer. |
 | `uv run pytest -m cellprofiler` | Real CellProfiler in Docker: the pipeline preparation, and a complete run of the test data | some minutes |
+| `uv run pytest -m rootless` | Real CellProfiler with rootless Docker: a complete run of the test data with `-profile test,rootless`, and the owner of each file. Skipped without a rootless daemon (only Linux). | some minutes |
 
 Other commands:
 
@@ -132,7 +133,7 @@ image file. Thus the tests can check the `#SBATCH` lines and the use of `/scratc
 
 ## Automatic checks on GitHub
 
-`.github/workflows/ci.yml` has two jobs. Both run on each push to each branch.
+`.github/workflows/ci.yml` has three jobs. All run on each push to each branch.
 
 1. **pre-commit** runs all checks of `.pre-commit-config.yaml`. If Ruff or another check corrects files,
    the job runs the checks again (3 times or fewer). Then it commits the corrections as
@@ -141,6 +142,8 @@ image file. Thus the tests can check the `#SBATCH` lines and the use of `/scratc
    - The checks still fail after the corrections.
    - GitHub cannot push the correction.
 2. **cellprofiler** runs `pytest -m cellprofiler` with real CellProfiler in Docker.
+3. **rootless** starts rootless Docker on the runner and runs `pytest -m rootless`, and the configuration
+   tests of the `rootless` profile.
 
 The pre-commit job needs `contents: write` permission for the bot commit. On a protected branch, GitHub
 Actions must have permission to push. Otherwise the push fails, and you must run the checks yourself:

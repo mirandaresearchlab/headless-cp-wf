@@ -39,9 +39,36 @@ Apple Silicon, Docker Desktop emulates it, which is slower.
     cd headless-cp-wf
     ```
 
-!!! warning "Java version"
-    If `nextflow -version` shows `Cannot find Java or it's a wrong version`, select a supported Java.
-    On macOS with Homebrew, for example: `export JAVA_HOME=/opt/homebrew/opt/openjdk@21`.
+## Activate the environment
+
+Run this in each new terminal, in the folder `headless-cp-wf`, before you use `nextflow`:
+
+```bash
+source .venv/bin/activate
+```
+
+## Select a supported Java
+
+Nextflow refuses Java 27 and newer. Homebrew installs the newest Java, so a Mac often has Java 27. Check
+what Nextflow finds:
+
+```bash
+nextflow -version
+```
+
+If it prints a version number, go on. If it prints `Cannot find Java or it's a wrong version`, select Java 21:
+
+```bash
+unset JAVA_CMD
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21           # Mac with Apple Silicon
+# export JAVA_HOME=/usr/local/opt/openjdk@21             # Intel Mac
+# export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64    # Ubuntu
+nextflow -version
+```
+
+If Java 21 is missing, install it: `brew install openjdk@21` (Mac) or `sudo apt install openjdk-21-jre-headless`
+(Ubuntu). `JAVA_CMD` has priority over `JAVA_HOME`, so remove it first. To keep the choice, add the `export`
+line to your `~/.zshrc` (Mac) or `~/.bashrc` (Linux).
 
 ## Check the installation
 
@@ -60,4 +87,5 @@ The script finds Nextflow and a supported Java itself. The end of its output is:
 Submitted process > MERGE_FEATURES
 ```
 
-Then do the [tutorial](../tutorials/first-run.md), which runs real CellProfiler.
+Then do the [tutorial](../tutorials/first-run.md), which runs real CellProfiler. For all steps from `git clone` to a run on
+your images, see [Run on your own computer](../how-to/run-on-your-computer.md).

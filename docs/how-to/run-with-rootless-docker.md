@@ -4,9 +4,11 @@ This guide tells you how to run the workflow with **rootless Docker**. Rootless 
 as your own user, so you need no root rights to run containers. Use it on a shared server where you cannot
 use `sudo`, and where an administrator did not install normal Docker for you.
 
-!!! warning "Not tested"
-    We did not run the workflow with rootless Docker. The steps follow the documentation of Docker and the
-    behavior of the `docker` profile. Run the test in step 4 first. Tell us if a step does not work.
+!!! note "What the automatic test covers"
+    On each push, the `rootless` job of the CI starts rootless Docker on a GitHub runner (Ubuntu, amd64) and
+    runs step 4. It checks the nuclei counts and that the runner user owns all files. Your server can differ,
+    for example in its cgroup settings or in the disk of the images. Run step 4 first. Tell us if a step does
+    not work.
 
 Berzelius has no Docker. On Berzelius, follow [Run on Berzelius](run-on-berzelius.md), which uses Apptainer.
 Use this guide for other servers, for example a server of your group.
@@ -26,6 +28,11 @@ Ask the administrator of the server for these things. You cannot do them without
 - A range of subordinate user IDs for you in `/etc/subuid` and `/etc/subgid`.
 - Permission to keep your services running after you log out (`loginctl enable-linger $USER`). You need this
   for a long run that continues after you close the terminal.
+
+!!! info "Before you start"
+    This guide assumes that you cloned the repository, installed the tools and activated the environment.
+    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
+    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
 
 ## Step 1. Start your Docker service
 
@@ -55,28 +62,36 @@ small quota, or is on a network disk (NFS), store the images on a large local di
 
 Then run `systemctl --user restart docker`. You must pull the images again after this change.
 
-## Step 3. Make a settings file for rootless mode
+## Step 3. Use the `rootless` profile, not the `docker` profile
 
 The `docker` profile of the workflow starts each job with `-u $(id -u):$(id -g)`. This is right for normal
 Docker. It is wrong for rootless Docker. In rootless Docker, `root` (user 0) inside the container is
 you on the server. Any other user ID inside the container is a different, high number on the server. Files
 written by that user belong to a number that is not you, and you cannot always remove them.
 
-Write a small file `rootless.config`. It runs each job as `root` inside the container, which is you on the
-server. It also replaces the `-u $(id -u):$(id -g)` option:
+The `rootless` profile turns on Docker and runs each job with `-u 0:0`, as `root` inside the container, which
+is you on the server. Use `-profile rootless` instead of `-profile docker`.
 
-```groovy
-// Root inside the container is you in rootless Docker. Do not run the job as another user.
-docker.runOptions   = '--entrypoint "" -u 0:0'
-docker.fixOwnership = false
-```
+!!! warning "Do not add `docker` after `rootless`"
+    Nextflow applies the profiles in the order of the `-profile` option. With `-profile rootless,docker`, the
+    `docker` profile sets `-u $(id -u):$(id -g)` again. You do not need the `docker` profile: `rootless` turns
+    on Docker. If you must give both, give `docker,rootless`.
 
-Use `-u 0:0` and not just "no `-u` option". Some images set a non-root user, and then the job would not run as you.
+## Step 4. Test your setup
 
-## Step 4. Run the test
+Do both tests before you run your data. First a dry run. The jobs make small fake files instead of running
+CellProfiler, but Nextflow still starts each job in a container. Thus it tests your Docker service, the image
+download and the file owner, and it takes a short time:
 
 ```bash
-nextflow run . -profile test,docker -c rootless.config
+nextflow run . -profile test,rootless -stub-run
+```
+
+It must end with `[SUCCESS] completed=5 failed=0 cached=0`. If it fails, see the troubleshooting table below.
+Then run the real test with CellProfiler:
+
+```bash
+nextflow run . -profile test,rootless
 ```
 
 The test must give 6 image sets and 51 nuclei in `results/features/MyExpt_Image.csv` and
@@ -87,15 +102,15 @@ Check that your user owns the result files:
 ls -l results/features
 ```
 
-The owner must be you. If the owner is a number, the job did not run as `root` inside the container: check the
-config file.
+The owner must be you. If the owner is a number, the job did not run as `root` inside the container: check
+that you used `-profile test,rootless` (step 3).
 
 ## Step 5. Run your data
 
-Use the same options as in [Run on your data](../usage.md), and add the profile and the config file:
+Use the same options as in [Run on your data](../usage.md), with the `rootless` profile:
 
 ```bash
-nextflow run . -profile docker -c rootless.config \
+nextflow run . -profile rootless \
     --pipeline /path/to/analysis.cppipe \
     --input_dir /path/to/images \
     --outdir /path/to/results \
@@ -118,8 +133,8 @@ reason as above.
 | `permission denied` for `/var/run/docker.sock` | Your shell uses the normal Docker socket. Run `export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock`. |
 | `could not get XDG_RUNTIME_DIR` | You are not in a normal login session, for example after `su`. Log in again with SSH. |
 | `fork/exec /proc/self/exe: operation not permitted` | The server blocks user namespaces. The administrator must allow them. |
-| The result files belong to a number, not to you | The job ran as another user inside the container. Use `-c rootless.config` (step 3). To fix files that exist, run `docker run --rm -u 0:0 -v "$PWD:$PWD" alpine chown -R 0:0 "$PWD/results"`. These files then belong to you. |
-| A job cannot write to a folder it needs | The job does not run as `root` inside the container. Check `-u 0:0` in `rootless.config`. |
+| The result files belong to a number, not to you | The job ran as another user inside the container. Use `-profile rootless` (step 3). To fix files that exist, run `docker run --rm -u 0:0 -v "$PWD:$PWD" alpine chown -R 0:0 "$PWD/results"`. These files then belong to you. |
+| A job cannot write to a folder it needs | The job does not run as `root` inside the container. Use `-profile rootless`, and do not add `docker` after it. |
 | A warning about the memory or CPU limits of a container | The kernel does not pass these limits to your service. The jobs still run, but Docker does not enforce the limits. Use `--max_cpus` and `--max_memory` to stay inside your share. |
 | `no space left on device` while Docker pulls the image | The folder of Docker (`~/.local/share/docker`) is full. See step 2. |
 | `exec format error` | The server is not amd64. The CellProfiler 4.2.8 image runs only on Linux amd64. |

@@ -2,7 +2,12 @@
 
 **You will:** run CellProfiler on 6 small test images, look at the tables and masks, and read the reports.
 **Time:** about 10 seconds for the run, plus the download of the CellProfiler image the first time.
-**Prerequisites:** [Installation](../getting-started/installation.md) and Docker.
+**Prerequisites:** Git, Java 17 to 26 and Docker. [Run on your own computer](../how-to/run-on-your-computer.md) tells you how to install them.
+
+!!! info "Before you start"
+    This guide assumes that you cloned the repository, installed the tools and activated the environment.
+    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
+    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
 
 ## 1. Look at the test data
 

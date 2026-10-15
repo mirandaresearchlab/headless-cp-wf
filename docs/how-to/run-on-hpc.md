@@ -10,6 +10,11 @@ Berzelius cluster, use [Run on Berzelius](run-on-berzelius.md), which follows th
 **Prerequisites:** an account on the cluster, Nextflow and Java 17 to 26 on the cluster, and Apptainer or
 Singularity on the compute nodes.
 
+!!! info "Before you start"
+    This guide assumes that you cloned the repository, installed the tools and activated the environment.
+    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
+    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+
 ## 1. Collect the facts of your cluster
 
 Read the documentation of your cluster, or ask its support, for these facts:
@@ -51,7 +56,26 @@ for example in an interactive job. It puts the CellProfiler image into `containe
 nextflow run . -profile test,apptainer --container_cache /<shared storage>/containers
 ```
 
-## 4. Run Nextflow as a job
+## 4. Test your setup
+
+Test the setup in a short interactive job, before you submit a large run. Do not use the login node.
+First a dry run. The jobs make small fake files instead of running CellProfiler, but Nextflow still sends
+each job to Slurm. Thus it tests your account, your partition and your `site.config`:
+
+```bash
+nextflow run . -profile test,slurm,apptainer -c site.config -stub-run
+```
+
+It must end with `[SUCCESS] completed=5 failed=0 cached=0`. Then run the real test with CellProfiler:
+
+```bash
+nextflow run . -profile test,slurm,apptainer -c site.config
+```
+
+The tables in `results_test/features/` must have 6 image sets and 51 nuclei. If the numbers differ, do not
+start a large run. Find the cause first, with [Troubleshooting](troubleshooting.md).
+
+## 5. Run Nextflow as a job
 
 Do not run Nextflow on the login node. Run it as a long Slurm job with few resources. Nextflow then submits
 one job per chunk:
@@ -68,7 +92,7 @@ nextflow run /<shared storage>/headless-cp-wf \
 - Start each run from the same folder, so that `-resume` finds its cache.
 - If the job stops (for example at its time limit), submit it again. `-resume` continues the run.
 
-## 5. After the run
+## 6. After the run
 
 Check the results as described in [Output](../output.md). Then remove the work folder, because it holds many
 small files. Keep it only while you need `-resume`.

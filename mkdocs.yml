@@ -89,6 +89,7 @@ nav:
   - How-to guides:
       - how-to/index.md
       - Prepare your image folder: how-to/format-image-folder.md
+      - Run on your own computer: how-to/run-on-your-computer.md
       - Run on a Slurm cluster: how-to/run-on-hpc.md
       - Run on Berzelius: how-to/run-on-berzelius.md
       - Run with rootless Docker: how-to/run-with-rootless-docker.md

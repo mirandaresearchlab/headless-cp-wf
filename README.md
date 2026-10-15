@@ -34,6 +34,9 @@ flowchart LR
 
 You need Nextflow 24.04 or newer, Java 17 to 26, and Docker.
 
+See [Run on your own computer](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-your-computer/) for each step from
+`git clone`, including how to install Nextflow and how to select a supported Java.
+
 ```bash
 git clone https://github.com/mirandaresearchlab/headless-cp-wf.git
 cd headless-cp-wf

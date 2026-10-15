@@ -20,6 +20,23 @@ Cells values as the original prototype, apart from work-folder paths and executi
 - On a cluster, the workflow warns when more than 500 image sets run as one job (`chunk_size 0`).
 - CellProfiler jobs ignore your own Python packages (`PYTHONNOUSERSITE=1`).
 
+### Added: guide for your own computer
+
+- [Run on your own computer](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-your-computer/): all
+  steps from `git clone` to a run on your images, with the fix for Java 27 and the memory limit of Docker Desktop.
+- Each guide that runs the workflow starts with a "Before you start" box. It sends you to
+  [Installation](https://mirandaresearchlab.github.io/headless-cp-wf/getting-started/installation/) (clone, install,
+  activate the environment, select Java) if you did not do these steps. Each of these guides has a test section
+  with a dry run (`-stub-run`) and a real run.
+
+### Added: rootless Docker profile and tests
+
+- `-profile rootless` runs the jobs with rootless Docker as `root` inside the container (`-u 0:0`), which is
+  you on the server. It replaces the `rootless.config` file of the
+  [rootless Docker guide](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-with-rootless-docker/).
+- `tests/test_rootless.py` and the `rootless` CI job: a complete run of the `test` profile with rootless Docker
+  on a GitHub runner. It checks the nuclei counts and the owner of each file.
+
 ### Added: image folder guide
 
 - [Prepare your image folder](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/format-image-folder/):

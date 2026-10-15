@@ -554,3 +554,63 @@ def test_stub_run_works_on_a_machine_with_little_memory(tmp_path):
     result = run_stub(tmp_path, images, "-c", small)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "exceeds available memory" not in result.stdout + result.log
+
+
+def docker_run_options(*profiles):
+    """Read docker.runOptions from the configuration of the given profiles.
+
+    Parameters
+    ----------
+    *profiles : str
+        The profiles, in the order of the -profile option, for example "docker", "rootless".
+
+    Returns
+    -------
+    str
+        The value of docker.runOptions.
+    """
+    if not shutil.which("nextflow", path=nextflow_env()["PATH"]):
+        pytest.skip("nextflow is not installed (run ./scripts/bootstrap.sh)")
+    result = subprocess.run(
+        ["nextflow", "config", "-flat", "-profile", ",".join(profiles), str(ROOT)],
+        env=nextflow_env(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    match = re.search(r"^docker\.runOptions = '(.*)'$", result.stdout, re.MULTILINE)
+    assert match, result.stdout
+    return match.group(1)
+
+
+def test_docker_profile_runs_jobs_as_the_calling_user():
+    """Check the control: with normal Docker, the jobs run as the user who starts Nextflow."""
+    assert "-u $(id -u):$(id -g)" in docker_run_options("docker")
+
+
+@pytest.mark.parametrize("profiles", [("rootless",), ("test", "rootless"), ("docker", "rootless")])
+def test_rootless_profile_runs_jobs_as_root_in_the_container(profiles):
+    """Check that the rootless profile runs the jobs as root (-u 0:0) inside the container.
+
+    In rootless Docker, root inside the container is the user on the server. The profile turns on Docker
+    by itself. After the docker profile, it replaces the user option of the docker profile.
+
+    Parameters
+    ----------
+    profiles : tuple of str
+        The profiles (one tuple per test run, from parametrize).
+    """
+    options = docker_run_options(*profiles)
+    assert "-u 0:0" in options
+    assert "id -u" not in options
+    assert '--entrypoint ""' in options
+
+
+def test_docker_after_rootless_brings_back_the_user_option():
+    """Check the documented limit: Nextflow applies the profiles in the order of the -profile option.
+
+    Thus the docker profile after the rootless profile sets -u $(id -u):$(id -g) again. The guide tells
+    users not to do this. If this test fails, Nextflow changed the order, and the guide can drop the warning.
+    """
+    assert "-u $(id -u):$(id -g)" in docker_run_options("rootless", "docker")
