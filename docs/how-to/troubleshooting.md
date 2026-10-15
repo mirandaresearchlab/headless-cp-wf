@@ -13,8 +13,13 @@ This page tells you how to find the cause of an error and fix it. Find the messa
 | `--<name> must be true or false` | Give boolean parameters as `true` or `false`. |
 | `CellProfiler reported errors while loading the pipeline` | A plugin is missing (`--plugins_dir`), or the pipeline comes from a newer CellProfiler (`--container`). |
 | `Process requirement exceeds available memory` | Set `--max_memory` and `--max_cpus` to the size of your computer. |
-| `Cannot find Java or it's a wrong version` | Nextflow needs Java 17 to 26. Set `JAVA_HOME` to a supported Java. |
-| `nextflow: command not found` | Activate the development environment (`source .venv/bin/activate`), or install Nextflow. |
+| `Cannot find Java or it's a wrong version` | Nextflow needs Java 17 to 26. Run the lines of [Installation, step 5](../getting-started/installation.md#step-5-activate-nextflow). |
+| `docker: command not found` in `.command.run` (exit status 127) | You used `-profile docker`, but Docker is not installed. Install and start it ([Run with Docker](run-with-docker.md)), or use `-profile local` ([Run without Docker](run-without-docker.md)). |
+| `Cannot connect to the Docker daemon` | The Docker service does not run. In a lab workstation, run `bash scripts/start-docker-in-container.sh` ([Run with Docker](run-with-docker.md#step-2-start-docker)). |
+| `Command 'ps' required by nextflow to collect task metrics cannot be found` | The computer has no `ps`, for example in a minimal container. Install the package `procps`. |
+| `Could not import CellProfiler (No module named 'cellprofiler_core')` | With `-profile local`: the jobs use a Python without CellProfiler. Put the `bin` folder of the CellProfiler environment first in `PATH`. See [Run without Docker](run-without-docker.md). |
+| `Error finding javahome on linux: ['bash', '-c', 'type -p java']` | CellProfiler cannot find `java`. With the `local` profile, put the `bin` folder of the CellProfiler environment first in `PATH`. See [Run without Docker](run-without-docker.md). |
+| `nextflow: command not found` | Run the lines of [Installation, step 5](../getting-started/installation.md#step-5-activate-nextflow). On Berzelius, `source` your settings file. |
 
 ## Errors after a CellProfiler job
 

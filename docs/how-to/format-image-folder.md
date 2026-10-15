@@ -6,9 +6,9 @@ several channels. It also tells you how the workflow uses the channels, and wher
 Read [Run on your data](../usage.md) for the other parts of a run.
 
 !!! info "Before you start"
-    This guide assumes that you cloned the repository, installed the tools and activated the environment.
-    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
-    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+    This page assumes that you installed the workflow and ran its test. On a lab workstation, see
+    [Installation](../getting-started/installation.md). On Berzelius, see [Berzelius: set up](berzelius-setup.md). To check, open a terminal in the
+    folder `headless-cp-wf` and run `nextflow -version`. It must print a version number.
 
 ## What the workflow does with your folder
 

@@ -4,9 +4,9 @@ This page tells you how to prepare your images and your pipeline, and how to sta
 Do the [tutorial](tutorials/first-run.md) first.
 
 !!! info "Before you start"
-    This guide assumes that you cloned the repository, installed the tools and activated the environment.
-    If you did not, do [Installation](getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
-    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+    This page assumes that you installed the workflow and ran its test. On a lab workstation, see
+    [Installation](getting-started/installation.md). On Berzelius, see [Berzelius: set up](how-to/berzelius-setup.md). To check, open a terminal in the
+    folder `headless-cp-wf` and run `nextflow -version`. It must print a version number.
 
 ## Prepare the input
 
@@ -67,7 +67,7 @@ CellProfiler job. See [Check the folder before a large run](how-to/format-image-
 
 - `0` (the default) puts all image sets into one job. This is always correct, but slow for large data.
 - On a cluster, choose a size that gives jobs of 15 to 60 minutes. See
-  [Choose the chunk size](how-to/run-on-berzelius.md#choose-the-chunk-size).
+  [Choose the chunk size](how-to/berzelius-batch.md#choose-the-chunk-size).
 
 Some pipelines must process all images in one job, for example illumination correction calculated from all
 images. The workflow stops if you divide such a pipeline into chunks. Use `--chunk_size 0` for them.
@@ -111,13 +111,13 @@ Choose one or more profiles with `-profile`, separated by commas.
 
 | Profile | Use when |
 | --- | --- |
-| `test` | You want to run the included test data |
-| `docker` | You run on a laptop or workstation with Docker |
-| `rootless` | You run on a shared Linux server with rootless Docker (see [Run with rootless Docker](how-to/run-with-rootless-docker.md)) |
-| `apptainer`, `singularity` | You run on a computer with Apptainer or Singularity |
-| `local` | You installed CellProfiler on your computer (no container) |
-| `slurm` | You run on a Slurm cluster. See [Run on a Slurm cluster](how-to/run-on-hpc.md). |
-| `berzelius` | You run on Berzelius. See [Run on Berzelius](how-to/run-on-berzelius.md). |
+| `test` | You want to run the included test data. Combine it with one of the profiles below. |
+| `local` | CellProfiler runs from your conda environment on the workstation, without a container. See [Run without Docker](how-to/run-without-docker.md). |
+| `docker` | CellProfiler runs in the official container with Docker. See [Run with Docker](how-to/run-with-docker.md). |
+| `berzelius` | You run on Berzelius. It uses Slurm and Apptainer. See [Berzelius: set up](how-to/berzelius-setup.md). |
+
+The profiles `slurm`, `apptainer` and `singularity` also exist. The `berzelius` profile builds on the `slurm`
+settings and turns on Apptainer itself. We support and test these settings only as parts of `berzelius`.
 
 ## Continue a run
 

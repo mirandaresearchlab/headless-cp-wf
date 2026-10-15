@@ -34,6 +34,21 @@ REFERENCE_COUNTS = {
 }
 
 
+# Per-object features of the same run (tests/reference/README.md tells how they were made).
+REFERENCE = ROOT / "tests" / "reference"
+
+# Relative tolerance for feature values. On 2026-10-15 the official image (Python 3.8, NumPy 1.24.4) and the
+# conda build without a container (Python 3.9, NumPy 1.26.4) differed by at most 8e-6, in a Zernike feature.
+# 1e-4 allows such rounding, but finds a changed segmentation or measurement. abs=1e-9 is for values near 0.
+FEATURE_RTOL = 1e-4
+
+# Columns that the comparison skips. Location_MaxIntensity_* is the position of the brightest pixel. If two
+# pixels have the same maximum, CellProfiler builds can report either one: nucleus 7 of plate1/site2 has two
+# pixels with the value 3238, and the reference has (97, 66) where a CI run had (99, 59). The maximum value
+# itself (Intensity_MaxIntensity_*) is compared.
+UNSTABLE_COLUMNS = ("Location_MaxIntensity_",)
+
+
 @pytest.fixture(scope="module", autouse=True)
 def require_docker():
     """Skip all tests of this file if Docker is missing, and pull the CellProfiler image if needed.
@@ -221,6 +236,31 @@ def read_csv(path):
         return list(csv.DictReader(handle))
 
 
+def assert_features_match_reference(features):
+    """Compare the Nuclei and Cells tables of a run with the reference tables, value by value.
+
+    Parameters
+    ----------
+    features : pathlib.Path
+        The features/ folder of the run.
+    """
+    for table in ("Nuclei", "Cells"):
+        expected = read_csv(REFERENCE / f"MyExpt_{table}.csv")
+        actual = {
+            (r["CPNF_GlobalImageNumber"], r["ObjectNumber"]): r
+            for r in read_csv(features / f"MyExpt_{table}.csv")
+        }
+        assert sorted(actual) == sorted((r["CPNF_GlobalImageNumber"], r["ObjectNumber"]) for r in expected)
+        for row in expected:
+            key = (row["CPNF_GlobalImageNumber"], row["ObjectNumber"])
+            for column, value in row.items():
+                if column.startswith(UNSTABLE_COLUMNS):
+                    continue
+                assert float(actual[key][column]) == pytest.approx(
+                    float(value), rel=FEATURE_RTOL, abs=1e-9, nan_ok=True
+                ), f"{table}, image {key[0]}, object {key[1]}: {column}"
+
+
 def test_test_profile_end_to_end_matches_reference(tmp_path):
     """Run the test profile with real CellProfiler and compare the results with the reference.
 
@@ -268,3 +308,6 @@ def test_test_profile_end_to_end_matches_reference(tmp_path):
     for row in manifest:
         assert (tmp_path / "results" / row["MaskPath"]).is_file()
         assert "/work/" not in ",".join(row.values()), "manifest must not contain task work paths"
+
+    # Every feature value agrees with the reference tables.
+    assert_features_match_reference(features)
