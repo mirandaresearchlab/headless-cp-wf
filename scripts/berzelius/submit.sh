@@ -14,7 +14,7 @@ Usage: scripts/berzelius/submit.sh -A ACCOUNT -s SYSTEM -e ENV_FILE -p PARAMS_FI
 
   -A ACCOUNT      project account, as `projinfo` shows it
   -s SYSTEM       ampere (CPU partition berzelius-cpu) or hopper (berzelius-hopper-cpu)
-  -e ENV_FILE     settings file, made from scripts/berzelius/berzelius.env.example
+  -e ENV_FILE     settings file, made with scripts/berzelius/make_env.sh
   -p PARAMS_FILE  YAML or JSON with pipeline, input_dir, outdir, group_regex, chunk_size, ...
   -r RUN_DIR      run folder in /proj. It holds work/, logs/ and the -resume cache.
   -n              check and show the sbatch command, but do not submit

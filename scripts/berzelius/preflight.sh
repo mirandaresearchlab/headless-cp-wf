@@ -85,5 +85,5 @@ for v in NXF_HOME NXF_APPTAINER_CACHEDIR APPTAINER_CACHEDIR TMPDIR; do
 done
 
 echo
-echo "Next: copy scripts/berzelius/berzelius.env.example to /proj, fill it in, and run"
+echo "Next: write your settings file with scripts/berzelius/make_env.sh -p $PROJ, then run"
 echo "scripts/berzelius/smoke_test.sh in an interactive CPU job (see docs/how-to/run-on-berzelius.md)."

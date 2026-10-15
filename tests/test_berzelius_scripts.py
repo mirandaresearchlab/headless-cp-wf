@@ -316,3 +316,56 @@ def test_smoke_test_refuses_to_run_on_a_login_node(tmp_path):
     result = run(SCRIPTS / "smoke_test.sh", tmp_path / "cp.env", tmp_path / "t", env=env)
     assert result.returncode == 2
     assert "not on a login node" in result.stderr
+
+
+def test_make_env_writes_the_settings_file_from_options(tmp_path):
+    """Check that make_env.sh writes the project folder, the module and the cache folders.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    proj = inputs(tmp_path)
+    result = run(SCRIPTS / "make_env.sh", "-p", proj, "-m", "Miniforge3/25.3.1-0", env=submit_env(tmp_path))
+    assert result.returncode == 0, result.stderr
+    text = (proj / "cp-headless.env").read_text()
+    assert f'export PROJ="{proj}"' in text
+    assert "module load Miniforge3/25.3.1-0\n" in text
+    assert 'conda activate "$PROJ/envs/nextflow"' in text
+    assert 'export NXF_APPTAINER_CACHEDIR="$PROJ/containers"' in text
+    assert subprocess.run(["bash", "-n", str(proj / "cp-headless.env")]).returncode == 0
+
+
+def test_make_env_loads_the_default_module_without_a_version(tmp_path):
+    """Check that make_env.sh loads Miniforge3 with no version when -m is not given.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    proj = inputs(tmp_path)
+    result = run(SCRIPTS / "make_env.sh", "-p", proj, env=submit_env(tmp_path))
+    assert result.returncode == 0, result.stderr
+    assert "module load Miniforge3\n" in (proj / "cp-headless.env").read_text()
+
+
+def test_make_env_stops_on_wrong_settings(tmp_path):
+    """Check that make_env.sh writes nothing for a placeholder, a home folder or an existing file.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    env = submit_env(tmp_path)
+    proj = inputs(tmp_path)
+    placeholder = run(SCRIPTS / "make_env.sh", "-p", "/proj/<project>/users/x", env=env)
+    assert placeholder.returncode == 2 and "<placeholder>" in placeholder.stderr
+    home = run(SCRIPTS / "make_env.sh", "-p", tmp_path / "home", env=env)
+    assert home.returncode == 2 and "home directory" in home.stderr
+    assert run(SCRIPTS / "make_env.sh", "-p", proj, env=env).returncode == 0
+    again = run(SCRIPTS / "make_env.sh", "-p", proj, env=env)
+    assert again.returncode == 2 and "Use -f" in again.stderr
+    assert run(SCRIPTS / "make_env.sh", "-p", proj, "-f", env=env).returncode == 0
