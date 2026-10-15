@@ -4,9 +4,9 @@ This guide tells you how to use your own CellProfiler pipeline with the workflow
 large run. The requirements are in [CellProfiler pipelines](../reference/pipelines.md).
 
 !!! info "Before you start"
-    This guide assumes that you cloned the repository, installed the tools and activated the environment.
-    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
-    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+    This page assumes that you installed the workflow and ran its test. On a lab workstation, see
+    [Installation](../getting-started/installation.md). On Berzelius, see [Berzelius: set up](berzelius-setup.md). To check, open a terminal in the
+    folder `headless-cp-wf` and run `nextflow -version`. It must print a version number.
 
 ## 1. Make or change the pipeline in CellProfiler 4.2.8
 

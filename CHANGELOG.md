@@ -16,26 +16,35 @@ Cells values as the original prototype, apart from work-folder paths and executi
   - The workflow stops if the work folder, the results or the image cache is in `$HOME`.
 - `scripts/berzelius/`: `preflight.sh`, `smoke_test.sh`, `submit.sh`, the head job `run_nextflow.sbatch` and
   `make_env.sh`, which writes the settings file from options. A second `submit.sh` with the same run folder continues the run.
-- [Run on Berzelius](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-berzelius/): a guide in eight steps.
+- [Berzelius: set up](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/berzelius-setup/): the Berzelius guide.
 - On a cluster, the workflow warns when more than 500 image sets run as one job (`chunk_size 0`).
 - CellProfiler jobs ignore your own Python packages (`PYTHONNOUSERSITE=1`).
 
-### Added: guide for your own computer
+### Changed: two supported environments
 
-- [Run on your own computer](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-your-computer/): all
-  steps from `git clone` to a run on your images, with the fix for Java 27 and the memory limit of Docker Desktop.
-- Each guide that runs the workflow starts with a "Before you start" box. It sends you to
-  [Installation](https://mirandaresearchlab.github.io/headless-cp-wf/getting-started/installation/) (clone, install,
-  activate the environment, select Java) if you did not do these steps. Each of these guides has a test section
-  with a dry run (`-stub-run`) and a real run.
+The workflow now supports two environments: a lab workstation (Ubuntu, `root`, for example a container on a
+lab server) and Berzelius. Each one has its own guides and tests.
 
-### Added: rootless Docker profile and tests
-
-- `-profile rootless` runs the jobs with rootless Docker as `root` inside the container (`-u 0:0`), which is
-  you on the server. It replaces the `rootless.config` file of the
-  [rootless Docker guide](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-with-rootless-docker/).
-- `tests/test_rootless.py` and the `rootless` CI job: a complete run of the `test` profile with rootless Docker
-  on a GitHub runner. It checks the nuclei counts and the owner of each file.
+- Lab workstation without Docker: `-profile local` with CellProfiler 4.2.8 from conda (bioconda). See
+  [Run without Docker](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-without-docker/). The conda build uses Python 3.9.19 and NumPy 1.26.4,
+  the container Python 3.8.0 and NumPy 1.24.4. On the test data, every feature value agreed with the container
+  within a relative difference of 8e-6.
+- Lab workstation with Docker: `-profile docker`. A workstation container needs `--privileged` and a volume on
+  `/var/lib/docker`, or the Docker socket of the server. `scripts/start-docker-in-container.sh` checks this,
+  applies the cgroup v2 fix and starts Docker. See [Run with Docker](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-with-docker/).
+- [Installation](https://mirandaresearchlab.github.io/headless-cp-wf/getting-started/installation/) installs Nextflow 26.04.6 and Java 21 with micromamba,
+  the same way for both workstation modes.
+- Berzelius: `scripts/berzelius/run_interactive.sh` runs your data inside an interactive job, with the local
+  executor and the cores of the job. The guide now has three pages: [set up](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/berzelius-setup/),
+  [interactive run](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/berzelius-interactive/) and [batch run](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/berzelius-batch/).
+- Removed: the `rootless` profile, its guide, `tests/test_rootless.py` and its CI job. They were for rootless
+  Docker on the server itself, which is not a supported environment. Also removed: the guides "Run on a Slurm
+  cluster", "Run on your own computer" and "Use the containers" (their content is in the new guides), and the
+  old prototype archive `cellprofiler-nf.tar.gz`.
+- Tests: `tests/reference/` holds the per-object features of the test data. The Docker and the no-Docker
+  end-to-end tests compare every value with it. New stub tests check the profiles, `-resume`, a failed job
+  (no new try) and a memory kill (a new try).
+- CI: new jobs `workflow` (Ubuntu and macOS), `workstation-local` and `workstation-docker`.
 
 ### Added: image folder guide
 
@@ -51,8 +60,6 @@ Cells values as the original prototype, apart from work-folder paths and executi
 - Step 3 sets `PROJ` with `export` on the compute node, and loads `Miniforge3` without a version.
 - `make_env.sh` replaces the copy-and-edit step. The template `berzelius.env.example` is gone.
 - The troubleshooting table has new rows, and a new section tells how to solve a `mamba` lock.
-- New guide: [Run with rootless Docker](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-with-rootless-docker/)
-  (not tested yet).
 - The default container is `cellprofiler/cellprofiler@sha256:...`, without the tag. Apptainer cannot pull a
   reference that has both a tag and a digest.
 

@@ -1,91 +1,120 @@
 # Installation
 
-This page tells you what software the workflow needs, how to install it, and how to check the installation.
+This page tells you how to install the workflow on a lab workstation. A lab workstation is an Ubuntu Linux
+system where you are `root`, for example the container that you reach with SSH on a lab server. After this
+page, you choose how CellProfiler runs: without Docker or with Docker.
 
-## Requirements
+For Berzelius, do not use this page. Use [Berzelius: set up](../how-to/berzelius-setup.md).
 
-| Software | Version | Use |
+!!! note "Testing status"
+    We ran every command of this page as `root` in a clean Ubuntu 24.04 container (amd64) on 2026-10-15.
+    We did not run them on a lab server.
+
+## Choose how CellProfiler runs
+
+| Way | Use it when | Guide |
 | --- | --- | --- |
-| [Nextflow](https://www.nextflow.io/) | 24.04 or newer (tested with 26.04.6) | Runs the workflow |
-| Java | 17 to 26 | Nextflow needs it. Nextflow refuses Java 27 and newer. |
-| [Docker](https://www.docker.com/) | any recent version | Runs CellProfiler on a laptop or workstation |
-| [Apptainer](https://apptainer.org/) or Singularity | any recent version | Runs CellProfiler on a cluster |
-| Disk space | a few GB, plus about 2× the size of your images | The CellProfiler image, the `work/` folder and the results |
+| Without Docker | Your workstation has no Docker. This is the simplest way on a lab workstation. | [Run without Docker](../how-to/run-without-docker.md) |
+| With Docker | Docker works in your workstation. CellProfiler then runs in the official container. | [Run with Docker](../how-to/run-with-docker.md) |
 
-You do not install CellProfiler yourself. The workflow uses the CellProfiler 4.2.8 container
-`cellprofiler/cellprofiler:4.2.8`, pinned by its digest. This image exists only for Linux on amd64. On
-Apple Silicon, Docker Desktop emulates it, which is slower.
+Both ways gave the same results on the test data. See the guides for the details.
 
-## Install
+## What you need
 
-=== "Development environment (recommended)"
+| Need | How to check |
+| --- | --- |
+| Ubuntu Linux on amd64 | `uname -m` shows `x86_64`. CellProfiler 4.2.8 exists only for Linux on amd64. |
+| A terminal as `root` | `whoami` shows `root`. If you are not `root`, put `sudo` before each `apt` command. |
+| Internet access | The installation downloads packages. |
+| About 5 GB of free space | `df -h ~` |
 
-    This installs Nextflow and the development tools in `.venv` with [uv](https://docs.astral.sh/uv/).
-
-    ```bash
-    git clone https://github.com/mirandaresearchlab/headless-cp-wf.git
-    cd headless-cp-wf
-    ./scripts/bootstrap.sh
-    source .venv/bin/activate
-    ```
-
-=== "Nextflow only"
-
-    Install Nextflow as its documentation describes, then get the workflow:
-
-    ```bash
-    curl -s https://get.nextflow.io | bash
-    git clone https://github.com/mirandaresearchlab/headless-cp-wf.git
-    cd headless-cp-wf
-    ```
-
-## Activate the environment
-
-Run this in each new terminal, in the folder `headless-cp-wf`, before you use `nextflow`:
+## Step 1. Install the system tools
 
 ```bash
-source .venv/bin/activate
+apt update
+apt install -y git procps curl ca-certificates bzip2 python3
 ```
 
-## Select a supported Java
+Run `apt update` first. Without it, `apt install` can fail with `Unable to locate package`. A minimal
+container often lacks these programs. Nextflow needs `ps` from the package `procps`. The merge step of the
+workflow needs `python3` when it runs without a container, for example in the dry run of step 6.
 
-Nextflow refuses Java 27 and newer. Homebrew installs the newest Java, so a Mac often has Java 27. Check
-what Nextflow finds:
+## Step 2. Get the code
 
 ```bash
-nextflow -version
+git clone https://github.com/mirandaresearchlab/headless-cp-wf.git
+cd headless-cp-wf
 ```
 
-If it prints a version number, go on. If it prints `Cannot find Java or it's a wrong version`, select Java 21:
+## Step 3. Install micromamba
+
+micromamba installs Nextflow, Java and (for the way without Docker) CellProfiler in separate environments.
+Run the installer, and press Enter at each question to accept the default:
 
 ```bash
+bash <(curl -L https://micro.mamba.pm/install.sh)
+```
+
+The installer puts the program in `~/.local/bin/micromamba`. Your terminal does not know the new command
+yet. Run these two lines:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+export MAMBA_ROOT_PREFIX="$HOME/micromamba"
+micromamba --version
+```
+
+The last command prints a version number, for example `2.9.0`.
+
+## Step 4. Install Nextflow and Java
+
+```bash
+micromamba create -y -n nextflow -c conda-forge -c bioconda nextflow=26.04.6 openjdk=21
+```
+
+Nextflow needs Java 17 to 26. This environment has Java 21.
+
+## Step 5. Activate Nextflow
+
+Run these lines in each new terminal, before you use `nextflow`:
+
+```bash
+export MAMBA_ROOT_PREFIX="$HOME/micromamba"
+export PATH="$MAMBA_ROOT_PREFIX/envs/nextflow/bin:$HOME/.local/bin:$PATH"
+export JAVA_HOME="$MAMBA_ROOT_PREFIX/envs/nextflow/lib/jvm"
 unset JAVA_CMD
-export JAVA_HOME=/opt/homebrew/opt/openjdk@21           # Mac with Apple Silicon
-# export JAVA_HOME=/usr/local/opt/openjdk@21             # Intel Mac
-# export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64    # Ubuntu
-nextflow -version
 ```
 
-If Java 21 is missing, install it: `brew install openjdk@21` (Mac) or `sudo apt install openjdk-21-jre-headless`
-(Ubuntu). `JAVA_CMD` has priority over `JAVA_HOME`, so remove it first. To keep the choice, add the `export`
-line to your `~/.zshrc` (Mac) or `~/.bashrc` (Linux).
+`JAVA_HOME` makes Nextflow use the Java 21 of the environment, even if the system has another Java.
+To keep these lines, add them to the end of `~/.bashrc`. A new terminal then runs them for you.
 
-## Check the installation
-
-Run the workflow once without CellProfiler. The jobs make small fake files instead (`-stub-run`), so this
-takes a few seconds and needs no container:
+## Step 6. Check the installation
 
 ```bash
-bash scripts/test-nextflow.sh
+nextflow -version
+nextflow run . -profile test,local -stub-run
 ```
 
-The script finds Nextflow and a supported Java itself. The end of its output is:
+The first command shows `version 26.04.6`. The second command is a dry run on the test data. Its jobs make
+small fake files instead of running CellProfiler, so it needs no CellProfiler and no Docker. It must show:
 
 ```text
 [cp-headless] 6 image set(s), 6 file(s) -> 3 chunk(s)
-...
-Submitted process > MERGE_FEATURES
 ```
 
-Then do the [tutorial](../tutorials/first-run.md), which runs real CellProfiler. For all steps from `git clone` to a run on
-your images, see [Run on your own computer](../how-to/run-on-your-computer.md).
+It must end without `ERROR`. Then go on with [Run without Docker](../how-to/run-without-docker.md) or
+[Run with Docker](../how-to/run-with-docker.md).
+
+## Troubleshooting
+
+| Message | Cause and solution |
+| --- | --- |
+| `Unable to locate package` | Run `apt update`, then the `apt install` command again. |
+| `micromamba: command not found` | Your terminal does not know the new program. Run the two `export` lines of step 3. |
+| `nextflow: command not found` | Run the lines of step 5. |
+| `Cannot find Java or it's a wrong version` | Nextflow uses another Java. Run the lines of step 5, including `unset JAVA_CMD`. |
+| `Command 'ps' required by nextflow ... cannot be found` | Install `procps` (step 1). |
+| `MERGE_FEATURES` fails in the dry run with `python3: not found` or exit status 127 | Install `python3` (step 1). |
+
+To change the code of the workflow, see [Contributing](../about/contributing.md). It uses a separate
+development environment.

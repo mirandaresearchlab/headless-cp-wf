@@ -1,13 +1,11 @@
 # Tutorial: first run on the test data
 
 **You will:** run CellProfiler on 6 small test images, look at the tables and masks, and read the reports.
-**Time:** about 10 seconds for the run, plus the download of the CellProfiler image the first time.
-**Prerequisites:** Git, Java 17 to 26 and Docker. [Run on your own computer](../how-to/run-on-your-computer.md) tells you how to install them.
-
-!!! info "Before you start"
-    This guide assumes that you cloned the repository, installed the tools and activated the environment.
-    If you did not, do [Installation](../getting-started/installation.md) first. To check, open a terminal in the folder `headless-cp-wf`
-    and run `source .venv/bin/activate` and then `nextflow -version`. It must print a version number.
+**Time:** less than a minute for the run, plus the download of the CellProfiler image the first time (with Docker).
+**Prerequisites:** a lab workstation with the workflow installed ([Installation](../getting-started/installation.md)).
+CellProfiler must be ready in one of two ways: [without Docker](../how-to/run-without-docker.md) (steps 1 to 3)
+or [with Docker](../how-to/run-with-docker.md) (steps 1 and 2). On Berzelius, use
+[Berzelius: set up](../how-to/berzelius-setup.md) instead. Its step 5 runs the same test data.
 
 ## 1. Look at the test data
 
@@ -24,14 +22,25 @@ shape and DNA intensity. See [CellProfiler pipelines](../reference/pipelines.md)
 
 ## 2. Run the workflow
 
-```bash
-nextflow run . -profile test,docker
-```
+=== "Without Docker"
+
+    ```bash
+    nextflow run . -profile test,local -c local.config
+    ```
+
+    The `local` profile runs CellProfiler from your conda environment. `local.config` gives the jobs the
+    Java of CellProfiler.
+
+=== "With Docker"
+
+    ```bash
+    nextflow run . -profile test,docker
+    ```
+
+    The `docker` profile runs CellProfiler in the official container.
 
 The `test` profile sets the pipeline, the image folder, `--chunk_size 2` (2 image sets per job) and
-`--group_regex '^(.+)$'` (each file is one image set). The `docker` profile runs CellProfiler in Docker.
-
-The output is:
+`--group_regex '^(.+)$'` (each file is one image set). The output starts like this:
 
 ```text
 ==================================  cp-headless  ==================================
@@ -45,14 +54,12 @@ container    : cellprofiler/cellprofiler@sha256:fec440ca...
 =================================================================================
 [cp-headless] image sets have 1 file(s) each (most common size)
 [cp-headless] 6 image set(s), 6 file(s) -> 3 chunk(s)
-[PROCESS 8b/0888ea] PATCH_PIPELINE (original/test.cppipe)
-[PROCESS a6/dca722] CELLPROFILER (chunk_0001 (2 sets, 2 files))
-[PROCESS e2/563895] CELLPROFILER (chunk_0003 (2 sets, 2 files))
-[PROCESS b9/8c8fbc] CELLPROFILER (chunk_0002 (2 sets, 2 files))
-[PROCESS 02/dfa794] MERGE_FEATURES
-
-[SUCCESS] completed=5 failed=0 cached=0
 ```
+
+Then Nextflow shows the jobs: `PATCH_PIPELINE`, three times `CELLPROFILER` and `MERGE_FEATURES`. The
+look of these lines depends on your terminal and on the Nextflow installation. The run must end without
+`ERROR`. (The line `container` shows the default image also with the `local` profile. The `local`
+profile does not use it.)
 
 Five jobs ran: one job prepared the pipeline, three CellProfiler jobs ran at the same time (one per
 chunk), and one job merged the tables.
@@ -114,11 +121,13 @@ container and all parameters of the run.
 
 ## 4. Run it again with `-resume`
 
+Run the command of step 2 again and add `-resume`, for example:
+
 ```bash
 nextflow run . -profile test,docker -resume
 ```
 
-Nextflow uses the results of the first run and runs no job again: `cached=5`.
+Nextflow uses the results of the first run and runs no job again. It shows the 5 jobs as cached.
 
 ## Next steps
 

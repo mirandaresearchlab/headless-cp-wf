@@ -1,18 +1,24 @@
-# Run cp-headless on Berzelius
+# Berzelius: set up
 
 Berzelius is a cluster at the National Supercomputer Centre (NSC) in Linköping, Sweden. NAISS gives access
 to it. Most of its nodes have GPUs, but CellProfiler uses only CPUs. Thus this workflow sends all its jobs to
 the **CPU nodes** of Berzelius. It never uses a GPU node, because your project then pays for GPUs that do
 nothing.
 
-This guide tells you how to run the workflow on Berzelius, step by step. Read the
-[home page](../index.md) and the [tutorial](../tutorials/first-run.md) first.
+This page prepares Berzelius for the workflow, once. Then you run the workflow in one of two ways:
+
+| Way | How it works | Use it for | Guide |
+| --- | --- | --- | --- |
+| Interactive | You start an interactive job on one CPU node. All CellProfiler jobs run on that node. | Tests, and small runs that end within the time of the job | [Berzelius: interactive run](berzelius-interactive.md) |
+| Batch (Slurm) | A small Slurm job (the head job) runs Nextflow. Nextflow submits one Slurm job for each chunk. | Large runs, many hours, many nodes | [Berzelius: batch run](berzelius-batch.md) |
+
+Do not mix the two ways. In an interactive job, Nextflow must not submit Slurm jobs. The interactive script
+makes sure of that.
 
 !!! note "Testing status"
-    On 2026-10-15, `smoke_test.sh` ran on a CPU node of the Ampere system (`berzelius-cpu`). It gave the
-    expected result: 6 image sets and 51 nuclei. The tests of the workflow also check the job scripts with
-    fake `sbatch` and `apptainer` programs. Nobody has run a large run with `submit.sh` yet. Run step 5
-    (the smoke test) before your first real run.
+    On 2026-10-15, `smoke_test.sh` (step 5) ran on a CPU node of the Ampere system (`berzelius-cpu`). It
+    gave the expected result: 6 image sets and 51 nuclei. The tests of the workflow also check the scripts
+    with fake `sbatch` and `apptainer` programs. Run step 5 before your first real run.
 
 > **Do not put sensitive data on Berzelius.** Berzelius does not allow sensitive personal data, for example
 > data that the GDPR protects. Ask NAISS support for a different system for such data.
@@ -28,13 +34,9 @@ This guide tells you how to run the workflow on Berzelius, step by step. Read th
 - [Step 4. Make your settings file](#step-4-make-your-settings-file)
 - [Step 5. Run the test on a compute node](#step-5-run-the-test-on-a-compute-node)
 - [Step 6. Write the parameters of your run](#step-6-write-the-parameters-of-your-run)
-- [Step 7. Start the run](#step-7-start-the-run)
-- [Step 8. After the run](#step-8-after-the-run)
-- [Choose the chunk size](#choose-the-chunk-size)
-- [Cost](#cost)
+- [After a run](#after-a-run)
 - [Storage and file counts](#storage-and-file-counts)
 - [Troubleshooting](#troubleshooting)
-- [Run without Apptainer](#run-without-apptainer)
 - [Sources](#sources)
 
 ## What the `berzelius` profile does
@@ -60,7 +62,8 @@ The helper scripts are in `scripts/berzelius/`:
 | `preflight.sh` | Shows your projects, quotas, partitions and software. It changes nothing. |
 | `make_env.sh` | Writes your settings file from options. You do not edit a file. |
 | `smoke_test.sh` | Runs the test data on one compute node. Use it before your first real run. |
-| `submit.sh` | Checks your settings and starts the run. |
+| `run_interactive.sh` | Runs your data inside an interactive job, on one node. |
+| `submit.sh` | Checks your settings and starts a batch run. |
 | `run_nextflow.sbatch` | The Slurm job that runs Nextflow. `submit.sh` submits it for you. |
 
 ## What you need
@@ -113,7 +116,7 @@ interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 00:05:00
    accounts that you can use.
 2. Compare it with the message that you get. `Invalid account or account/partition combination specified`
    means that the account name is wrong, or that your user does not belong to the project.
-3. If `projinfo` says that you are a member of no project, or the list is empty, ask the PI of your
+3. `projinfo` can say that you are a member of no project, or show an empty list. Then ask the PI of your
    project to add you to the project in [SUPR](https://supr.naiss.se). Then log in again and run `projinfo`.
 4. If it still does not work, write to berzelius-support@nsc.liu.se. Give your user name, the account name
    that you tried and the full error message.
@@ -133,7 +136,7 @@ Use login nodes only to edit files, to copy small files and to submit jobs. Do n
 login node.
 
 !!! warning "Run the Berzelius commands on Berzelius"
-    Check the prompt before you run a command. On Berzelius it looks like `[x_erser@berzelius1 ...]$`. If
+    Check the prompt before you run a command. On Berzelius it looks like `[x_user@berzelius1 ...]$`. If
     you see the name of your own computer, you are not on Berzelius. On a Mac, the command
     `mkdir /proj/...` then fails with `Read-only file system`.
 
@@ -175,7 +178,7 @@ make a conda environment in `/proj`. Do this in an interactive job on a CPU node
 
    `module load Miniforge3` loads the default version. You do not need to name a version. To use one
    exact version, name it, for example `module load Miniforge3/25.3.1-0`. `module avail Miniforge3` lists the
-   versions. The default is marked with `(D)`.
+   versions. It marks the default with `(D)`.
 
 4. Check the result, then leave the job:
 
@@ -253,56 +256,20 @@ required_metadata: Plate,Well,Site
 A YAML file does not expand `$USER`. Write your own user name for `<user>`. `echo $USER` shows it.
 
 See [Run on your data](../usage.md) for [`group_regex`](../usage.md#group-the-files-of-one-site) and
-[`required_metadata`](../usage.md#metadata-for-profiling). See [Choose the chunk size](#choose-the-chunk-size)
+[`required_metadata`](../usage.md#metadata-for-profiling). See [Choose the chunk size](berzelius-batch.md#choose-the-chunk-size)
 for `chunk_size`.
 
-## Step 7. Start the run
+Then start the run: [interactive](berzelius-interactive.md) or [batch](berzelius-batch.md).
 
-Start the run from a login node with `submit.sh`:
-
-```bash
-bash scripts/berzelius/submit.sh \
-    -A <project-account> \
-    -s ampere \
-    -e "$PROJ/cp-headless.env" \
-    -p "$PROJ/runs/plate1.yml" \
-    -r "$PROJ/runs/plate1"
-```
-
-| Option | Meaning |
-| --- | --- |
-| `-A` | Your project account |
-| `-s` | `ampere` (partition `berzelius-cpu`) or `hopper` (partition `berzelius-hopper-cpu`) |
-| `-e` | Your settings file from step 4 |
-| `-p` | Your params file from step 6 |
-| `-r` | The run folder in `/proj`. It holds the work files, the logs and the cache for `-resume`. |
-| `-n` | Check only: show the `sbatch` command, but do not submit it |
-| `-- ...` | More options for `nextflow run`, for example `-- --chunk_size 100` |
-
-`submit.sh` first checks your settings. Then it submits one Slurm job, the **head job**. The head job runs
-Nextflow on a CPU node with 2 cores for 72 hours or less. Nextflow submits the CellProfiler jobs. These jobs
-use the same account and partition as the head job.
-
-Follow the run:
-
-```bash
-squeue -u "$USER"                             # your jobs in the queue
-tail -f "$PROJ/runs/plate1/logs/head-<jobid>.out"   # the log of the head job
-```
-
-**Continue a stopped run.** A head job stops after 72 hours. It also stops after an error. Run the same
-`submit.sh` command again with the same run folder. Nextflow then continues with `-resume`. It does not run
-the completed jobs again. `submit.sh` refuses to start a second head job in a run folder that has a running
-head job.
-
-## Step 8. After the run
+## After a run
 
 1. Read the results in your `outdir`. Start with these files:
    - `pipeline/patch_report.json`: the changes that the workflow made to your pipeline.
    - `logs/qc_<chunk>.json`: the checks of each chunk and the number of images without objects.
    - `features/merge_report.json`: the number of rows of each merged table.
-2. Read the resources that the jobs used in `$PROJ/runs/plate1/pipeline_info/trace_<jobid>.txt`. The column
-   `peak_rss` shows the memory and `realtime` shows the time of each job.
+2. Read the resources that the jobs used in the trace file. A batch run writes
+   `$PROJ/runs/plate1/pipeline_info/trace_<jobid>.txt`. An interactive run writes `pipeline_info/trace.txt`
+   in your `outdir`. The column `peak_rss` shows the memory and `realtime` shows the time of each job.
 3. Remove the work files when you no longer need `-resume`. The work folder holds many small files, and
    `/proj` allows only 2 million files. Remove the files only when the results are in `outdir` as copies
    (`publish_mode: copy`, the default):
@@ -313,38 +280,6 @@ head job.
    nscquota                 # shows your space and file counts
    ```
 
-## Choose the chunk size
-
-A good job takes 15 to 60 minutes. Very short jobs load the scheduler. Very long jobs lose more work when
-they fail.
-
-1. Run one plate, or part of it, with a small chunk size, for example `chunk_size: 20`.
-2. In `trace_<jobid>.txt`, find the time of the CellProfiler jobs. Divide it by the chunk size. The result
-   is the time for one image set.
-3. Calculate the chunk size: `chunk_size = 1800 s / time for one image set`. That gives jobs of about
-   30 minutes.
-
-Example: one image set takes 12 seconds. Then `chunk_size = 1800 / 12 = 150`.
-
-With `chunk_size: 0`, all image sets run in one job. Such a job must also finish in 72 hours. For more than
-500 image sets, the workflow shows a warning.
-
-If jobs fail because of memory, the workflow tries again with 1 more core and 7 GB more memory. If many jobs
-need a second try, the images need more memory. Look at `peak_rss` in the trace file.
-
-## Cost
-
-Slurm charges your project 1 unit for each core and hour. On the Ampere system, 16 cores cost the same as
-1 A100 GPU. The CPU work of CellProfiler is thus cheap. The small number of CPU nodes is the real limit.
-
-Example (an estimate, not a measurement): a plate with 384 wells and 9 sites has 3,456 image sets. At
-12 seconds per image set, CellProfiler needs about 11.5 core-hours. That is about 0.7 GPU-hours on Ampere.
-The head job adds 2 cores for the duration of the run. For a run of 10 hours, that is 20 core-hours
-(about 1.3 GPU-hours).
-
-The workflow keeps 64 jobs or fewer in the queue (`executor.queueSize`). All projects share the CPU nodes.
-Speak with the other users of your project before you increase this number.
-
 ## Storage and file counts
 
 | Place | Limit | Use it for |
@@ -354,7 +289,7 @@ Speak with the other users of your project before you increase this number.
 | `/scratch/local` | 6.4 TB on each CPU node | Only during a job. Slurm removes its files when the job ends. |
 
 The number of files is usually the first limit. Each job leaves about 10 files in the work folder, plus
-its outputs. 5,000 jobs thus give about 50,000 files. Remove the work files after each run (step 8).
+its outputs. 5,000 jobs thus give about 50,000 files. Remove the work files after each run ([After a run](#after-a-run)).
 `nscquota` shows your use.
 
 There is no backup of `/proj`. Keep a copy of your raw images in a different place.
@@ -363,7 +298,7 @@ There is no backup of `/proj`. Keep a copy of your raw images in a different pla
 
 | Problem | Cause and solution |
 | --- | --- |
-| `-profile berzelius needs --slurm_account` | Give your account with `-A` to `submit.sh`. `projinfo` shows it. |
+| `-profile berzelius needs --slurm_account` | Give your account with `-A` to `submit.sh` or to `interactive`. `projinfo` shows it. |
 | `-profile berzelius needs --slurm_partition berzelius-cpu ...` | Use `-s ampere` or `-s hopper` with `submit.sh`. |
 | `... is in your home directory` | Put the run folder, the results and the image cache in `/proj`. |
 | Jobs wait with reason `Resources` or `Priority` | The CPU nodes are busy. Wait, or use a larger chunk size, which gives fewer jobs. |
@@ -376,6 +311,7 @@ There is no backup of `/proj`. Keep a copy of your raw images in a different pla
 | `Docker references with both a tag and digest are currently not supported` | Apptainer cannot pull `image:tag@sha256:...`. Use `--container 'cellprofiler/cellprofiler@sha256:<digest>'` (no tag). The default of the workflow already has this form. Update the code with `git pull`. |
 | A job cannot download the image | Run step 5 again. It puts the image into the cache before the run. |
 | The head job stopped after 72 hours | Run the same `submit.sh` command again. The run continues. |
+| `run this inside an interactive job on a CPU node` | Start an interactive job first. See [Berzelius: interactive run](berzelius-interactive.md). |
 | CellProfiler is slower than expected | Check that your pipeline uses no GPU plugin, for example Cellpose. On CPU nodes, such plugins are very slow. |
 
 ### `mamba` stops because of a lock
@@ -413,11 +349,6 @@ on Berzelius.
 To ask for help, write to berzelius-support@nsc.liu.se. Write one message for each problem. Give the job ID,
 the script, the full error message and the versions of your modules. The system status is at
 https://www.nsc.liu.se/systemstatus/.
-
-## Run without Apptainer
-
-Berzelius has no Docker, so this guide uses Apptainer. On a server where you have no root rights but
-rootless Docker is available, see [Run with rootless Docker](run-with-rootless-docker.md).
 
 ## Sources
 

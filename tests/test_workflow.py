@@ -11,6 +11,7 @@ The Slurm and Berzelius tests use a fake sbatch program. It saves the job script
 and refuses the job, so the tests can read the #SBATCH lines without a cluster.
 """
 
+import csv
 import json
 import os
 import re
@@ -556,18 +557,18 @@ def test_stub_run_works_on_a_machine_with_little_memory(tmp_path):
     assert "exceeds available memory" not in result.stdout + result.log
 
 
-def docker_run_options(*profiles):
-    """Read docker.runOptions from the configuration of the given profiles.
+def resolved_config(*profiles):
+    """Read the settings that Nextflow makes from nextflow.config and the given profiles.
 
     Parameters
     ----------
     *profiles : str
-        The profiles, in the order of the -profile option, for example "docker", "rootless".
+        The profiles, in the order of the -profile option, for example "test", "docker".
 
     Returns
     -------
-    str
-        The value of docker.runOptions.
+    dict
+        One entry per line of `nextflow config -flat`, for example {"docker.enabled": "true"}.
     """
     if not shutil.which("nextflow", path=nextflow_env()["PATH"]):
         pytest.skip("nextflow is not installed (run ./scripts/bootstrap.sh)")
@@ -579,38 +580,115 @@ def docker_run_options(*profiles):
         timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    match = re.search(r"^docker\.runOptions = '(.*)'$", result.stdout, re.MULTILINE)
-    assert match, result.stdout
-    return match.group(1)
+    pairs = (line.split(" = ", 1) for line in result.stdout.splitlines() if " = " in line)
+    return {key: value for key, value in pairs}
 
 
-def test_docker_profile_runs_jobs_as_the_calling_user():
-    """Check the control: with normal Docker, the jobs run as the user who starts Nextflow."""
-    assert "-u $(id -u):$(id -g)" in docker_run_options("docker")
+def test_docker_profile_runs_the_container_as_the_calling_user():
+    """Check that the docker profile clears the entry point of the image and runs jobs as the caller.
+
+    The official image starts `cellprofiler`. Nextflow must run bash instead. As root in a lab container,
+    $(id -u) is 0, so the jobs run as root there.
+    """
+    config = resolved_config("test", "docker")
+    assert config["docker.enabled"] == "true"
+    assert config["docker.runOptions"] == "'--entrypoint \"\" -u $(id -u):$(id -g)'"
 
 
-@pytest.mark.parametrize("profiles", [("rootless",), ("test", "rootless"), ("docker", "rootless")])
-def test_rootless_profile_runs_jobs_as_root_in_the_container(profiles):
-    """Check that the rootless profile runs the jobs as root (-u 0:0) inside the container.
+def test_local_profile_uses_no_container_engine():
+    """Check that the local profile runs CellProfiler from PATH, with no Docker, Apptainer or Singularity."""
+    config = resolved_config("test", "local")
+    assert config["process.container"] == "null"
+    for engine in ("docker", "apptainer", "singularity"):
+        assert config.get(f"{engine}.enabled", "false") == "false"
 
-    In rootless Docker, root inside the container is the user on the server. The profile turns on Docker
-    by itself. After the docker profile, it replaces the user option of the docker profile.
+
+def test_berzelius_profile_uses_slurm_and_apptainer_but_not_docker():
+    """Check that the berzelius profile submits Slurm jobs and runs CellProfiler in Apptainer.
+
+    Berzelius has no Docker. The jobs run on the node-local disk /scratch/local.
+    """
+    config = resolved_config("berzelius")
+    assert config["process.executor"] == "'slurm'"
+    assert config["apptainer.enabled"] == "true"
+    assert config["docker.enabled"] == "false"
+    assert config["params.slurm_scratch"] == "'/scratch/local'"
+
+
+def trace(outdir):
+    """Read the trace table of a run: one row per job, with its name, status and exit code.
+
+    The log text of Nextflow differs between installations. The trace table does not.
 
     Parameters
     ----------
-    profiles : tuple of str
-        The profiles (one tuple per test run, from parametrize).
+    outdir : pathlib.Path
+        The output folder of the run.
+
+    Returns
+    -------
+    list of tuple
+        (process name, status, exit code) for each job, for example ("MERGE_FEATURES", "COMPLETED", "0").
     """
-    options = docker_run_options(*profiles)
-    assert "-u 0:0" in options
-    assert "id -u" not in options
-    assert '--entrypoint ""' in options
+    with (outdir / "pipeline_info" / "trace.txt").open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    return [(row["name"].split(" (")[0], row["status"], row["exit"]) for row in rows]
 
 
-def test_docker_after_rootless_brings_back_the_user_option():
-    """Check the documented limit: Nextflow applies the profiles in the order of the -profile option.
+def test_resume_reuses_the_finished_jobs(tmp_path):
+    """Check that a second run with -resume takes all 4 jobs from the cache and runs none again."""
+    images = make_images(tmp_path / "img", ["a.tif", "b.tif", "c.tif", "d.tif"])
+    first = run_stub(tmp_path, images, "--chunk_size", 2)
+    assert first.returncode == 0, first.stdout + first.stderr
+    second = run_stub(tmp_path, images, "--chunk_size", 2, "-resume")
+    assert second.returncode == 0, second.stdout + second.stderr
+    jobs = trace(tmp_path / "results")
+    assert len(jobs) == 4  # PATCH_PIPELINE, 2 x CELLPROFILER, MERGE_FEATURES
+    assert all(status == "CACHED" for _, status, _ in jobs), jobs
 
-    Thus the docker profile after the rootless profile sets -u $(id -u):$(id -g) again. The guide tells
-    users not to do this. If this test fails, Nextflow changed the order, and the guide can drop the warning.
+
+def test_failed_chunk_stops_the_run_and_resume_finishes_it(tmp_path):
+    """Check the error strategy: a real error (exit 3) stops the run without a new try.
+
+    After the cause is removed, -resume takes the finished jobs from the cache and runs the rest.
     """
-    assert "-u $(id -u):$(id -g)" in docker_run_options("rootless", "docker")
+    marker = tmp_path / "make_cellprofiler_fail"
+    marker.touch()
+    failing = tmp_path / "fail.config"
+    failing.write_text(
+        f"process {{ withName: 'CELLPROFILER' {{ beforeScript = 'test ! -e {marker} || exit 3' }} }}\n"
+    )
+    images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
+
+    first = run_stub(tmp_path, images, "-c", failing)
+    assert first.returncode != 0
+    jobs = trace(tmp_path / "results")
+    assert ("CELLPROFILER", "FAILED", "3") in jobs
+    assert [name for name, _, _ in jobs].count("CELLPROFILER") == 1  # exit 3 is an error: no new try
+    assert not (tmp_path / "results" / "features").exists()
+
+    marker.unlink()
+    second = run_stub(tmp_path, images, "-c", failing, "-resume")
+    assert second.returncode == 0, second.stdout + second.stderr
+    jobs = trace(tmp_path / "results")
+    assert ("PATCH_PIPELINE", "CACHED", "0") in jobs
+    assert ("CELLPROFILER", "COMPLETED", "0") in jobs
+    assert (tmp_path / "results" / "features" / "MyExpt_Image.csv").is_file()
+
+
+def test_memory_kill_gets_a_new_try(tmp_path):
+    """Check the error strategy: exit code 137 (killed, usually out of memory) gets a new try.
+
+    The new try asks for more memory (8 GB x attempt, clipped to --max_memory). The run then succeeds.
+    """
+    killed = tmp_path / "kill.config"
+    killed.write_text(
+        "process { withName: 'CELLPROFILER' { beforeScript = { task.attempt == 1 ? 'exit 137' : '' } } }\n"
+    )
+    images = make_images(tmp_path / "img", ["a.tif"])
+    result = run_stub(tmp_path, images, "-c", killed)
+    assert result.returncode == 0, result.stdout + result.stderr
+    cellprofiler = [
+        (status, code) for name, status, code in trace(tmp_path / "results") if name == "CELLPROFILER"
+    ]
+    assert cellprofiler == [("FAILED", "137"), ("COMPLETED", "0")]

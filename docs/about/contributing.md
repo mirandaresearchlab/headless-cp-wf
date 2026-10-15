@@ -21,6 +21,7 @@ This guide is for people who change the code of cp-headless. Read the [home page
 │   ├── bootstrap.sh         makes the development environment and installs the Git hook
 │   ├── check-comment-spacing.py  checks the comment layout of the code files
 │   ├── docker-entrypoint.sh starts the workflow in the all-in-one Docker image
+│   ├── start-docker-in-container.sh  starts Docker inside a lab workstation container
 │   ├── test-helpers-py38.sh runs the helper tests on Python 3.8
 │   └── test-nextflow.sh     runs the workflow on the test data without CellProfiler
 ├── tests/
@@ -32,6 +33,8 @@ This guide is for people who change the code of cp-headless. Read the [home page
 │   ├── test_comment_spacing.py    tests of the comment layout check
 │   ├── test_schema.py       tests that nextflow_schema.json agrees with nextflow.config
 │   ├── test_cellprofiler.py tests with real CellProfiler in Docker
+│   ├── test_local_cellprofiler.py  the same end-to-end test without a container (-profile local)
+│   ├── reference/           per-object features of the test data (made in the official container)
 │   └── cp_make_pipeline.py  makes test pipelines in the CellProfiler container
 ├── docs/                    this documentation site (MkDocs). docs/.hooks/ makes the reference pages.
 ├── mkdocs.yml               settings and menu of the documentation site
@@ -106,9 +109,9 @@ The tests have five levels. The fast tests run on each commit.
 | --- | --- | --- |
 | `uv run pytest` | The helper scripts and the Berzelius scripts | seconds |
 | `bash scripts/test-helpers-py38.sh` | The same tests, with the helpers on Python 3.8 | seconds |
-| `uv run pytest -m workflow` | `main.nf` without CellProfiler (`-stub-run`): grouping, checks, parameters, Slurm and Berzelius job scripts | about 1 minute. CI skips it: run it on your computer. |
+| `uv run pytest -m workflow` | `main.nf` without CellProfiler (`-stub-run`): grouping, checks, parameters, profiles, errors, new tries, `-resume`, Slurm and Berzelius job scripts | about 1 minute. Pre-commit skips it in CI. The `workflow` job runs it. |
 | `uv run pytest -m cellprofiler` | Real CellProfiler in Docker: the pipeline preparation, and a complete run of the test data | some minutes |
-| `uv run pytest -m rootless` | Real CellProfiler with rootless Docker: a complete run of the test data with `-profile test,rootless`, and the owner of each file. Skipped without a rootless daemon (only Linux). | some minutes |
+| `uv run pytest -m local_cellprofiler` | Real CellProfiler without a container: a complete run of the test data with `-profile test,local`. Needs `cellprofiler` 4.2.8 on PATH ([Run without Docker](../how-to/run-without-docker.md)), otherwise skipped. | some minutes |
 
 Other commands:
 
@@ -120,10 +123,12 @@ nextflow lint main.nf nextflow.config conf/*.config
 uv run pre-commit run --all-files      # all automatic checks
 ```
 
-**Reference results.** `tests/test_cellprofiler.py` runs the `test` profile with real CellProfiler. It
-compares the number of nuclei in each image with the numbers from the first version of the workflow. A
-different number means a change in the biological results. Do not change the reference numbers without a
-clear reason.
+**Reference results.** The end-to-end tests run the `test` profile with real CellProfiler, in Docker
+(`test_cellprofiler.py`) and without a container (`test_local_cellprofiler.py`). Both compare the number of
+nuclei in each image with the numbers from the first version of the workflow. Both also compare every
+feature value of the Nuclei and Cells tables with `tests/reference/`, within a relative difference of 1e-4
+(`FEATURE_RTOL`). A different number means a change in the biological results. Do not change the reference
+without a clear reason (see `tests/reference/README.md`).
 
 **Tests without a cluster.** The Slurm and Berzelius tests use a fake `sbatch` program. The fake program
 saves the job script that Nextflow makes and then refuses the job. A fake `apptainer` program makes an empty
@@ -133,7 +138,7 @@ image file. Thus the tests can check the `#SBATCH` lines and the use of `/scratc
 
 ## Automatic checks on GitHub
 
-`.github/workflows/ci.yml` has three jobs. All run on each push to each branch.
+`.github/workflows/ci.yml` has five jobs. All run on each push to each branch.
 
 1. **pre-commit** runs all checks of `.pre-commit-config.yaml`. If Ruff or another check corrects files,
    the job runs the checks again (3 times or fewer). Then it commits the corrections as
@@ -141,9 +146,19 @@ image file. Thus the tests can check the `#SBATCH` lines and the use of `/scratc
    - A check fails and no check can correct the problem.
    - The checks still fail after the corrections.
    - GitHub cannot push the correction.
-2. **cellprofiler** runs `pytest -m cellprofiler` with real CellProfiler in Docker.
-3. **rootless** starts rootless Docker on the runner and runs `pytest -m rootless`, and the configuration
-   tests of the `rootless` profile.
+2. **workflow** runs the fast tests and `pytest -m workflow` on Ubuntu and on macOS. macOS is for
+   development only: the job checks the workflow logic, not CellProfiler.
+3. **cellprofiler** runs `pytest -m cellprofiler` with real CellProfiler in Docker on the Ubuntu runner.
+4. **workstation-local** is a lab workstation without Docker: `root` in an Ubuntu 24.04 container. It
+   installs micromamba and the two conda environments of [Run without Docker](../how-to/run-without-docker.md),
+   then runs `pytest -m local_cellprofiler`.
+5. **workstation-docker** is a lab workstation with Docker inside: a privileged Ubuntu 24.04 container with a
+   volume on `/var/lib/docker`. It starts Docker with `scripts/start-docker-in-container.sh`, then runs
+   `pytest -m cellprofiler`.
+
+GitHub cannot run Berzelius. The tests run the Berzelius scripts and job settings with fake `sbatch`, `squeue`
+and `apptainer` programs. Only a run on Berzelius proves that they work there. The guides record which
+commands ran on Berzelius.
 
 The pre-commit job needs `contents: write` permission for the bot commit. On a protected branch, GitHub
 Actions must have permission to push. Otherwise the push fails, and you must run the checks yourself:

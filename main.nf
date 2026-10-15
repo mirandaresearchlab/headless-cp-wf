@@ -87,7 +87,7 @@ def validateParams() {
     def p = file(params.pipeline)
     if (!p.exists() || p.isDirectory()) cpnfError("pipeline file not found: ${params.pipeline}")
     if (!(p.name.toLowerCase() ==~ /.*\.(cppipe|cpproj)$/))
-        log.warn "[cellprofiler-nf] '${p.name}' does not end in .cppipe/.cpproj - trying anyway"
+        log.warn "[cp-headless] '${p.name}' does not end in .cppipe/.cpproj - trying anyway"
 
     def d = file(params.input_dir)
     if (!d.exists() || !d.isDirectory()) cpnfError("--input_dir is not a directory: ${params.input_dir}")

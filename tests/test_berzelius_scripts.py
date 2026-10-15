@@ -369,3 +369,92 @@ def test_make_env_stops_on_wrong_settings(tmp_path):
     again = run(SCRIPTS / "make_env.sh", "-p", proj, env=env)
     assert again.returncode == 2 and "Use -f" in again.stderr
     assert run(SCRIPTS / "make_env.sh", "-p", proj, "-f", env=env).returncode == 0
+
+
+def interactive_env(tmp_path, partition, job_id="77"):
+    """Make the environment of an interactive job, with fake nextflow and apptainer programs.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder for the fake project folder and the fake programs.
+    partition : str
+        The partition of the fake job (SLURM_JOB_PARTITION).
+    job_id : str or None, optional
+        The job ID (SLURM_JOB_ID). None means "not in a job", like on a login node.
+
+    Returns
+    -------
+    env : dict
+        The environment of the job.
+    proj : pathlib.Path
+        The fake project folder (from inputs).
+    """
+    proj = inputs(tmp_path)
+    (proj / "cp.env").write_text(
+        f"export NXF_HOME={proj}/.nextflow NXF_APPTAINER_CACHEDIR={proj}/containers\n"
+    )
+    env = submit_env(tmp_path, fake_bin(tmp_path, nextflow="exit 0", apptainer="exit 0"))
+    env.update(SLURM_JOB_ACCOUNT="naiss2026-1-1", SLURM_JOB_PARTITION=partition, SLURM_CPUS_ON_NODE="16")
+    env.pop("SLURM_JOB_ID", None)
+    if job_id:
+        env["SLURM_JOB_ID"] = job_id
+    return env, proj
+
+
+def test_interactive_run_uses_the_cores_of_the_job_and_no_slurm_jobs(tmp_path):
+    """Check that run_interactive.sh runs all jobs on the node, within the cores of the interactive job.
+
+    Nextflow must use the local executor. A Slurm executor inside the job would submit jobs from a job.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    env, proj = interactive_env(tmp_path, "berzelius-cpu")
+    run_dir = proj / "runs" / "plate1"
+    result = run(
+        SCRIPTS / "run_interactive.sh",
+        proj / "cp.env",
+        proj / "params.yml",
+        run_dir,
+        "--",
+        "--chunk_size",
+        "20",
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    cwd, *args = (tmp_path / "nextflow.args").read_text().splitlines()
+    assert cwd == str(run_dir)  # the -resume cache lives in the run folder
+    assert args[:4] == ["run", str(ROOT), "-profile", "berzelius"]
+    assert "-resume" in args
+    assert args[args.index("-params-file") + 1] == str(proj / "params.yml")
+    assert args[args.index("--slurm_partition") + 1] == "berzelius-cpu"
+    assert args[args.index("--max_cpus") + 1] == "16"
+    assert args[args.index("--max_memory") + 1] == "112.GB"
+    assert args[-2:] == ["--chunk_size", "20"]
+    config = (run_dir / "interactive.config").read_text()
+    assert "process.executor = 'local'" in config
+    assert "executor.cpus    = 16" in config
+
+
+def test_interactive_run_refuses_a_login_node_and_a_gpu_partition(tmp_path):
+    """Check that run_interactive.sh stops outside a job and on a GPU partition, before Nextflow starts.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    for partition, job_id, message in [
+        ("berzelius-cpu", None, "not on a login node"),
+        ("berzelius", "77", "Use berzelius-cpu"),
+    ]:
+        env, proj = interactive_env(tmp_path, partition, job_id)
+        result = run(
+            SCRIPTS / "run_interactive.sh", proj / "cp.env", proj / "params.yml", proj / "runs" / "x", env=env
+        )
+        assert result.returncode == 2
+        assert message in result.stderr
+        assert not (tmp_path / "nextflow.args").exists()

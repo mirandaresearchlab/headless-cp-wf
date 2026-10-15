@@ -25,12 +25,12 @@ package = false
 [tool.pytest.ini_options]
 
 # Workflow tests start Nextflow and take about a minute: run them with `pytest -m workflow`.
-addopts = "-ra -m 'not workflow and not cellprofiler and not rootless'"
+addopts = "-ra -m 'not workflow and not cellprofiler and not local_cellprofiler'"
 testpaths = ["tests"]
 markers = [
     "workflow: runs main.nf with -stub-run (needs Nextflow and Java)",
     "cellprofiler: runs real CellProfiler in Docker (needs Docker)",
-    "rootless: runs real CellProfiler with rootless Docker (needs a rootless Docker daemon on Linux)",
+    "local_cellprofiler: runs real CellProfiler without a container (needs cellprofiler 4.2.8 on PATH)",
 ]
 
 # Ruff: code style and lint rules for bin/, tests/ and scripts/.

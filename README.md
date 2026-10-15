@@ -30,12 +30,17 @@ flowchart LR
   E --> F[merge the tables] --> G[tables, masks,<br/>reports]
 ```
 
+## Where it runs
+
+| Environment | How CellProfiler runs | Guide |
+| --- | --- | --- |
+| Lab workstation (Ubuntu, `root`) | Without Docker (`-profile local`) | [Installation](https://mirandaresearchlab.github.io/headless-cp-wf/getting-started/installation/), then [Run without Docker](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-without-docker/) |
+| Lab workstation (Ubuntu, `root`) | With Docker (`-profile docker`) | [Installation](https://mirandaresearchlab.github.io/headless-cp-wf/getting-started/installation/), then [Run with Docker](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-with-docker/) |
+| Berzelius (NSC) | Apptainer, interactive or Slurm batch (`-profile berzelius`) | [Berzelius: set up](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/berzelius-setup/) |
+
 ## Quickstart
 
-You need Nextflow 24.04 or newer, Java 17 to 26, and Docker.
-
-See [Run on your own computer](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-your-computer/) for each step from
-`git clone`, including how to install Nextflow and how to select a supported Java.
+On a lab workstation with Nextflow and Docker ready (see the guides above):
 
 ```bash
 git clone https://github.com/mirandaresearchlab/headless-cp-wf.git
@@ -43,11 +48,8 @@ cd headless-cp-wf
 nextflow run . -profile test,docker
 ```
 
-This runs CellProfiler on 6 small test images. It ends with `[SUCCESS] completed=5 failed=0 cached=0`, and
-writes the tables, masks and reports to `results_test/` (see
-[Output](https://mirandaresearchlab.github.io/headless-cp-wf/output/)).
-
-Run your own data:
+This runs CellProfiler on 6 small test images. The tables in `results_test/features/` then have 6 image sets
+and 51 nuclei (see [Output](https://mirandaresearchlab.github.io/headless-cp-wf/output/)). Run your own data:
 
 ```bash
 nextflow run . -profile docker --pipeline analysis.cppipe --input_dir images/ --outdir results/ \
@@ -59,16 +61,11 @@ nextflow run . -profile docker --pipeline analysis.cppipe --input_dir images/ --
 Full documentation: **<https://mirandaresearchlab.github.io/headless-cp-wf/>**
 
 - [Tutorial: first run](https://mirandaresearchlab.github.io/headless-cp-wf/tutorials/first-run/) on the test data
-- [Run on your data](https://mirandaresearchlab.github.io/headless-cp-wf/usage/), and what the
-  [output](https://mirandaresearchlab.github.io/headless-cp-wf/output/) contains
-- How-to guides, for example
-  [Run on a Slurm cluster](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-hpc/) and
-  [Run on Berzelius](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/run-on-berzelius/)
-- [Parameters](https://mirandaresearchlab.github.io/headless-cp-wf/reference/parameters/),
-  [file formats](https://mirandaresearchlab.github.io/headless-cp-wf/reference/file-formats/) and
+- [Run on your data](https://mirandaresearchlab.github.io/headless-cp-wf/usage/), and what the [output](https://mirandaresearchlab.github.io/headless-cp-wf/output/) contains
+- [Find your guide](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/): lab workstation (with or without Docker) or Berzelius (interactive or batch)
+- [Parameters](https://mirandaresearchlab.github.io/headless-cp-wf/reference/parameters/), [file formats](https://mirandaresearchlab.github.io/headless-cp-wf/reference/file-formats/) and
   [troubleshooting](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/troubleshooting/)
-- [How the workflow works](https://mirandaresearchlab.github.io/headless-cp-wf/explanation/workflow/) and
-  [the data checks](https://mirandaresearchlab.github.io/headless-cp-wf/explanation/design/)
+- [How the workflow works](https://mirandaresearchlab.github.io/headless-cp-wf/explanation/workflow/) and [the data checks](https://mirandaresearchlab.github.io/headless-cp-wf/explanation/design/)
 
 The pages are also in [`docs/`](docs/) in this repository.
 
@@ -80,7 +77,7 @@ headless-cp-wf/
 ├── nextflow_schema.json       description of each parameter
 ├── conf/                      settings for Slurm and Berzelius
 ├── bin/                       Python helper scripts that run in each job
-├── scripts/                   development, test and Berzelius scripts
+├── scripts/                   development, test, Docker-in-container and Berzelius scripts
 ├── tests/                     tests and the 6 test images
 ├── docs/, mkdocs.yml          the documentation site
 └── Dockerfile                 the all-in-one image (Nextflow + CellProfiler)
