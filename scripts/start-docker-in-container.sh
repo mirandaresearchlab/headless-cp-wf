@@ -15,9 +15,10 @@ fail() {
 [[ "$(id -u)" -eq 0 ]] || fail "run this script as root (the user of the workstation container)."
 command -v dockerd >/dev/null || fail "Docker is not installed. Run: apt update && apt install -y docker.io"
 
-# Docker is already running: nothing to do.
+# Docker is already running: nothing to do. Show which service answers. With setup B of the guide, it is the
+# Docker service of the server, through its socket (/var/run/docker.sock).
 if docker info >/dev/null 2>&1; then
-    echo "Docker is already running."
+    echo "Docker is already running: $(docker info --format 'host {{.Name}}, {{.OperatingSystem}}, version {{.ServerVersion}}')."
     exit 0
 fi
 

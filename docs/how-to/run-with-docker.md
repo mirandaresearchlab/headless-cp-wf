@@ -63,7 +63,8 @@ each start of the workstation:
 bash scripts/start-docker-in-container.sh
 ```
 
-It must end with a line like `Docker runs: version 29.1.3, storage overlayfs, cgroup v2`. The script checks
+It must end with a line like `Docker runs: version 29.1.3, storage overlayfs, cgroup v2`. If Docker already
+runs, the script shows which service answers and stops. The script checks
 the setup first. If the container is not privileged, or `/var/lib/docker` has no volume, it stops with a
 message for the administrator. It also applies a fix for cgroup v2: without it, every Nextflow job fails
 with `cannot enter cgroupv2 ... in an invalid state`. The log of the service is `/var/log/dockerd.log`.
@@ -161,6 +162,7 @@ On a Mac with Docker Desktop, steps 3 to 5 also work. The Mac is for development
 | `this container is not privileged` (from the script) | Setup A needs `--privileged`. Ask the administrator. |
 | `/var/lib/docker is on the overlay file system` (from the script) | Setup A needs a volume on `/var/lib/docker`. Ask the administrator. |
 | `cannot enter cgroupv2 ... in an invalid state`, or `Docker was started without this script before` (from the script) | The Docker service started without the script of step 2, so it has no cgroup fix. The fix is possible only before the first start of Docker. Restart the workstation container (ask the administrator), then run the script of step 2 first. |
+| The script says `Docker is already running: host <name>`, but you expect setup A | The server mounted its Docker socket into your workstation, so you use the Docker service of the server (setup B). Use the same paths as in step 5, or ask the administrator to remove the socket. |
 | A job fails with exit status 125 in setup B | A folder of the job does not exist on the server. Use the same paths inside and outside (step 5). |
 | Jobs stop with exit code 137 | Not enough memory. Lower `--max_memory`, or give Docker more memory. |
 | Other errors | See [Troubleshooting](troubleshooting.md). |

@@ -247,6 +247,12 @@ jobs:
       - name: Check out pushed commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # GitHub mounts the Docker socket of the runner into every job container. A lab workstation of setup A
+      # has no such socket. Unmount it, so that the docker command uses the service inside this container.
+      # (The runner's service cannot see the folders of this container: each job failed with exit status 1.)
+      - name: Disconnect the Docker socket of the runner
+        run: umount /var/run/docker.sock
+
       # The script of the guide: it checks the container, applies the cgroup v2 fix and starts the service.
       - name: Start the Docker service inside the container
         run: bash scripts/start-docker-in-container.sh
