@@ -5,5 +5,6 @@
 NumPy 1.24.4). They keep the key columns and every numeric feature column.
 
 The end-to-end tests (`tests/test_cellprofiler.py`, `tests/test_local_cellprofiler.py`) compare a new run
-with these tables. Change them only on purpose, for example for a new CellProfiler version, and write
+with these tables. They skip `Location_MaxIntensity_*`: the position of the brightest pixel is not defined when
+two pixels share the maximum (see `UNSTABLE_COLUMNS`). Change them only on purpose, for example for a new CellProfiler version, and write
 the reason in CHANGELOG.md.

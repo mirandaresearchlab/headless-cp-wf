@@ -127,7 +127,8 @@ uv run pre-commit run --all-files      # all automatic checks
 (`test_cellprofiler.py`) and without a container (`test_local_cellprofiler.py`). Both compare the number of
 nuclei in each image with the numbers from the first version of the workflow. Both also compare every
 feature value of the Nuclei and Cells tables with `tests/reference/`, within a relative difference of 1e-4
-(`FEATURE_RTOL`). A different number means a change in the biological results. Do not change the reference
+(`FEATURE_RTOL`). They skip the position of the brightest pixel (`UNSTABLE_COLUMNS`), which is not defined
+when two pixels share the maximum. A different number means a change in the biological results. Do not change the reference
 without a clear reason (see `tests/reference/README.md`).
 
 **Tests without a cluster.** The Slurm and Berzelius tests use a fake `sbatch` program. The fake program
