@@ -30,8 +30,8 @@ makes sure of that.
 - [Find your project account](#find-your-project-account)
 - [Step 1. Get the code](#step-1-get-the-code)
 - [Step 2. Check your project](#step-2-check-your-project)
-- [Step 3. Install Nextflow](#step-3-install-nextflow)
-- [Step 4. Make your settings file](#step-4-make-your-settings-file)
+- [Step 3. Make your settings file](#step-3-make-your-settings-file)
+- [Step 4. Install Nextflow](#step-4-install-nextflow)
 - [Step 5. Run the test on a compute node](#step-5-run-the-test-on-a-compute-node)
 - [Step 6. Write the parameters of your run](#step-6-write-the-parameters-of-your-run)
 - [After a run](#after-a-run)
@@ -149,59 +149,10 @@ bash scripts/berzelius/preflight.sh <project-account> "$PROJ"
 The script shows your projects and quotas, the CPU partitions and their nodes, and the software that it
 finds. It warns if Nextflow or Apptainer files are in your home folder.
 
-## Step 3. Install Nextflow
+## Step 3. Make your settings file
 
-Nextflow needs Java 17 to 26. First, look for a module with `module avail nextflow`. If there is no module,
-make a conda environment in `/proj`. Do this in an interactive job on a CPU node:
-
-1. Start the job:
-
-   ```bash
-   interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 01:00:00
-   ```
-
-2. **Set `PROJ` again on the node, with `export`.** A job starts a new shell. It does not keep a variable that
-   you set without `export` on the login node. If `PROJ` is empty, the path `"$PROJ/envs/nextflow"` becomes
-   `/envs/nextflow`, and `mamba` stops with `Permission denied`.
-
-   ```bash
-   export PROJ=/proj/<project>/users/$USER
-   echo "$PROJ"          # it must show your folder, not an empty line
-   ```
-
-3. Load Miniforge and make the environment:
-
-   ```bash
-   module load Miniforge3
-   mamba create -p "$PROJ/envs/nextflow" -c conda-forge -c bioconda nextflow=26.04.6 openjdk=21
-   ```
-
-   `module load Miniforge3` loads the default version. You do not need to name a version. To use one
-   exact version, name it, for example `module load Miniforge3/25.3.1-0`. `module avail Miniforge3` lists the
-   versions. It marks the default with `(D)`.
-
-4. Check the result, then leave the job:
-
-   ```bash
-   unset JAVA_CMD
-   export JAVA_HOME="$PROJ/envs/nextflow/lib/jvm"
-   "$PROJ/envs/nextflow/bin/nextflow" -version
-   exit
-   ```
-
-   Berzelius sets `JAVA_CMD=/usr/bin/java`, which is an old Java. Nextflow reads `JAVA_CMD` before
-   `JAVA_HOME`, so without the two lines above it stops with `Cannot find Java or it's a wrong version`.
-   The settings file of step 4 contains these two lines, so you need them by hand only for this check.
-
-If `mamba` stops with an error about a lock, see [`mamba` stops because of a lock](#mamba-stops-because-of-a-lock).
-
-!!! tip "The `mamba` message about security"
-    `mamba` asks `Confirm changes: [Y/n]` and shows a warning about package scripts. This is normal for the
-    conda-forge and bioconda channels. Type `y`.
-
-## Step 4. Make your settings file
-
-The script `make_env.sh` writes the settings file from your options. You do not copy or edit a file.
+The script `make_env.sh` writes the settings file from your options. You do not copy or edit a file. Run it on the login node, in the shell of step 1 (where `PROJ` is
+set). It does not need the conda environment yet. Step 4 makes the environment.
 
 ```bash
 bash scripts/berzelius/make_env.sh -p "$PROJ"
@@ -226,14 +177,62 @@ file exists (use `-f`). The file that it writes does these things:
 
 To change a value, run the script again with `-f`.
 
+## Step 4. Install Nextflow
+
+Nextflow needs Java 17 to 26. First, look for a module with `module avail nextflow`. If there is no module,
+make a conda environment in `/proj`. Do this in an interactive job on a CPU node. Stay in the same job for
+the test in step 5:
+
+1. Start the job:
+
+   ```bash
+   interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 02:00:00
+   ```
+
+2. **Set `PROJ` again on the node, with `export`.** A job starts a new shell. It does not keep a variable that
+   you set without `export` on the login node. If `PROJ` is empty, the path `"$PROJ/envs/nextflow"` becomes
+   `/envs/nextflow`, and `mamba` stops with `Permission denied`.
+
+   ```bash
+   export PROJ=/proj/<project>/users/$USER
+   echo "$PROJ"          # it must show your folder, not an empty line
+   ```
+
+3. Load Miniforge and make the environment:
+
+   ```bash
+   module load Miniforge3
+   mamba create -p "$PROJ/envs/nextflow" -c conda-forge -c bioconda nextflow=26.04.6 openjdk=21
+   ```
+
+   `module load Miniforge3` loads the default version. You do not need to name a version. To use one
+   exact version, name it, for example `module load Miniforge3/25.3.1-0`. `module avail Miniforge3` lists the
+   versions. It marks the default with `(D)`.
+
+4. Load the settings file of step 3, then check Nextflow. The file activates the environment, removes
+   `JAVA_CMD` and sets `JAVA_HOME`:
+
+   ```bash
+   source "$PROJ/cp-headless.env"
+   nextflow -version
+   ```
+
+   Do not leave the job. Go on with step 5.
+
+If `mamba` stops with an error about a lock, see [`mamba` stops because of a lock](#mamba-stops-because-of-a-lock).
+
+!!! tip "The `mamba` message about security"
+    `mamba` asks `Confirm changes: [Y/n]` and shows a warning about package scripts. This is normal for the
+    conda-forge and bioconda channels. Type `y`.
+
 ## Step 5. Run the test on a compute node
 
 The test downloads the CellProfiler image into your image cache. Then it runs CellProfiler on the 6 test
 images. It shows you that Nextflow, Apptainer and CellProfiler work on Berzelius.
 
+Run it in the job of step 4:
+
 ```bash
-interactive -A <project-account> -p berzelius-cpu -n 1 -c 4 -t 01:00:00
-export PROJ=/proj/<project>/users/$USER      # again: a job starts a new shell
 cd "$PROJ/cp-headless"
 bash scripts/berzelius/smoke_test.sh "$PROJ/cp-headless.env" "$PROJ/cp-smoke"
 exit
@@ -248,9 +247,19 @@ OK: CellProfiler works on Berzelius.
 
 If you get different numbers, do not start a large run. Find the cause first.
 
+If you left the job of step 4, start a new job with the `interactive` command of step 4. Then run
+`export PROJ=/proj/<project>/users/$USER` again, because a job starts a new shell.
+
 ## Step 6. Write the parameters of your run
 
-Write a params file, for example `$PROJ/runs/plate1.yml`. Put all paths in `/proj`:
+The repository has no params file for your data. Make one file for each run. Make the folder, then open a new file:
+
+```bash
+mkdir -p "$PROJ/runs"
+nano "$PROJ/runs/plate1.yml"
+```
+
+Put this text in the file. Put all paths in `/proj`:
 
 ```yaml
 pipeline: /proj/<project>/users/<user>/pipelines/analysis.cppipe
@@ -262,6 +271,15 @@ required_metadata: Plate,Well,Site
 ```
 
 A YAML file does not expand `$USER`. Write your own user name for `<user>`. `echo $USER` shows it.
+
+These paths are examples. Your `.cppipe` file and your images must exist at the paths that you write.
+The values of `group_regex`, `chunk_size` and `required_metadata` are examples too. Change them to fit your
+file names and your pipeline.
+
+To run several plates together, set `input_dir` to the folder that holds all plate folders. The workflow
+gives the same result for a plate in a run with one plate or with many plates. You get one set of merged
+tables for all plates. The plate folder must be part of the image-set name, and your pipeline must read
+`Plate` from the folder name. See [Prepare your image folder](format-image-folder.md#several-channels).
 
 See [Run on your data](../usage.md) for [`group_regex`](../usage.md#group-the-files-of-one-site) and
 [`required_metadata`](../usage.md#metadata-for-profiling). See [Choose the chunk size](berzelius-batch.md#choose-the-chunk-size)
@@ -313,7 +331,7 @@ There is no backup of `/proj`. Keep a copy of your raw images in a different pla
 | Jobs wait with reason `AssocGrpGRESRunMinutes` | Your project used its allocation for this month. `projinfo` shows it. |
 | `Disk quota exceeded` | Run `nscquota`. Usually there are too many files. Remove old work folders. |
 | `Invalid account or account/partition combination specified` | The account name is wrong. Your user name (`x_...`) is not an account. See [Find your project account](#find-your-project-account). |
-| `mamba` stops with `Permission denied [/envs/nextflow/...]` | `PROJ` is empty in this shell, so the path starts at `/`. Run `export PROJ=/proj/<project>/users/$USER`, check it with `echo "$PROJ"`, and run `mamba create` again (step 3). |
+| `mamba` stops with `Permission denied [/envs/nextflow/...]` | `PROJ` is empty in this shell, so the path starts at `/`. Run `export PROJ=/proj/<project>/users/$USER`, check it with `echo "$PROJ"`, and run `mamba create` again (step 4). |
 | `Cannot find Java or it's a wrong version` and `JAVA_CMD: /usr/bin/java` | Berzelius sets `JAVA_CMD` to the old system Java, and Nextflow reads it first. Run `unset JAVA_CMD` and `export JAVA_HOME="$PROJ/envs/nextflow/lib/jvm"`, then run `nextflow -version` again. If the settings file was made before this fix, run `make_env.sh` again with `-f`. |
 | `mamba` stops with `Read-only file system ["/proj"]` | You run the command on your own computer. Run it on Berzelius. |
 | `mamba` stops because of a lock | See [`mamba` stops because of a lock](#mamba-stops-because-of-a-lock). |
