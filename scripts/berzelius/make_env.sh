@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Write the settings file of cp-headless for Berzelius. You give the values as options, so you do not edit a file.
-# Run it on a login node or in a job. The guide is docs/how-to/run-on-berzelius.md, step 4.
+# Run it on a login node or in a job. The guide is docs/how-to/berzelius-setup.md, step 3.
 set -euo pipefail
 
 usage() {
@@ -93,6 +93,10 @@ module load $module_name
 eval "\$(conda shell.bash hook)"
 conda activate "$env_text"
 
+# Berzelius sets JAVA_CMD to the old system Java. Nextflow reads JAVA_CMD before JAVA_HOME, so remove it.
+unset JAVA_CMD
+export JAVA_HOME="\$CONDA_PREFIX/lib/jvm"
+
 # Nextflow plugins and the container images: in /proj, not in \$HOME.
 export NXF_HOME="\$PROJ/.nextflow"
 export NXF_APPTAINER_CACHEDIR="\$PROJ/containers"
@@ -100,5 +104,5 @@ export APPTAINER_CACHEDIR="\$PROJ/containers/.apptainer-cache"
 EOF
 
 echo "Wrote $out"
-echo "Next: run the test in an interactive CPU job (guide, step 5):"
+echo "Next: install Nextflow and run the test in one interactive CPU job (guide, steps 4 and 5):"
 echo "  bash scripts/berzelius/smoke_test.sh \"$out\" \"$proj/cp-smoke\""

@@ -47,7 +47,7 @@ bash scripts/berzelius/run_interactive.sh "$PROJ/cp-headless.env" "$PROJ/runs/pl
 
 | Argument | Meaning |
 | --- | --- |
-| 1st | Your settings file ([setup, step 4](berzelius-setup.md#step-4-make-your-settings-file)) |
+| 1st | Your settings file ([setup, step 3](berzelius-setup.md#step-3-make-your-settings-file)) |
 | 2nd | Your params file ([setup, step 6](berzelius-setup.md#step-6-write-the-parameters-of-your-run)) |
 | 3rd | The run folder in `/proj`. It holds the work files and the cache for `-resume`. |
 | `-- ...` | More options for `nextflow run`, for example `-- --chunk_size 20` |

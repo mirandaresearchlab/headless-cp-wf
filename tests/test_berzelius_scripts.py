@@ -351,6 +351,27 @@ def test_make_env_loads_the_default_module_without_a_version(tmp_path):
     assert "module load Miniforge3\n" in (proj / "cp-headless.env").read_text()
 
 
+def test_make_env_uses_the_java_of_the_conda_environment(tmp_path):
+    """Check that the settings file removes JAVA_CMD and sets JAVA_HOME after conda activate.
+
+    Berzelius sets JAVA_CMD to the old /usr/bin/java, and Nextflow reads JAVA_CMD before JAVA_HOME.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    proj = inputs(tmp_path)
+    result = run(SCRIPTS / "make_env.sh", "-p", proj, env=submit_env(tmp_path))
+    assert result.returncode == 0, result.stderr
+    text = (proj / "cp-headless.env").read_text()
+    activate, unset, java_home = (
+        text.index(part) for part in ("conda activate", "unset JAVA_CMD", "export JAVA_HOME=")
+    )
+    assert activate < unset < java_home
+    assert 'JAVA_HOME="$CONDA_PREFIX/lib/jvm"' in text
+
+
 def test_make_env_stops_on_wrong_settings(tmp_path):
     """Check that make_env.sh writes nothing for a placeholder, a home folder or an existing file.
 

@@ -93,6 +93,11 @@ lab server) and Berzelius. Each one has its own guides and tests.
 - `scripts/test-nextflow.sh` and the workflow tests failed outside the activated `.venv`, and with Java 27
   (Nextflow supports Java 17 to 26). They now use `.venv/bin/nextflow` and find a supported Java
   themselves. Before, they changed Java only when `JAVA_HOME` was empty.
+- **Nextflow on Berzelius ignored the Java of the conda environment.** Berzelius sets `JAVA_CMD=/usr/bin/java`
+  (an old Java), and Nextflow reads `JAVA_CMD` before `JAVA_HOME`. It stopped with `Cannot find Java or it's a
+  wrong version`. The settings file from `make_env.sh` now runs `unset JAVA_CMD` and sets `JAVA_HOME` after
+  `conda activate`. Run `make_env.sh -f` again to update an old settings file. The guide has the same two
+  lines in the check of step 3 and a row in the troubleshooting table.
 - **The whole-workflow Docker image did not build.** Alpine's `sha256sum` has no `--check` option. The
   Dockerfile now uses `-c`.
 - The whole-workflow image now makes its files readable for any `--user`. Before, a checkout with owner-only

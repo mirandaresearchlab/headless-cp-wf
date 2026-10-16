@@ -30,7 +30,7 @@ bash scripts/berzelius/submit.sh \
 | --- | --- |
 | `-A` | Your project account |
 | `-s` | `ampere` (partition `berzelius-cpu`) or `hopper` (partition `berzelius-hopper-cpu`) |
-| `-e` | Your settings file ([setup, step 4](berzelius-setup.md#step-4-make-your-settings-file)) |
+| `-e` | Your settings file ([setup, step 3](berzelius-setup.md#step-3-make-your-settings-file)) |
 | `-p` | Your params file ([setup, step 6](berzelius-setup.md#step-6-write-the-parameters-of-your-run)) |
 | `-r` | The run folder in `/proj`. It holds the work files, the logs and the cache for `-resume`. |
 | `-n` | Check only: show the `sbatch` command, but do not submit it |
