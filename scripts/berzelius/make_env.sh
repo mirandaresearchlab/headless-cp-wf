@@ -93,6 +93,10 @@ module load $module_name
 eval "\$(conda shell.bash hook)"
 conda activate "$env_text"
 
+# Berzelius sets JAVA_CMD to the old system Java. Nextflow reads JAVA_CMD before JAVA_HOME, so remove it.
+unset JAVA_CMD
+export JAVA_HOME="\$CONDA_PREFIX/lib/jvm"
+
 # Nextflow plugins and the container images: in /proj, not in \$HOME.
 export NXF_HOME="\$PROJ/.nextflow"
 export NXF_APPTAINER_CACHEDIR="\$PROJ/containers"

@@ -183,9 +183,15 @@ make a conda environment in `/proj`. Do this in an interactive job on a CPU node
 4. Check the result, then leave the job:
 
    ```bash
+   unset JAVA_CMD
+   export JAVA_HOME="$PROJ/envs/nextflow/lib/jvm"
    "$PROJ/envs/nextflow/bin/nextflow" -version
    exit
    ```
+
+   Berzelius sets `JAVA_CMD=/usr/bin/java`, which is an old Java. Nextflow reads `JAVA_CMD` before
+   `JAVA_HOME`, so without the two lines above it stops with `Cannot find Java or it's a wrong version`.
+   The settings file of step 4 contains these two lines, so you need them by hand only for this check.
 
 If `mamba` stops with an error about a lock, see [`mamba` stops because of a lock](#mamba-stops-because-of-a-lock).
 
@@ -212,7 +218,9 @@ bash scripts/berzelius/make_env.sh -p "$PROJ"
 The script stops, and writes nothing, if the path has a `<placeholder>`, is in your home folder, or if the
 file exists (use `-f`). The file that it writes does these things:
 
-- It loads Miniforge and your conda environment, so that `nextflow` and Java work.
+- It loads Miniforge and your conda environment, so that `nextflow` and Java work. It also runs
+  `unset JAVA_CMD` and sets `JAVA_HOME` to the Java of the environment, because Berzelius sets `JAVA_CMD` to the
+  old system Java.
 - It exports `PROJ`, `NXF_HOME`, `NXF_APPTAINER_CACHEDIR` and `APPTAINER_CACHEDIR`. All of them point to
   folders in `/proj`.
 
@@ -306,6 +314,7 @@ There is no backup of `/proj`. Keep a copy of your raw images in a different pla
 | `Disk quota exceeded` | Run `nscquota`. Usually there are too many files. Remove old work folders. |
 | `Invalid account or account/partition combination specified` | The account name is wrong. Your user name (`x_...`) is not an account. See [Find your project account](#find-your-project-account). |
 | `mamba` stops with `Permission denied [/envs/nextflow/...]` | `PROJ` is empty in this shell, so the path starts at `/`. Run `export PROJ=/proj/<project>/users/$USER`, check it with `echo "$PROJ"`, and run `mamba create` again (step 3). |
+| `Cannot find Java or it's a wrong version` and `JAVA_CMD: /usr/bin/java` | Berzelius sets `JAVA_CMD` to the old system Java, and Nextflow reads it first. Run `unset JAVA_CMD` and `export JAVA_HOME="$PROJ/envs/nextflow/lib/jvm"`, then run `nextflow -version` again. If the settings file was made before this fix, run `make_env.sh` again with `-f`. |
 | `mamba` stops with `Read-only file system ["/proj"]` | You run the command on your own computer. Run it on Berzelius. |
 | `mamba` stops because of a lock | See [`mamba` stops because of a lock](#mamba-stops-because-of-a-lock). |
 | `Docker references with both a tag and digest are currently not supported` | Apptainer cannot pull `image:tag@sha256:...`. Use `--container 'cellprofiler/cellprofiler@sha256:<digest>'` (no tag). The default of the workflow already has this form. Update the code with `git pull`. |
