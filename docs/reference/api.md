@@ -11,6 +11,10 @@ library (and CellProfiler, for `patch_cppipe.py`).
 
 ::: patch_cppipe
 
+## check_illum.py
+
+::: check_illum
+
 ## check_chunk.py
 
 ::: check_chunk

@@ -433,6 +433,8 @@ def test_interactive_run_uses_the_cores_of_the_job_and_no_slurm_jobs(tmp_path):
     assert args[args.index("--slurm_partition") + 1] == "berzelius-cpu"
     assert args[args.index("--max_cpus") + 1] == "16"
     assert args[args.index("--max_memory") + 1] == "112.GB"
+    assert args[args.index("--total_cpus") + 1] == "16"  # the cores of this job, for all plates together
+    assert args[args.index("--total_memory") + 1] == "112.GB"
     assert args[-2:] == ["--chunk_size", "20"]
     config = (run_dir / "interactive.config").read_text()
     assert "process.executor = 'local'" in config

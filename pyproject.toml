@@ -36,8 +36,9 @@ markers = [
 # Ruff: code style and lint rules for bin/, tests/ and scripts/.
 [tool.ruff]
 
-# The skill folders hold other people's code. force-exclude also applies when pre-commit names the files.
-extend-exclude = [".claude", ".agent"]
+# The skill folders and the CellProfiler plugins hold other people's code. force-exclude also applies when
+# pre-commit names the files.
+extend-exclude = [".claude", ".agent", "cp-plugins"]
 force-exclude = true
 line-length = 110
 target-version = "py311"

@@ -5,8 +5,9 @@
 | Command | Description |
 |---|---|
 | [`patch_cppipe.py`](#patch-cppipe-py) | Prepare a CellProfiler pipeline for headless runs in chunks. |
+| [`check_illum.py`](#check-illum-py) | Check the illumination functions of one plate (one ILLUM job), and copy them to one folder. |
 | [`check_chunk.py`](#check-chunk-py) | Check the result of one CellProfiler job (one chunk), and make its mask list. |
-| [`merge_features.py`](#merge-features-py) | Merge the tables of all chunks into one table per name. |
+| [`merge_features.py`](#merge-features-py) | Merge the tables of all chunks (of one plate or of all plates) into one table per name. |
 
 ## patch_cppipe.py { #patch-cppipe-py }
 
@@ -17,7 +18,8 @@ python bin/patch_cppipe.py --help
 ```text
 usage: patch_cppipe.py [-h] --input INPUT --output OUTPUT --report REPORT
                        [--mask-format {tiff,png,npy}] [--objects OBJECTS] [--no-masks]
-                       [--plugins-dir PLUGINS_DIR] [--chunked] [--allow-unpatched]
+                       [--plugins-dir PLUGINS_DIR] [--chunked] [--allow-unpatched] [--illum]
+                       [--illum-files]
 
 Prepare a CellProfiler pipeline for headless runs in chunks.
 
@@ -31,14 +33,23 @@ to read and change the pipeline. It makes these changes, and writes each one int
   * For each object type without a mask, it adds ConvertObjectsToImage (16-bit labels) and SaveImages.
     Thus you always get segmentation masks.
   * It adds ExportToSpreadsheet if the pipeline has none. Thus you always get feature tables.
+  * It makes ExportToSpreadsheet write Image.csv, Cells.csv, ... into the job folder, without a file name
+    prefix and with the image metadata (plate, well, site) in each object table.
+  * It sets RunCellpose (plugin) to run Cellpose in the Python of the container (not in Docker), without
+    a GPU.
+  * With --illum-files, it makes the Images module pass the .npy illumination functions that the workflow
+    adds to the file list of each chunk ("Images only" drops them).
 
-The script runs once per workflow run (process PATCH_PIPELINE in main.nf), in the CellProfiler container.
-All chunk jobs then use the changed pipeline.
+With --illum, the script prepares an illumination pipeline instead: no masks and no feature tables. It stops
+if the pipeline has no CorrectIlluminationCalculate, or no SaveImages that saves .npy files at the last cycle.
+
+The script runs once per pipeline and workflow run (process PATCH_PIPELINE in main.nf), in the CellProfiler
+container. All ILLUM and chunk jobs then use the changed pipelines.
 
 Notes
 -----
-Exit codes: 0 = success. 1 = CellProfiler cannot load the pipeline, or the script cannot change it
-(and you did not set --allow-unpatched).
+Exit codes: 0 = success. 1 = CellProfiler cannot load the pipeline, the illumination pipeline is not usable,
+or the script cannot change the pipeline (and you did not set --allow-unpatched).
 
 options:
   -h, --help            show this help message and exit
@@ -52,6 +63,49 @@ options:
   --chunked             the workflow splits image sets into chunks: fail on modules that need all
                         image sets
   --allow-unpatched     if patching fails, fall back to the original pipeline instead of failing
+  --illum               the pipeline calculates illumination functions: no masks, no feature
+                        tables
+  --illum-files         the file list has .npy illumination functions: let them pass the Images
+                        filter
+```
+
+## check_illum.py { #check-illum-py }
+
+```bash
+python bin/check_illum.py --help
+```
+
+```text
+usage: check_illum.py [-h] --outdir OUTDIR --log LOG --patch-report PATCH_REPORT --dest DEST --qc
+                      QC [--channels CHANNELS]
+
+Check the illumination functions of one plate (one ILLUM job), and copy them to one folder.
+
+The script runs at the end of each ILLUM job (main.nf), in the CellProfiler container. The illumination
+pipeline calculates one function per channel from all images of the plate and saves it as a .npy file. The
+analysis chunks divide each image by its function. Thus a missing, infinite or zero value would give wrong
+features without any error. This script does these steps:
+  1. It looks in the CellProfiler log for errors while the modules ran.
+  2. It finds all .npy files in the CellProfiler output folder. Their number must be the number of SaveImages
+     modules that save .npy files (from the patch report).
+  3. It reads each file and checks that all values are finite and greater than 0.
+  4. It copies the files into one folder (--dest) and writes a QC file. It stops with exit code 1 if a
+     check failed.
+
+Notes
+-----
+The script uses only the Python standard library (no numpy). It must work on Python 3.8 (the Python of the
+container). Exit codes: 0 = all checks passed, 1 = at least one check failed.
+
+options:
+  -h, --help            show this help message and exit
+  --outdir OUTDIR       CellProfiler output folder (-o)
+  --log LOG
+  --patch-report PATCH_REPORT
+                        patch report of the illumination pipeline
+  --dest DEST           folder to copy the checked .npy files into
+  --qc QC               QC JSON to write
+  --channels CHANNELS   files per image set (0 = unknown)
 ```
 
 ## check_chunk.py { #check-chunk-py }
@@ -64,7 +118,8 @@ python bin/check_chunk.py --help
 usage: check_chunk.py [-h] --outdir OUTDIR --log LOG --patch-report PATCH_REPORT
                       [--expected-sets EXPECTED_SETS] --input-dir INPUT_DIR --features-dir
                       FEATURES_DIR --manifest MANIFEST --qc QC [--strict]
-                      [--required-metadata REQUIRED_METADATA]
+                      [--required-metadata REQUIRED_METADATA] [--plate PLATE]
+                      [--illum-dir ILLUM_DIR]
 
 Check the result of one CellProfiler job (one chunk), and make its mask list.
 
@@ -72,11 +127,12 @@ The script runs at the end of each CELLPROFILER job (main.nf), in the CellProfil
 CellProfiler can end with exit code 0 after errors. Thus this script is the real check of a job.
 It does these steps:
   1. It looks in the CellProfiler log for errors while the modules ran.
-  2. It copies the CSV tables into features_<chunk>/ and counts their rows.
+  2. It copies the CSV tables into features_<chunk>/ and counts their rows. With --plate, it puts the plate
+     into the column Metadata_Plate of each image and object table.
   3. It checks the image sets: they are present, their number is correct, the object counts agree,
      and the required metadata is present.
   4. It connects each mask file to its image set (mask_manifest.csv). Each mask must exist once, and two
-     image sets must not share a mask.
+     image sets must not share a mask. The illumination functions (--illum-dir) are not channels of the list.
   5. It writes qc_<chunk>.json, and stops with exit code 1 if a check failed.
 
 Notes
@@ -99,6 +155,9 @@ options:
   --strict
   --required-metadata REQUIRED_METADATA
                         comma-separated metadata names, e.g. Plate,Well,Site
+  --plate PLATE         plate of the chunk: written into Metadata_Plate
+  --illum-dir ILLUM_DIR
+                        folder of the staged illumination functions (not input images)
 ```
 
 ## merge_features.py { #merge-features-py }
@@ -109,27 +168,33 @@ python bin/merge_features.py --help
 
 ```text
 usage: merge_features.py [-h] [--outdir OUTDIR] [--gzip] [--unique-metadata UNIQUE_METADATA]
+                         [--require-plate] [--check-compartments]
                          chunk_dirs [chunk_dirs ...]
 
-Merge the tables of all chunks into one table per name.
+Merge the tables of all chunks (of one plate or of all plates) into one table per name.
 
 CellProfiler starts ImageNumber at 1 in each chunk. If you only put the tables one after the other,
-objects of different images get the same ImageNumber. Thus each merged table gets two columns in front:
-  CPNF_Chunk             - the chunk of the row.
-  CPNF_GlobalImageNumber - an image number that is unique in the run. It has the same value in the
-                           per-image and the per-object tables. Thus you can join the tables on it.
+objects of different images get the same ImageNumber, and a join on ImageNumber would join cells to the wrong
+images. Thus the merge makes ImageNumber unique in the merged tables, with the same value in the per-image and
+the per-object tables. Two columns in front keep the original values:
+  CPNF_Chunk            - the chunk of the row, for example PANC1_P01_chunk_0003.
+  CPNF_ChunkImageNumber - the ImageNumber that CellProfiler wrote in that chunk.
 
 The merged table has all columns of all chunks. A value that a chunk does not have stays empty. The
 script reads and writes one row at a time, with only the Python standard library. Thus it works on large
 object tables and with any python3.
 
-The merge also stops the run in two cases. In the first case, two chunks wrote the same mask file.
-In the second case (with --unique-metadata), the same plate, well and site occur in two chunks.
+The merge stops the run in these cases:
+  * two chunks wrote the same mask file;
+  * (--unique-metadata) the same plate, well and site occur twice in the image tables;
+  * (--require-plate) a row of an image or object table has no Metadata_Plate;
+  * (--check-compartments) the Image, Cells, Nuclei or Cytoplasm table, or a column that joins them, is
+    missing.
 
 Examples
 --------
-chunk_0001 has image sets 1-150, and chunk_0002 has image sets 1-150. In the merged tables,
-image set 1 of chunk_0002 gets CPNF_GlobalImageNumber 151.
+P1_chunk_0001 has image sets 1-50, and P1_chunk_0002 has image sets 1-50. In the merged tables,
+image set 1 of P1_chunk_0002 gets ImageNumber 51 and CPNF_ChunkImageNumber 1.
 
 positional arguments:
   chunk_dirs            features_<chunk> directories
@@ -141,5 +206,8 @@ options:
   --unique-metadata UNIQUE_METADATA
                         comma-separated metadata names (e.g. Plate,Well,Site) that must identify
                         one image set
+  --require-plate       every row of an image or object table must have a value in Metadata_Plate
+  --check-compartments  stop if the Image, Cells, Nuclei or Cytoplasm table, or a column that
+                        joins them, is missing
 ```
 

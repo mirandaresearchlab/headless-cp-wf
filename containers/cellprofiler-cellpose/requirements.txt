@@ -1,0 +1,22 @@
+# Cellpose and the packages that it adds to the official CellProfiler 4.2.8 image (Python 3.8).
+# Each version is pinned. The Dockerfile installs them with --no-deps, so pip cannot change a package of
+# CellProfiler (numpy 1.24.4, scipy 1.9.0, scikit-image 0.18.3, tifffile 2022.4.8); `pip check` then proves that
+# every requirement is met. The list came from `pip install cellpose==3.1.1.2 torch==2.4.1+cpu` in that image on
+# 2026-10-22, with one change: opencv-python-headless 4.10 instead of 5.0, a version that Cellpose 3 is known
+# to work with.
+cellpose==3.1.1.2
+torch==2.4.1+cpu
+fastremap==1.15.1
+filelock==3.16.1
+fill-voids==2.1.2
+fsspec==2025.3.0
+imagecodecs==2023.3.16
+importlib-metadata==8.5.0
+llvmlite==0.41.1
+mpmath==1.3.0
+natsort==8.4.0
+numba==0.58.1
+opencv-python-headless==4.10.0.84
+roifile==2023.5.12
+sympy==1.13.3
+tqdm==4.70.1

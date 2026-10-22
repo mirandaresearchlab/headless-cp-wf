@@ -1,0 +1,484 @@
+CellProfiler Pipeline: http://www.cellprofiler.org
+Version:5
+DateRevision:428
+GitHash:
+ModuleCount:26
+HasImagePlaneDetails:False
+
+Images:[module_num:1|svn_version:'Unknown'|variable_revision_number:2|show_window:False|notes:['To begin creating your project, use the Images module to compile a list of files and/or folders that you want to analyze. You can also specify a set of rules to include only the desired files in your selected folders.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    :
+    Filter images?:Custom
+    Select the rule criteria:or (and (extension does isimage) (directory doesnot containregexp "[\\\\/]\\.")) (file does endwith ".npy")
+
+Metadata:[module_num:2|svn_version:'Unknown'|variable_revision_number:6|show_window:False|notes:['The Metadata module optionally allows you to extract information describing your images (i.e, metadata) which will be stored along with your measurements. This information can be contained in the file name and/or location, or in an external file.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Extract metadata?:Yes
+    Metadata data type:Text
+    Metadata types:{}
+    Extraction method count:2
+    Metadata extraction method:Extract from file/folder names
+    Metadata source:File name
+    Regular expression to extract from file name:^(?P<Well>(?P<Row>[A-P])(?P<Column>[0-9]{2}))_s(?P<Site>[0-9]+)_x(?P<X>[0-9]+)_y(?P<Y>[0-9]+)_Fluorescence_(?P<Wavelength>[0-9]+)_nm_Ex\.tiff?$
+    Regular expression to extract from folder name:(?P<Date>[0-9]{4}_[0-9]{2}_[0-9]{2})$
+    Extract metadata from:All images
+    Select the filtering criteria:and (file does contain "")
+    Metadata file location:Elsewhere...|
+    Match file and image metadata:[]
+    Use case insensitive matching?:No
+    Metadata file name:None
+    Does cached metadata exist?:No
+    Metadata extraction method:Extract from file/folder names
+    Metadata source:Folder name
+    Regular expression to extract from file name:^(?P<Plate>.*)_(?P<Well>[A-P][0-9]{2})_s(?P<Site>[0-9])_w(?P<ChannelNumber>[0-9])
+    Regular expression to extract from folder name:(?P<Plate>[^\\/]+)$
+    Extract metadata from:Images matching a rule
+    Select the filtering criteria:or (file does endwith ".tif") (file does endwith ".tiff")
+    Metadata file location:Elsewhere...|
+    Match file and image metadata:[]
+    Use case insensitive matching?:No
+    Metadata file name:None
+    Does cached metadata exist?:No
+
+NamesAndTypes:[module_num:3|svn_version:'Unknown'|variable_revision_number:8|show_window:False|notes:['The NamesAndTypes module allows you to assign a meaningful name to each image by which other modules will refer to it.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Assign a name to:Images matching rules
+    Select the image type:Grayscale image
+    Name to assign these images:DNA
+    Match metadata:[{'DNA': 'Well', 'RNA': 'Well', 'AGP': 'Well', 'Mito': 'Well', 'ER': 'Well', 'IllumDNA': None, 'IllumRNA': None, 'IllumAGP': None, 'IllumMito': None, 'IllumER': None}, {'DNA': 'Site', 'RNA': 'Site', 'AGP': 'Site', 'Mito': 'Site', 'ER': 'Site', 'IllumDNA': None, 'IllumRNA': None, 'IllumAGP': None, 'IllumMito': None, 'IllumER': None}]
+    Image set matching method:Metadata
+    Set intensity range from:Image metadata
+    Assignments count:10
+    Single images count:0
+    Maximum intensity:255.0
+    Process as 3D?:No
+    Relative pixel spacing in X:1.0
+    Relative pixel spacing in Y:1.0
+    Relative pixel spacing in Z:1.0
+    Select the rule criteria:and (metadata does Wavelength "405")
+    Name to assign these images:DNA
+    Name to assign these objects:Cell
+    Select the image type:Grayscale image
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (metadata does Wavelength "488")
+    Name to assign these images:RNA
+    Name to assign these objects:Nucleus
+    Select the image type:Grayscale image
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (metadata does Wavelength "561")
+    Name to assign these images:AGP
+    Name to assign these objects:Cytoplasm
+    Select the image type:Grayscale image
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (metadata does Wavelength "638")
+    Name to assign these images:Mito
+    Name to assign these objects:Speckle
+    Select the image type:Grayscale image
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (metadata does Wavelength "730")
+    Name to assign these images:ER
+    Name to assign these objects:Object1
+    Select the image type:Grayscale image
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (file does startwith "IllumDNA") (file does endwith ".npy")
+    Name to assign these images:IllumDNA
+    Name to assign these objects:Object2
+    Select the image type:Illumination function
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (file does startwith "IllumRNA") (file does endwith ".npy")
+    Name to assign these images:IllumRNA
+    Name to assign these objects:Object3
+    Select the image type:Illumination function
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (file does startwith "IllumAGP") (file does endwith ".npy")
+    Name to assign these images:IllumAGP
+    Name to assign these objects:Object4
+    Select the image type:Illumination function
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (file does startwith "IllumMito") (file does endwith ".npy")
+    Name to assign these images:IllumMito
+    Name to assign these objects:Object5
+    Select the image type:Illumination function
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+    Select the rule criteria:and (file does startwith "IllumER") (file does endwith ".npy")
+    Name to assign these images:IllumER
+    Name to assign these objects:Object6
+    Select the image type:Illumination function
+    Set intensity range from:Image metadata
+    Maximum intensity:255.0
+
+Groups:[module_num:4|svn_version:'Unknown'|variable_revision_number:2|show_window:False|notes:['The Groups module optionally allows you to split your list of images into image subsets (groups) which will be processed independently of each other. Examples of groupings include screening batches, microtiter plates, time-lapse movies, etc.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Do you want to group your images?:No
+    grouping metadata count:1
+    Metadata category:None
+
+CorrectIlluminationApply:[module_num:5|svn_version:'Unknown'|variable_revision_number:5|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select the input image:DNA
+    Name the output image:CorrDNA
+    Select the illumination function:IllumDNA
+    Select how the illumination function is applied:Divide
+    Select the input image:RNA
+    Name the output image:CorrRNA
+    Select the illumination function:IllumRNA
+    Select how the illumination function is applied:Divide
+    Select the input image:AGP
+    Name the output image:CorrAGP
+    Select the illumination function:IllumAGP
+    Select how the illumination function is applied:Divide
+    Select the input image:Mito
+    Name the output image:CorrMito
+    Select the illumination function:IllumMito
+    Select how the illumination function is applied:Divide
+    Select the input image:ER
+    Name the output image:CorrER
+    Select the illumination function:IllumER
+    Select how the illumination function is applied:Divide
+    Set output image values less than 0 equal to 0?:Yes
+    Set output image values greater than 1 equal to 1?:Yes
+
+MeasureImageQuality:[module_num:6|svn_version:'Unknown'|variable_revision_number:6|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Calculate metrics for which images?:Select...
+    Image count:1
+    Scale count:1
+    Threshold count:1
+    Select the images to measure:DNA, RNA, AGP, Mito, ER
+    Include the image rescaling value?:Yes
+    Calculate blur metrics?:Yes
+    Spatial scale for blur measurements:20
+    Calculate saturation metrics?:Yes
+    Calculate intensity metrics?:Yes
+    Calculate thresholds?:No
+    Use all thresholding methods?:No
+    Select a thresholding method:Otsu
+    Typical fraction of the image covered by objects:0.1
+    Two-class or three-class thresholding?:Two classes
+    Minimize the weighted variance or the entropy?:Weighted variance
+    Assign pixels in the middle intensity class to the foreground or the background?:Foreground
+
+ImageMath:[module_num:7|svn_version:'Unknown'|variable_revision_number:5|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Operation:Average
+    Raise the power of the result by:1.0
+    Multiply the result by:1.0
+    Add to result:0.0
+    Set values less than 0 equal to 0?:Yes
+    Set values greater than 1 equal to 1?:Yes
+    Replace invalid values with 0?:Yes
+    Ignore the image masks?:No
+    Name the output image:CellBody
+    Image or measurement?:Image
+    Select the image:CorrAGP
+    Multiply the image by:1.0
+    Measurement:
+    Image or measurement?:Image
+    Select the image:CorrER
+    Multiply the image by:1.0
+    Measurement:
+
+RunCellpose:[module_num:8|svn_version:'Unknown'|variable_revision_number:8|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select the input image:CorrDNA
+    Rescale images before running Cellpose:Yes
+    Run CellPose in a Docker/Podman container or local python environment:Python
+    Select Cellpose version:v3
+    Select Cellpose docker image:cellprofiler/runcellpose_omnipose_no_pretrained:1.0.2
+    Select Cellpose docker image:cellprofiler/runcellpose_no_pretrained:2.3.2
+    Select Cellpose docker image:cellprofiler/runcellpose_with_pretrained:3.1.1.2
+    Select Cellpose docker image:cellprofiler/runcellpose_with_pretrained:4.0.6
+    Specify expected object diameter?:Yes
+    Expected object diameter:40
+    Detection mode:cyto
+    Detection mode:cyto
+    Detection mode:nuclei
+    Detection mode:cpsam
+    Name the output object:CellposeNuclei
+    Use GPU:No
+    Use averaging:No
+    Supply nuclei image as well?:No
+    Select the nuclei image:None
+    Save probability image?:No
+    Name the probability image:Probabilities
+    Location of the pre-trained model file:Elsewhere...|
+    Pre-trained model file name:cyto_0
+    Flow threshold:0.4
+    Cell probability threshold:0.0
+    GPU memory share for each worker:0.1
+    Stitch Threshold:0.0
+    Use 3D:No
+    Minimum size:150
+    Use Omnipose for mask reconstruction:No
+    Invert images:No
+    Remove objects that are touching the edge?:No
+    Rescale probability map?:Yes
+    Preprocess image before segmentation?:No
+    Preprocessing model:denoise_cyto3
+    Save preprocessed image?:No
+    Name the preprocessed image:Preprocessed
+    Cache model between image sets:Yes
+    Rescale for anisotropy?:Yes
+
+RunCellpose:[module_num:9|svn_version:'Unknown'|variable_revision_number:8|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select the input image:CellBody
+    Rescale images before running Cellpose:Yes
+    Run CellPose in a Docker/Podman container or local python environment:Python
+    Select Cellpose version:v3
+    Select Cellpose docker image:cellprofiler/runcellpose_omnipose_no_pretrained:1.0.2
+    Select Cellpose docker image:cellprofiler/runcellpose_no_pretrained:2.3.2
+    Select Cellpose docker image:cellprofiler/runcellpose_with_pretrained:3.1.1.2
+    Select Cellpose docker image:cellprofiler/runcellpose_with_pretrained:4.0.6
+    Specify expected object diameter?:Yes
+    Expected object diameter:90
+    Detection mode:cyto
+    Detection mode:cyto
+    Detection mode:cyto3
+    Detection mode:cpsam
+    Name the output object:CellposeCells
+    Use GPU:No
+    Use averaging:No
+    Supply nuclei image as well?:Yes
+    Select the nuclei image:CorrDNA
+    Save probability image?:No
+    Name the probability image:Probabilities
+    Location of the pre-trained model file:Elsewhere...|
+    Pre-trained model file name:cyto_0
+    Flow threshold:0.4
+    Cell probability threshold:0.0
+    GPU memory share for each worker:0.1
+    Stitch Threshold:0.0
+    Use 3D:No
+    Minimum size:600
+    Use Omnipose for mask reconstruction:No
+    Invert images:No
+    Remove objects that are touching the edge?:No
+    Rescale probability map?:Yes
+    Preprocess image before segmentation?:No
+    Preprocessing model:denoise_cyto3
+    Save preprocessed image?:No
+    Name the preprocessed image:Preprocessed
+    Cache model between image sets:Yes
+    Rescale for anisotropy?:Yes
+
+EnforceObjectsOneToOne:[module_num:10|svn_version:'Unknown'|variable_revision_number:1|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Pre-primary objects:CellposeNuclei
+    Pre-secondary objects:CellposeCells
+    Name the output primary object:NucleiPaired
+    Name the output secondary object:CellsPaired
+    In module display, show enforced objects on a selected image?:No
+    Select the image for visualization:None
+
+FilterObjects:[module_num:11|svn_version:'Unknown'|variable_revision_number:10|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select the objects to filter:CellsPaired
+    Name the output objects:Cells
+    Select the filtering mode:Image or mask border
+    Select the filtering method:Limits
+    Select the objects that contain the filtered objects:None
+    Select the location of the rules or classifier file:Elsewhere...|
+    Rules or classifier file name:rules.txt
+    Class number:1
+    Measurement count:1
+    Additional object count:0
+    Assign overlapping child to:Both parents
+    Keep removed objects as a separate set?:No
+    Name the objects removed by the filter:RemovedObjects
+    Select the measurement to filter by:AreaShape_Area
+    Filter using a minimum measurement value?:Yes
+    Minimum value:0.0
+    Filter using a maximum measurement value?:Yes
+    Maximum value:1.0
+    Allow fuzzy feature matching?:No
+
+MaskObjects:[module_num:12|svn_version:'Unknown'|variable_revision_number:3|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select objects to be masked:NucleiPaired
+    Name the masked objects:Nuclei
+    Mask using a region defined by other objects or by binary image?:Objects
+    Select the masking object:Cells
+    Select the masking image:None
+    Handling of objects that are partially masked:Remove depending on overlap
+    Fraction of object that must overlap:0.5
+    Numbering of resulting objects:Renumber
+    Invert the mask?:No
+
+RelateObjects:[module_num:13|svn_version:'Unknown'|variable_revision_number:5|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Parent objects:Cells
+    Child objects:Nuclei
+    Calculate child-parent distances?:None
+    Calculate per-parent means for all child measurements?:No
+    Calculate distances to other parents?:No
+    Do you want to save the children with parents as a new object set?:No
+    Name the output object:RelateObjects
+    Parent name:None
+
+IdentifyTertiaryObjects:[module_num:14|svn_version:'Unknown'|variable_revision_number:3|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select the larger identified objects:Cells
+    Select the smaller identified objects:Nuclei
+    Name the tertiary objects to be identified:Cytoplasm
+    Shrink smaller object prior to subtraction?:No
+
+MeasureObjectSizeShape:[module_num:15|svn_version:'Unknown'|variable_revision_number:3|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select object sets to measure:Nuclei, Cells, Cytoplasm
+    Calculate the Zernike features?:Yes
+    Calculate the advanced features?:No
+
+MeasureObjectIntensity:[module_num:16|svn_version:'Unknown'|variable_revision_number:4|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select images to measure:CorrDNA, CorrRNA, CorrAGP, CorrMito, CorrER
+    Select objects to measure:Nuclei, Cells, Cytoplasm
+
+MeasureImageIntensity:[module_num:17|svn_version:'Unknown'|variable_revision_number:4|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select images to measure:CorrDNA, CorrRNA, CorrAGP, CorrMito, CorrER
+    Measure the intensity only from areas enclosed by objects?:No
+    Select input object sets:
+    Calculate custom percentiles:No
+    Specify percentiles to measure:10,90
+
+MeasureColocalization:[module_num:18|svn_version:'Unknown'|variable_revision_number:5|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select images to measure:CorrDNA, CorrRNA, CorrAGP, CorrMito, CorrER
+    Set threshold as percentage of maximum intensity for the images:15.0
+    Select where to measure correlation:Within objects
+    Select objects to measure:Nuclei, Cells, Cytoplasm
+    Run all metrics?:No
+    Calculate correlation and slope metrics?:Yes
+    Calculate the Manders coefficients?:Yes
+    Calculate the Rank Weighted Colocalization coefficients?:Yes
+    Calculate the Overlap coefficients?:Yes
+    Calculate the Manders coefficients using Costes auto threshold?:No
+    Method for Costes thresholding:Faster
+
+MeasureGranularity:[module_num:19|svn_version:'Unknown'|variable_revision_number:4|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select images to measure:CorrDNA, CorrRNA, CorrAGP, CorrMito, CorrER
+    Measure within objects?:Yes
+    Select objects to measure:Nuclei, Cells, Cytoplasm
+    Subsampling factor for granularity measurements:0.25
+    Subsampling factor for background reduction:0.25
+    Radius of structuring element:10
+    Range of the granular spectrum:16
+
+MeasureTexture:[module_num:20|svn_version:'Unknown'|variable_revision_number:7|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select images to measure:CorrDNA, CorrRNA, CorrAGP, CorrMito, CorrER
+    Select objects to measure:Nuclei, Cells, Cytoplasm
+    Enter how many gray levels to measure the texture at:256
+    Hidden:2
+    Measure whole images or objects?:Both
+    Texture scale to measure:5
+    Texture scale to measure:10
+
+MeasureObjectIntensityDistribution:[module_num:21|svn_version:'Unknown'|variable_revision_number:6|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select images to measure:CorrDNA, CorrRNA, CorrAGP, CorrMito, CorrER
+    Hidden:3
+    Hidden:1
+    Hidden:0
+    Calculate intensity Zernikes?:Magnitudes only
+    Maximum zernike moment:9
+    Select objects to measure:Cells
+    Object to use as center?:Centers of other objects
+    Select objects to use as centers:Nuclei
+    Select objects to measure:Cytoplasm
+    Object to use as center?:Centers of other objects
+    Select objects to use as centers:Nuclei
+    Select objects to measure:Nuclei
+    Object to use as center?:These objects
+    Select objects to use as centers:None
+    Scale the bins?:Yes
+    Number of bins:4
+    Maximum radius:100
+
+MeasureObjectNeighbors:[module_num:22|svn_version:'Unknown'|variable_revision_number:3|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select objects to measure:Cells
+    Select neighboring objects to measure:Cells
+    Method to determine neighbors:Adjacent
+    Neighbor distance:5
+    Consider objects discarded for touching image border?:Yes
+    Retain the image of objects colored by numbers of neighbors?:No
+    Name the output image:ObjectNeighborCount
+    Select colormap:Blues
+    Retain the image of objects colored by percent of touching pixels?:No
+    Name the output image:PercentTouching
+    Select colormap:Oranges
+
+MeasureObjectNeighbors:[module_num:23|svn_version:'Unknown'|variable_revision_number:3|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select objects to measure:Nuclei
+    Select neighboring objects to measure:Nuclei
+    Method to determine neighbors:Within a specified distance
+    Neighbor distance:10
+    Consider objects discarded for touching image border?:Yes
+    Retain the image of objects colored by numbers of neighbors?:No
+    Name the output image:ObjectNeighborCount
+    Select colormap:Blues
+    Retain the image of objects colored by percent of touching pixels?:No
+    Name the output image:PercentTouching
+    Select colormap:Oranges
+
+OverlayOutlines:[module_num:24|svn_version:'Unknown'|variable_revision_number:4|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:False|wants_pause:False]
+    Display outlines on a blank image?:No
+    Select image on which to display outlines:CorrDNA
+    Name the output image:OutlineOverlay
+    Outline display mode:Color
+    Select method to determine brightness of outlines:Max of image
+    How to outline:Inner
+    Select outline color:Blue
+    Select objects to display:Nuclei
+    Select outline color:Red
+    Select objects to display:Cells
+
+SaveImages:[module_num:25|svn_version:'Unknown'|variable_revision_number:16|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:False|wants_pause:False]
+    Select the type of image to save:Image
+    Select the image to save:OutlineOverlay
+    Select method for constructing file names:From image filename
+    Select image name for file prefix:DNA
+    Enter single file name:OrigBlue
+    Number of digits:4
+    Append a suffix to the image file name?:Yes
+    Text to append to the image name:_outlines
+    Saved file format:png
+    Output file location:Default Output Folder sub-folder|outlines
+    Image bit depth:8-bit integer
+    Overwrite existing files without warning?:Yes
+    When to save:Every cycle
+    Record the file and path information to the saved image?:No
+    Create subfolders in the output folder?:No
+    Base image folder:Elsewhere...|
+    How to save the series:T (Time)
+    Save with lossless compression?:Yes
+
+ExportToSpreadsheet:[module_num:26|svn_version:'Unknown'|variable_revision_number:13|show_window:False|notes:[]|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+    Select the column delimiter:Comma (",")
+    Add image metadata columns to your object data file?:Yes
+    Add image file and folder names to your object data file?:No
+    Select the measurements to export:No
+    Calculate the per-image mean values for object measurements?:No
+    Calculate the per-image median values for object measurements?:No
+    Calculate the per-image standard deviation values for object measurements?:No
+    Output file location:Default Output Folder sub-folder|features
+    Create a GenePattern GCT file?:No
+    Select source of sample row name:Metadata
+    Select the image to use as the identifier:None
+    Select the metadata to use as the identifier:None
+    Export all measurement types?:No
+    Press button to select measurements:
+    Representation of Nan/Inf:NaN
+    Add a prefix to file names?:Yes
+    Filename prefix:CellPainting_
+    Overwrite existing files without warning?:Yes
+    Data to export:Image
+    Combine these object measurements with those of the previous object?:No
+    File name:DATA.csv
+    Use the object name for the file name?:Yes
+    Data to export:Experiment
+    Combine these object measurements with those of the previous object?:No
+    File name:DATA.csv
+    Use the object name for the file name?:Yes
+    Data to export:Nuclei
+    Combine these object measurements with those of the previous object?:No
+    File name:DATA.csv
+    Use the object name for the file name?:Yes
+    Data to export:Cells
+    Combine these object measurements with those of the previous object?:No
+    File name:DATA.csv
+    Use the object name for the file name?:Yes
+    Data to export:Cytoplasm
+    Combine these object measurements with those of the previous object?:No
+    File name:DATA.csv
+    Use the object name for the file name?:Yes

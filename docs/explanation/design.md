@@ -16,10 +16,14 @@ for data that you know is imperfect.
 
 | Check | Why | Option |
 | --- | --- | --- |
-| Every image file matches `--group_regex` | Thumbnails or overlays in the image folder would become image sets | `--allow_incomplete_sets` |
-| Every image set has the same number of files | A missing channel gives an incomplete image set | `--allow_incomplete_sets` |
+| Every file has a plate (a plate folder, or `--plate_regex`), with a safe name | The plate becomes a folder name and `Metadata_Plate` | — |
+| Every image file matches `--group_regex` (per plate) | Thumbnails or overlays in the image folder would become image sets | `--allow_incomplete_sets` |
+| Every image set of a plate has the same number of files | A missing channel gives an incomplete image set | `--allow_incomplete_sets` |
 | The output and work folders are not in the image folder | A later run would read the results as images | — |
-| No module that needs all image sets, when the work is in chunks | Each chunk would calculate its own result, for example its own illumination correction | use `--chunk_size 0` |
+| No module that needs all image sets in the analysis pipeline, when the work is in chunks | Each chunk would calculate its own result, for example its own illumination correction | move it to `--illum_pipeline`, or `--chunk_size 0` |
+| The illumination pipeline calculates and saves `.npy` functions at the last cycle | Otherwise the chunks have no functions to apply | — |
+| `--segmentation_cpus` is not more than `--total_cpus` and `--max_cpus` | No chunk could start | — |
+| A pipeline with plugins finds them in `--plugins_dir`; RunCellpose does not run in the official image | The jobs would fail later | — |
 | Boolean parameters are `true` or `false` | Nextflow passes `--flag false` as the text "false", which would count as true | — |
 | Berzelius: an account, a CPU partition, and no folders in `$HOME` | GPU hours are expensive, and `$HOME` is small | — |
 
@@ -32,13 +36,23 @@ for data that you know is imperfect.
 | `Count_<Object>` agrees with the rows of the object table | Otherwise the export is incomplete | — |
 | One mask per image set and object type, never shared | Otherwise a mask is missing or lost | — |
 | Required metadata is present, non-empty and unique | Joins on plate, well and site would be wrong | only with `--required_metadata` |
+| `Metadata_Plate` of every row is the plate of the chunk | A pipeline that extracts another plate name would mix plates | — |
+
+### After each ILLUM job
+
+| Check | Why |
+| --- | --- |
+| One `.npy` file per SaveImages module of the illumination pipeline | A missing function would leave a channel uncorrected |
+| All values finite and greater than 0 | Dividing by 0, NaN or a negative value gives wrong intensities |
 
 ### When the workflow merges the chunks
 
 | Check | Why |
 | --- | --- |
 | No two chunks wrote the same mask file | One mask would overwrite the other |
-| No site occurs in two chunks (with `--required_metadata`) | The workflow processed the site twice |
+| No site occurs twice (with `--required_metadata`, or plate, well and site with `--check_compartments`) | The workflow processed the site twice |
+| Every row of an image or object table has a plate | Profiles of different plates would mix |
+| With `--check_compartments`: the compartment tables and their join columns exist (`Image`, `Cells`, `Nuclei`, `Cytoplasm`; `Parent_Cells`, `Parent_Nuclei`; plate, well, site) | A join of the compartments of each cell would fail, or join cells to the wrong images |
 
 ## Decisions
 
@@ -50,9 +64,16 @@ program without changes. `--group_regex` makes sure that a chunk always holds co
 search and replace. Thus each change is valid, and CellProfiler checks the new modules. The report lists each
 change, and `patched.cppipe` is the pipeline that ran.
 
-**A global image number.** CellProfiler starts `ImageNumber` at 1 in each chunk. The merge adds
-`CPNF_GlobalImageNumber`, which is unique in the run, and the same in the image table, the object tables and
-the mask list.
+**One illumination job per plate, and chunks per plate.** An illumination function is the average of all
+images of a plate, so it can not be cut into chunks. The analysis can. Each chunk gets only the functions of
+its own plate (the workflow joins them by the plate name), and a chunk never holds sites of two plates.
+
+**A global image number.** CellProfiler starts `ImageNumber` at 1 in each chunk. The merge rewrites
+`ImageNumber`, so that it is unique over all plates and chunks, and the same in the image table, the object
+tables and the mask list. Joins of the tables use it. `CPNF_ChunkImageNumber` keeps the original value.
+
+**The merged tables are the end.** The workflow makes the tables of all plates, ready to be joined into one row
+per cell, but it does not make single-cell profiles itself. That step comes after the workflow.
 
 **Pinned software.** The workflow pins the CellProfiler container by its digest. `run_info.json` records the code
 version, the container and all parameters of each run. Thus you can find out later how the workflow made the results.
@@ -69,4 +90,7 @@ numbers from the first version of the workflow. A different number means a chang
   storage, each chunk copies the folder.
 - We tested the workflow with CellProfiler 4.2.8. CellProfiler 5 changes some modules. If you change the
   version, read `patch_report.json`.
-- GPU plugins (for example Cellpose) are not supported on Berzelius: all jobs run on CPU nodes.
+- Cellpose runs on CPUs: all jobs run on Berzelius CPU nodes, and the workflow sets RunCellpose to "Use GPU:
+  No". A GPU version (Cellpose-SAM) would need a GPU process of its own.
+- Cytoplasm objects without a parent cell or nucleus (`Parent_Cells` = 0) and cells without cytoplasm can not
+  be joined into one row per cell. The merge does not count them: check them before you make profiles.

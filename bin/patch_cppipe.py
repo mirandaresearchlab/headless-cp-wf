@@ -11,14 +11,23 @@ to read and change the pipeline. It makes these changes, and writes each one int
   * For each object type without a mask, it adds ConvertObjectsToImage (16-bit labels) and SaveImages.
     Thus you always get segmentation masks.
   * It adds ExportToSpreadsheet if the pipeline has none. Thus you always get feature tables.
+  * It makes ExportToSpreadsheet write Image.csv, Cells.csv, ... into the job folder, without a file name
+    prefix and with the image metadata (plate, well, site) in each object table.
+  * It sets RunCellpose (plugin) to run Cellpose in the Python of the container (not in Docker), without
+    a GPU.
+  * With --illum-files, it makes the Images module pass the .npy illumination functions that the workflow
+    adds to the file list of each chunk ("Images only" drops them).
 
-The script runs once per workflow run (process PATCH_PIPELINE in main.nf), in the CellProfiler container.
-All chunk jobs then use the changed pipeline.
+With --illum, the script prepares an illumination pipeline instead: no masks and no feature tables. It stops
+if the pipeline has no CorrectIlluminationCalculate, or no SaveImages that saves .npy files at the last cycle.
+
+The script runs once per pipeline and workflow run (process PATCH_PIPELINE in main.nf), in the CellProfiler
+container. All ILLUM and chunk jobs then use the changed pipelines.
 
 Notes
 -----
-Exit codes: 0 = success. 1 = CellProfiler cannot load the pipeline, or the script cannot change it
-(and you did not set --allow-unpatched).
+Exit codes: 0 = success. 1 = CellProfiler cannot load the pipeline, the illumination pipeline is not usable,
+or the script cannot change the pipeline (and you did not set --allow-unpatched).
 """
 
 import argparse
@@ -70,7 +79,7 @@ def parse_args():
     -------
     argparse.Namespace
         The options: input, output, report, mask_format, objects, no_masks, plugins_dir,
-        chunked and allow_unpatched.
+        chunked, allow_unpatched, illum and illum_files.
     """
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--input", required=True, help=".cppipe or .cpproj file")
@@ -89,6 +98,16 @@ def parse_args():
         "--allow-unpatched",
         action="store_true",
         help="if patching fails, fall back to the original pipeline instead of failing",
+    )
+    p.add_argument(
+        "--illum",
+        action="store_true",
+        help="the pipeline calculates illumination functions: no masks, no feature tables",
+    )
+    p.add_argument(
+        "--illum-files",
+        action="store_true",
+        help="the file list has .npy illumination functions: let them pass the Images filter",
     )
     return p.parse_args()
 
@@ -622,6 +641,195 @@ def ensure_export(pipeline, instantiate_module, report):
     return [exp]
 
 
+def prepare_export(pipeline, report):
+    """Make each ExportToSpreadsheet write the tables in the layout that the merge reads.
+
+    The tables go into the job folder itself, without a file name prefix: Image.csv, Cells.csv, Nuclei.csv,
+    Cytoplasm.csv, with the same names in every chunk and run. Each object table gets the image metadata
+    (plate, well, site), and each object gets its own file.
+
+    Parameters
+    ----------
+    pipeline : cellprofiler_core.pipeline.Pipeline
+        The pipeline to change.
+    report : dict
+        The report. Each change goes to ``report["export_changes"]``.
+    """
+    exports = [m for m in pipeline.modules() if is_enabled(m) and m.module_name == "ExportToSpreadsheet"]
+    if len(exports) > 1:
+        report["warnings"].append(
+            f"{len(exports)} ExportToSpreadsheet modules write into the same folder without a prefix: tables "
+            "with the same name replace each other. Keep one ExportToSpreadsheet module."
+        )
+    for module in exports:
+        changes = []
+
+        # Change a setting only if it has another value, and note each change.
+        def change(setting, value, label, module=module, changes=changes):
+            """Set a setting of the module to a value, and note the change.
+
+            Parameters
+            ----------
+            setting : cellprofiler_core.setting.Setting
+                The setting.
+            value : object
+                The new value.
+            label : str
+                The name of the setting in the report.
+            module : cellprofiler_core.module.Module
+                The ExportToSpreadsheet module.
+            changes : list of str
+                The changes of this module.
+            """
+            if setting.value != value:
+                changes.append(f"{label}: {setting.value!r} -> {value!r}")
+                set_value(setting, value, f"#{module.module_num} ExportToSpreadsheet.{label}")
+
+        change(module.wants_prefix, False, "wants_prefix")
+        change(module.directory, f"{DEFAULT_OUTPUT}|", "directory")
+        change(module.add_metadata, True, "add_metadata")
+        for group in module.object_groups:
+            change(group.previous_file, False, f"{group.name.value}.previous_file")
+            change(group.wants_automatic_file_name, True, f"{group.name.value}.wants_automatic_file_name")
+        if changes:
+            report["export_changes"].append(
+                {"module": f"#{module.module_num} ExportToSpreadsheet", "changes": changes}
+            )
+
+
+def prepare_cellpose(pipeline, report):
+    """Make each RunCellpose module run Cellpose in the Python of the container, without a GPU.
+
+    RunCellpose (a plugin) can start a Docker container for each image. Clusters such as Berzelius have no
+    Docker, and the CellProfiler jobs run on CPU nodes. The container of the workflow has Cellpose and its
+    models.
+
+    Parameters
+    ----------
+    pipeline : cellprofiler_core.pipeline.Pipeline
+        The pipeline to change.
+    report : dict
+        The report. Each change goes to ``report["cellpose_changes"]``.
+    """
+    for module in pipeline.modules():
+        if not is_enabled(module) or module.module_name != "RunCellpose":
+            continue
+        changes = []
+        if module.docker_or_python.value != "Python":
+            changes.append(f"docker_or_python: {module.docker_or_python.value!r} -> 'Python'")
+            set_value(module.docker_or_python, "Python", "RunCellpose.docker_or_python")
+        if module.use_gpu.value:
+            changes.append("use_gpu: True -> False")
+            set_value(module.use_gpu, False, "RunCellpose.use_gpu")
+        if changes:
+            report["cellpose_changes"].append(
+                {"module": f"#{module.module_num} RunCellpose", "changes": changes}
+            )
+
+
+def accept_illum_files(pipeline, report):
+    """Make the Images module pass the .npy illumination functions that the workflow adds to the file list.
+
+    "Images only" (the default of the Images module) passes only the file types of Bio-Formats, and .npy is
+    not one of them: CellProfiler would drop the functions, and NamesAndTypes would report them as missing.
+    The rule becomes: the old rule, or a file that ends with .npy.
+
+    Parameters
+    ----------
+    pipeline : cellprofiler_core.pipeline.Pipeline
+        The pipeline to change.
+    report : dict
+        The report. Each change goes to ``report["images_filter_changes"]``.
+    """
+    from cellprofiler_core.constants.modules.images import (
+        FILTER_CHOICE_CUSTOM,
+        FILTER_CHOICE_IMAGES,
+        FILTER_DEFAULT,
+    )
+
+    for module in pipeline.modules():
+        if not is_enabled(module) or module.module_name != "Images":
+            continue
+        choice = module.filter_choice.value
+        if choice == FILTER_CHOICE_IMAGES:
+            old = FILTER_DEFAULT
+        elif choice == FILTER_CHOICE_CUSTOM:
+            old = module.filter.value_text
+        else:
+            continue  # "No filtering" passes every file
+        if '".npy"' in old:
+            continue
+        new = f'or ({old}) (file does endwith ".npy")'
+        set_value(module.filter_choice, FILTER_CHOICE_CUSTOM, "Images.filter_choice")
+        module.filter.value = new
+        report["images_filter_changes"].append(
+            {"module": f"#{module.module_num} Images", "from": f"{choice}: {old}", "to": f"Custom: {new}"}
+        )
+
+
+def check_illum_pipeline(pipeline, report):
+    """Check that an illumination pipeline calculates functions and saves them as .npy at the last cycle.
+
+    Parameters
+    ----------
+    pipeline : cellprofiler_core.pipeline.Pipeline
+        The loaded illumination pipeline.
+    report : dict
+        The report. ``report["illum_outputs"]`` gets one entry per SaveImages module that saves a .npy file.
+
+    Raises
+    ------
+    PatchFailure
+        If the pipeline has no CorrectIlluminationCalculate, no SaveImages that saves .npy files, or saves
+        them before the last cycle.
+    """
+    modules = [m for m in pipeline.modules() if is_enabled(m)]
+    calculations = [m for m in modules if m.module_name == "CorrectIlluminationCalculate"]
+    if not calculations:
+        raise PatchFailure(
+            "The illumination pipeline (--illum_pipeline) has no CorrectIlluminationCalculate module that "
+            "is on."
+        )
+    report["illum_calculations"] = [
+        f"#{m.module_num} {m.image_name.value} -> {m.illumination_image_name.value} ({m.each_or_all.value})"
+        for m in calculations
+    ]
+
+    # Each function must be saved as .npy once, at the last cycle: then it holds the average of all images.
+    outputs = []
+    for module in modules:
+        if module.module_name != "SaveImages" or module.save_image_or_figure.value != "Image":
+            continue
+        if module.file_format.value != "npy":
+            continue
+        if module.when_to_save.value != "Last cycle":
+            raise PatchFailure(
+                f"#{module.module_num} SaveImages saves {module.image_name.value} at "
+                f"'{module.when_to_save.value}'. Save illumination functions at the 'Last cycle': only then "
+                "they hold all images of the plate."
+            )
+        single = module.file_name_method.value == "Single name"
+        outputs.append(
+            {
+                "module": f"#{module.module_num} SaveImages",
+                "image": module.image_name.value,
+                "file_name": module.single_file_name.value if single else None,
+            }
+        )
+    if not outputs:
+        raise PatchFailure(
+            "The illumination pipeline (--illum_pipeline) has no SaveImages module that saves an image as "
+            ".npy. "
+            "Save each illumination function with SaveImages: file format npy, at the last cycle."
+        )
+    report["illum_outputs"] = outputs
+
+    # A function that is calculated but not saved is lost. Only warn: the pipeline may use it otherwise.
+    unsaved = sorted({m.illumination_image_name.value for m in calculations} - {o["image"] for o in outputs})
+    if unsaved:
+        report["warnings"].append(f"Illumination functions calculated but not saved as .npy: {unsaved}")
+
+
 def patch(pipeline, instantiate_module, args, report):
     """Make all changes to the pipeline, in order.
 
@@ -645,6 +853,17 @@ def patch(pipeline, instantiate_module, args, report):
     # 1. Remove what stops a headless run, and keep all outputs in the job folder.
     remove_batch_modules(pipeline, report)
     redirect_outputs(pipeline, report)
+
+    # An illumination pipeline makes no masks and no feature tables (main() checked it already).
+    if args.illum:
+        return
+
+    # Cellpose runs in the Python of the container (clusters have no Docker), on CPUs.
+    prepare_cellpose(pipeline, report)
+
+    # The illumination functions in the file list must pass the filter of the Images module.
+    if args.illum_files:
+        accept_illum_files(pipeline, report)
 
     # 2. Find the object types (for example Nuclei, Cells), in the order of the pipeline.
     objects = provider_names(pipeline, "objectgroup")
@@ -691,8 +910,9 @@ def patch(pipeline, instantiate_module, args, report):
                 added += add_masks(pipeline, instantiate_module, todo, ref_image, args.mask_format, report)
                 report["masks_managed"].extend(report["masks_added"])
 
-    # 4. Make sure that CellProfiler writes feature tables.
+    # 4. Make sure that CellProfiler writes feature tables, with fixed names and the metadata in every table.
     added += ensure_export(pipeline, instantiate_module, report)
+    prepare_export(pipeline, report)
 
     # 5. Let CellProfiler check the settings of each new module.
     for module in added:  # raises ValidationError if two settings do not agree
@@ -725,6 +945,7 @@ def main():
     # The report starts empty. Each step below adds to it. fatal() writes it, also when a step fails.
     report = {
         "input": args.input,
+        "illum": args.illum,
         "cellprofiler_version": None,
         "pipeline_date_revision": pipeline_revision(args.input),
         "objects": [],
@@ -732,6 +953,10 @@ def main():
         "masks_managed": [],
         "masks_already_in_pipeline": [],
         "export_added": False,
+        "export_changes": [],
+        "cellpose_changes": [],
+        "images_filter_changes": [],
+        "illum_outputs": [],
         "redirected": [],
         "removed_modules": [],
         "warnings": [],
@@ -758,6 +983,40 @@ def main():
         fatal(f"Could not import CellProfiler ({exc}). Check the container or local install.")
     report["cellprofiler_version"] = version
 
+    # Start Java, as `cellprofiler` does. The check of a new SaveImages module asks the Metadata module for
+    # its metadata names, and a Metadata module that extracts metadata needs Java for that. Stop Java in
+    # `finally`, also when fatal() ends the program: stop_java() from an atexit function hangs the program.
+    try:
+        from cellprofiler_core.utilities.java import start_java, stop_java
+
+        start_java()
+    except Exception as exc:
+        fatal(f"CellProfiler could not start Java ({exc}). Check the container or local install.")
+    try:
+        patch_file(args, report, fatal, Pipeline, instantiate_module, version)
+    finally:
+        stop_java()
+
+
+def patch_file(args, report, fatal, Pipeline, instantiate_module, version):
+    """Load, check and change the pipeline, and write the changed pipeline and the report.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        The command-line options (from parse_args).
+    report : dict
+        The report. Each step writes into it.
+    fatal : callable
+        Writes the report with an error and stops the program with exit code 1.
+    Pipeline : type
+        The CellProfiler Pipeline class (from init_cellprofiler).
+    instantiate_module : callable
+        Makes a module from its name (from init_cellprofiler).
+    version : str
+        The CellProfiler version.
+    """
+
     # A pipeline from a newer CellProfiler can load, but can give different results. Warn about it.
     running, saved = version_as_revision(version), report["pipeline_date_revision"]
     if running and saved and saved > running:
@@ -771,6 +1030,14 @@ def main():
     except LoadFailure as exc:
         fatal(str(exc))
 
+    # An illumination pipeline that calculates or saves no functions would give the chunks nothing to apply.
+    # This is an error of the pipeline, not of the patch: --allow-unpatched does not skip it.
+    if args.illum:
+        try:
+            check_illum_pipeline(pipeline, report)
+        except PatchFailure as exc:
+            fatal(str(exc))
+
     # Do this check before the changes, and also with --allow-unpatched. Chunks of such a pipeline give
     # wrong results without any error.
     report["chunk_unsafe_modules"] = chunk_unsafe_modules(pipeline)
@@ -779,7 +1046,8 @@ def main():
             "This pipeline must process all image sets in one CellProfiler run, but --chunk_size > 0 "
             "splits them into chunks:\n  - "
             + "\n  - ".join(report["chunk_unsafe_modules"])
-            + "\nRun with --chunk_size 0."
+            + "\nAn illumination function from all images belongs in the illumination pipeline "
+            "(--illum_pipeline): the workflow runs it once per plate. Otherwise run with --chunk_size 0."
         )
 
     # Change the pipeline and save it, without a file list: the workflow gives each chunk its own list
@@ -805,6 +1073,12 @@ def main():
     print(f"[patch_cppipe] ExportToSpreadsheet added: {report['export_added']}")
     for r in report["redirected"]:
         print(f"[patch_cppipe] redirected {r['module']}: {r['from']!r} -> {r['to']!r}")
+    for entry in report["export_changes"] + report["cellpose_changes"]:
+        print(f"[patch_cppipe] changed {entry['module']}: {'; '.join(entry['changes'])}")
+    for entry in report["images_filter_changes"]:
+        print(f"[patch_cppipe] changed {entry['module']} filter: {entry['from']!r} -> {entry['to']!r}")
+    for output in report["illum_outputs"]:
+        print(f"[patch_cppipe] illumination function {output['image']} saved by {output['module']}")
     for w in report["warnings"]:
         print(f"[patch_cppipe] WARNING: {w}", file=sys.stderr)
 

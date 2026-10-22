@@ -1,8 +1,8 @@
 # Berzelius: interactive run
 
 This page shows how to run the workflow on your data inside an interactive job on Berzelius. You ask
-Slurm for one CPU node (or part of it). All CellProfiler jobs then run on that node, one job per core.
-Nextflow submits no Slurm jobs. Use this way for tests and for small runs.
+Slurm for one CPU node (or part of it). All CellProfiler jobs then run on that node, as many at once as its
+cores allow. Nextflow submits no Slurm jobs. Use this way for tests and for small runs.
 
 !!! info "Before you start"
     Do [Berzelius: set up](berzelius-setup.md) first, including the test (step 5) and your params file
@@ -24,8 +24,8 @@ Nextflow submits no Slurm jobs. Use this way for tests and for small runs.
 
 ## Step 1. Start an interactive job
 
-On a login node, ask for a CPU node. Each CellProfiler job uses 1 core and 7 GB, so 16 cores run 16 chunks
-at the same time:
+On a login node, ask for a CPU node. Each analysis chunk uses `--segmentation_cpus` cores (2) with 7 GB each,
+and each ILLUM job 1 core and 7 GB. So 16 cores run 8 chunks at the same time:
 
 ```bash
 interactive -A <project-account> -p berzelius-cpu -n 1 -c 16 -t 04:00:00
@@ -42,7 +42,7 @@ cd "$PROJ/cp-headless"
 ## Step 2. Run the workflow
 
 ```bash
-bash scripts/berzelius/run_interactive.sh "$PROJ/cp-headless.env" "$PROJ/runs/plate1.yml" "$PROJ/runs/plate1"
+bash scripts/berzelius/run_interactive.sh "$PROJ/cp-headless.env" "$PROJ/runs/panc1.yml" "$PROJ/runs/panc1"
 ```
 
 | Argument | Meaning |
@@ -54,11 +54,12 @@ bash scripts/berzelius/run_interactive.sh "$PROJ/cp-headless.env" "$PROJ/runs/pl
 
 The script first checks that it runs inside a job on a CPU partition. Then it writes `interactive.config` in
 the run folder. This file makes Nextflow run the jobs on this node (local executor), with the cores and the
-memory of your job (7 GB per core). Then it starts Nextflow with `-profile berzelius` and `-resume`. The
+memory of your job (7 GB per core); they also become `--total_cpus` and `--total_memory` of the run. Then it
+starts Nextflow with `-profile berzelius` and `-resume`. The
 first line shows the cores and the memory:
 
 ```text
-Interactive run in job <jobid> on <node>: 16 cores, 112 GB, run folder /proj/<project>/users/<user>/runs/plate1
+Interactive run in job <jobid> on <node>: 16 cores, 112 GB, run folder /proj/<project>/users/<user>/runs/panc1
 ```
 
 The log of Nextflow appears on the screen. When the run ends, leave the job with `exit`.
@@ -85,4 +86,5 @@ See [After a run](berzelius-setup.md#after-a-run). The trace file of an interact
 | `this job runs in partition '...'. Use berzelius-cpu or berzelius-hopper-cpu.` | The job is on a GPU partition. End it with `exit` and ask for a CPU partition (step 1). |
 | `RUN_DIR ... is in your home directory` | Use a run folder in `/proj`. |
 | Jobs wait and run one after the other | The job has few cores. Ask for more cores with `-c` in step 1. |
+| `--segmentation_cpus 2 is more than --total_cpus 1` | The job has 1 core, but a chunk needs 2. Ask for at least 2 cores with `-c`. |
 | Other messages | See [setup: troubleshooting](berzelius-setup.md#troubleshooting) and [Troubleshooting](troubleshooting.md). |

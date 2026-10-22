@@ -73,7 +73,7 @@ plugins:
 extra:
 
   # Commands whose --help is rendered into reference/cli.md on every build (if that page exists)
-  cli_commands: ["python bin/patch_cppipe.py", "python bin/check_chunk.py", "python bin/merge_features.py"]
+  cli_commands: ["python bin/patch_cppipe.py", "python bin/check_illum.py", "python bin/check_chunk.py", "python bin/merge_features.py"]
 
   # Folder whose notebooks are copied into docs/notebooks/ on every build
   notebooks_dir: null

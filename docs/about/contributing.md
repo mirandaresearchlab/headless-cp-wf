@@ -13,9 +13,13 @@ This guide is for people who change the code of cp-headless. Read the [home page
 │   ├── slurm.config         settings for -profile slurm
 │   └── berzelius.config     settings for -profile berzelius (loaded after slurm.config)
 ├── bin/                     Python helper scripts. Nextflow adds this folder to the PATH of each job.
-│   ├── patch_cppipe.py      prepares the CellProfiler pipeline
+│   ├── patch_cppipe.py      prepares the CellProfiler pipelines (analysis and illumination)
+│   ├── check_illum.py       checks the illumination functions of one plate
 │   ├── check_chunk.py       checks the result of one CellProfiler job and makes its mask list
-│   └── merge_features.py    merges the tables of all chunks
+│   └── merge_features.py    merges the tables of all chunks (of all plates, or of one plate)
+├── containers/              the Cellpose image of the CellProfiler jobs (see its README)
+├── cp-configs/              the PANC1 pipelines and a params file for Berzelius
+├── cp-plugins/              the CellProfiler plugins RunCellpose and EnforceObjectsOneToOne (unchanged copies)
 ├── scripts/
 │   ├── berzelius/           helper scripts for Berzelius (see the Berzelius guide)
 │   ├── bootstrap.sh         makes the development environment and installs the Git hook
@@ -26,9 +30,11 @@ This guide is for people who change the code of cp-headless. Read the [home page
 │   └── test-nextflow.sh     runs the workflow on the test data without CellProfiler
 ├── tests/
 │   ├── images/              6 small test images (2 plates, 3 sites, 1 channel)
-│   ├── test.cppipe          the test pipeline
+│   ├── test.cppipe          the test pipeline (no illumination)
+│   ├── test_illum.cppipe    the test illumination pipeline
+│   ├── test_analysis.cppipe the test analysis pipeline (illumination, Nuclei, Cells, Cytoplasm)
 │   ├── test_helpers.py      tests of the helper scripts in bin/
-│   ├── test_workflow.py     tests of main.nf without CellProfiler (grouping, parameters, Slurm, Berzelius)
+│   ├── test_workflow.py     tests of main.nf without CellProfiler (plates, illumination, chunks, merge, cores, Slurm, Berzelius)
 │   ├── test_berzelius_scripts.py  tests of scripts/berzelius/
 │   ├── test_comment_spacing.py    tests of the comment layout check
 │   ├── test_schema.py       tests that nextflow_schema.json agrees with nextflow.config

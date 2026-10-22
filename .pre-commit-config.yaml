@@ -1,8 +1,9 @@
 # Checks that run before each commit (after ./scripts/bootstrap.sh), and on GitHub for each push.
 # Run all of them by hand with: uv run pre-commit run --all-files
 # Each check runs only when a file that matches its "files" pattern changed.
-# The folders of the coding-agent skills hold other people's code. No check of this project covers them.
-exclude: ^(\.claude|\.agent)/
+# The folders of the coding-agent skills and the CellProfiler plugins (cp-plugins/) hold other people's code. No
+# check of this project covers them: the plugins must stay identical to their source (see cp-plugins/README.md).
+exclude: ^(\.claude|\.agent|cp-plugins)/
 
 minimum_pre_commit_version: "4.0.0"
 default_install_hook_types: [pre-commit]

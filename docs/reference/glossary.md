@@ -15,7 +15,9 @@
 | Pipeline | A CellProfiler file (`.cppipe`) that lists the analysis steps (modules) and their settings. |
 | Module | One step of a CellProfiler pipeline, for example IdentifyPrimaryObjects. |
 | Headless | Without the graphical window of a program. |
-| Chunk | A group of image sets that one CellProfiler job processes. |
+| Chunk | A group of image sets of one plate that one CellProfiler job processes, for example `PANC1_P01_chunk_0001`. |
+| Illumination function | An image per channel that shows the uneven light of the microscope. It is the average of all images of a plate (`.npy` file). Each image is divided by it. |
+| Compartment | A part of a cell that has its own object table: `Cells`, `Nuclei`, `Cytoplasm`. |
 | Job (task) | One run of one step of the workflow, for example CellProfiler on one chunk. |
 | Profile | A named group of settings for Nextflow, chosen with `-profile`, for example `docker`. |
 | Container | A package that holds CellProfiler and everything that it needs. The same container gives the same results on each computer. |

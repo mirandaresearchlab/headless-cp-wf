@@ -57,7 +57,8 @@ mkdir -p "$run_dir" "$NXF_APPTAINER_CACHEDIR"
 params="$(cd "$(dirname "$params")" && pwd)/$(basename "$params")"
 cd "$run_dir"
 
-# Use only the cores of this job. Berzelius gives about 7.7 GB of memory per core: use 7 GB per core.
+# Use only the cores of this job (--total_cpus: all plates together). Berzelius gives about 7.7 GB of memory
+# per core: use 7 GB per core.
 cpus="${SLURM_CPUS_ON_NODE:-${SLURM_CPUS_PER_TASK:-1}}"
 memory_gb=$((cpus * 7))
 cat >interactive.config <<EOF
@@ -81,4 +82,6 @@ nextflow run "$repo" \
     --container_cache "$NXF_APPTAINER_CACHEDIR" \
     --max_cpus "$cpus" \
     --max_memory "$memory_gb.GB" \
+    --total_cpus "$cpus" \
+    --total_memory "$memory_gb.GB" \
     "$@"

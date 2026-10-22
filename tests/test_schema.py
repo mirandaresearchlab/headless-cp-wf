@@ -9,6 +9,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -75,3 +77,24 @@ def test_every_schema_group_is_used_and_every_parameter_is_described():
     assert used == set(schema["$defs"])
     for name, prop in schema_params().items():
         assert prop.get("type") and prop.get("description"), name
+
+
+def test_params_files_use_only_known_parameters():
+    """Check that each key of the params files in cp-configs/ is a parameter of the workflow.
+
+    A misspelt key in a params file is ignored by Nextflow without a message.
+    """
+    yaml = pytest.importorskip("yaml")
+    known = set(schema_params())
+    for path in sorted((ROOT / "cp-configs").glob("*.yml")):
+        keys = set(yaml.safe_load(path.read_text(encoding="utf-8")))
+        assert keys <= known, (path.name, sorted(keys - known))
+
+
+def test_berzelius_params_file_uses_the_pipelines_of_cp_configs():
+    """Check that the Berzelius params file names both pipelines of cp-configs/, and that they exist."""
+    yaml = pytest.importorskip("yaml")
+    params = yaml.safe_load((ROOT / "cp-configs" / "berzelius_params.yml").read_text(encoding="utf-8"))
+    for key in ("illum_pipeline", "pipeline"):
+        name = Path(params[key]).name
+        assert (ROOT / "cp-configs" / name).is_file(), name

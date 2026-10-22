@@ -5,11 +5,12 @@ The script runs at the end of each CELLPROFILER job (main.nf), in the CellProfil
 CellProfiler can end with exit code 0 after errors. Thus this script is the real check of a job.
 It does these steps:
   1. It looks in the CellProfiler log for errors while the modules ran.
-  2. It copies the CSV tables into features_<chunk>/ and counts their rows.
+  2. It copies the CSV tables into features_<chunk>/ and counts their rows. With --plate, it puts the plate
+     into the column Metadata_Plate of each image and object table.
   3. It checks the image sets: they are present, their number is correct, the object counts agree,
      and the required metadata is present.
   4. It connects each mask file to its image set (mask_manifest.csv). Each mask must exist once, and two
-     image sets must not share a mask.
+     image sets must not share a mask. The illumination functions (--illum-dir) are not channels of the list.
   5. It writes qc_<chunk>.json, and stops with exit code 1 if a check failed.
 
 Notes
@@ -36,6 +37,9 @@ MASK_EXT = {".tif", ".tiff", ".png", ".npy"}
 
 # Metadata columns that hold a path in the job folder. The mask list does not include them.
 TASK_PATH_METADATA = {"Metadata_FileLocation"}
+
+# The column that tells the plate of each row. The merge needs it in each image and object table.
+PLATE_COLUMN = "Metadata_Plate"
 
 
 def set_field_limit():
@@ -114,6 +118,109 @@ def classify(header):
     if "ImageNumber" in columns:
         return "image"
     return "other"
+
+
+def copy_with_plate(source, target, plate, name, errors):
+    """Copy a table, and make sure that each row has the plate in the column Metadata_Plate.
+
+    The workflow knows the plate of each chunk from the plate folder (or from --plate_regex). If the pipeline
+    makes Metadata_Plate itself, each value must be that plate. An empty value gets the plate. If the table
+    has no such column, the function adds it after ObjectNumber (object tables) or ImageNumber (image tables).
+
+    Parameters
+    ----------
+    source : str
+        The table that CellProfiler wrote.
+    target : str
+        The copy to write.
+    plate : str
+        The plate of the chunk.
+    name : str
+        The name of the table, for the error message.
+    errors : list of str
+        The function adds an error if rows have another plate.
+
+    Returns
+    -------
+    list of str
+        The column names of the copy.
+    """
+    other = []
+    with open(source, newline="", encoding="utf-8", errors="surrogateescape") as src, open(
+        target, "w", newline="", encoding="utf-8", errors="surrogateescape"
+    ) as dst:
+        reader = csv.reader(src)
+        header = next(reader, [])
+        writer = csv.writer(dst)
+        added = PLATE_COLUMN not in header
+        if added:
+            index = header.index("ObjectNumber" if "ObjectNumber" in header else "ImageNumber") + 1
+            header = header[:index] + [PLATE_COLUMN] + header[index:]
+        else:
+            index = header.index(PLATE_COLUMN)
+        writer.writerow(header)
+
+        # One row at a time: object tables can be large.
+        for row in reader:
+            if added:
+                row = row[:index] + [plate] + row[index:]
+            elif index >= len(row) or not row[index].strip():
+                row += [""] * (index + 1 - len(row))
+                row[index] = plate
+            elif row[index] != plate:
+                other.append(row[index])
+            writer.writerow(row)
+    if other:
+        errors.append(
+            f"{name}: {len(other)} row(s) have Metadata_Plate other than {plate!r}, e.g. {other[0]!r}. "
+            "The plate comes from the plate folder (or --plate_regex). Fix the Metadata module of your "
+            "pipeline, or the folders."
+        )
+    return header
+
+
+def published_mask_path(relative, plate):
+    """Make the path of a mask in the output folder of the workflow, from its path below masks/.
+
+    The workflow publishes the masks of a plate to <outdir>/<plate>/masks/. The mask writers copy the folders
+    of the input images, which usually start with the plate folder. The function removes that folder once.
+
+    Parameters
+    ----------
+    relative : str
+        The path below the masks/ folder of the chunk, for example "plate1/site1_DNA_Nuclei_mask.tiff".
+    plate : str or None
+        The plate of the chunk. None keeps the old layout, masks/<relative>.
+
+    Returns
+    -------
+    str
+        For example "plate1/masks/site1_DNA_Nuclei_mask.tiff".
+    """
+    if not plate:
+        return f"masks/{relative}"
+    return f"{plate}/masks/{strip_prefix(relative, plate + '/')}"
+
+
+def same_folder(path_name, folders):
+    """Tell if a PathName_<channel> value is one of the given folders.
+
+    Parameters
+    ----------
+    path_name : str
+        The value of a PathName_<channel> column.
+    folders : list of str
+        Folders to compare with, for example the illum/ folder of the job.
+
+    Returns
+    -------
+    bool
+        True if the value is one of the folders (also after links are resolved).
+    """
+    value = str(path_name or "").replace("\\", "/").rstrip("/")
+    if not value:
+        return False
+    return any(value == folder or os.path.realpath(value) == os.path.realpath(folder) for folder in folders)
 
 
 def strip_prefix(value, prefix):
@@ -242,7 +349,9 @@ def write_empty_manifest(manifest):
         csv.DictWriter(handle, fieldnames=["ImageNumber", "MaskObject", "MaskPath"]).writeheader()
 
 
-def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, errors, warnings):
+def build_mask_manifest(
+    image_csv, report, mask_root, input_dir, manifest, errors, warnings, plate=None, aux_dirs=()
+):
     """Connect each mask to its image set, and record an error for each mask that is not correct.
 
     For each image set and each object type, the expected mask name is
@@ -266,6 +375,11 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
         The function adds each problem that stops the job to this list.
     warnings : list of str
         The function adds each problem that only needs attention to this list.
+    plate : str, optional
+        The plate of the chunk. MaskPath then is <plate>/masks/..., where the workflow publishes the mask.
+    aux_dirs : sequence of str, optional
+        Folders of files that are not input images, for example the illum/ folder of the job. Channels from
+        these folders are not in the mask list.
 
     Returns
     -------
@@ -296,6 +410,17 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
     # channel (file name, folder, path in input_dir). The last two are the mask object and the mask path.
     file_columns = [column for column in source_columns if column.startswith("FileName_")]
 
+    # The illumination functions are in the illum/ folder of the job, not in input_dir. They are the same for
+    # each image set, so they are not channels of the mask list.
+    file_columns = [
+        column
+        for column in file_columns
+        if not any(
+            same_folder(row.get(f"PathName_{strip_prefix(column, 'FileName_')}", ""), aux_dirs)
+            for row in image_rows[:1]
+        )
+    ]
+
     # Metadata_FileLocation is a file: URL in the job folder. It is not correct outside the job.
     metadata_columns = [
         column
@@ -310,6 +435,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
 
     actual_masks = find_mask_files(mask_root)
     used_paths = {}
+    used_masks = set()
     image_numbers = set()
     manifest_rows = []
 
@@ -381,7 +507,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
                 continue
 
             # Two image sets with the same mask file means that one mask is lost. Record an error.
-            mask_path = f"masks/{candidates[0]}"
+            mask_path = published_mask_path(candidates[0], plate)
             owner = (image_number, object_name)
             if mask_path in used_paths:
                 errors.append(
@@ -389,6 +515,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
                 )
                 continue
             used_paths[mask_path] = owner
+            used_masks.add(candidates[0])
             manifest_rows.append(
                 {
                     "ImageNumber": image_number,
@@ -400,7 +527,7 @@ def build_mask_manifest(image_csv, report, mask_root, input_dir, manifest, error
             )
 
     # Mask files that belong to no image set probably come from the user's own SaveImages. Only warn.
-    unused_masks = sorted(set(actual_masks) - {strip_prefix(path, "masks/") for path in used_paths})
+    unused_masks = sorted(set(actual_masks) - used_masks)
     if unused_masks:
         warnings.append(
             f"Found {len(unused_masks)} mask-like file(s) not mapped by the injected mask writers; "
@@ -557,6 +684,10 @@ def main():
     parser.add_argument(
         "--required-metadata", default="", help="comma-separated metadata names, e.g. Plate,Well,Site"
     )
+    parser.add_argument("--plate", default="", help="plate of the chunk: written into Metadata_Plate")
+    parser.add_argument(
+        "--illum-dir", default="", help="folder of the staged illumination functions (not input images)"
+    )
     args = parser.parse_args()
     set_field_limit()
 
@@ -572,6 +703,7 @@ def main():
 
     # Step 2: copy each CSV table into features_<chunk>/ and note its type and size. A table in a
     # sub-folder gets the folder in its name ("sub__table.csv"), so that names stay unique.
+    # With --plate, each table with ImageNumber gets the plate in Metadata_Plate.
     os.makedirs(args.features_dir, exist_ok=True)
     tables = {}
     for root, _dirs, files in os.walk(args.outdir):
@@ -584,8 +716,12 @@ def main():
             if destination == "mask_manifest.csv":
                 errors.append("CellProfiler produced reserved output name 'mask_manifest.csv'.")
                 continue
-            shutil.copyfile(source, os.path.join(args.features_dir, destination))
+            target = os.path.join(args.features_dir, destination)
             header, rows = read_header_and_count(source)
+            if args.plate and "ImageNumber" in header:
+                header = copy_with_plate(source, target, args.plate, destination, errors)
+            else:
+                shutil.copyfile(source, target)
             tables[destination] = {"kind": classify(header), "rows": rows, "columns": len(header)}
 
     # Step 3: CellProfiler must have made an image table with at least one image set.
@@ -657,6 +793,8 @@ def main():
                 args.manifest,
                 errors,
                 warnings,
+                plate=args.plate or None,
+                aux_dirs=[args.illum_dir.replace("\\", "/").rstrip("/")] if args.illum_dir else [],
             )
     else:
         write_empty_manifest(args.manifest)
@@ -670,6 +808,7 @@ def main():
     # Step 5: write all results of the checks to qc_<chunk>.json. The workflow publishes it in logs/.
     qc = {
         "outdir": args.outdir,
+        "plate": args.plate or None,
         "image_sets": image_sets,
         "expected_image_sets": args.expected_sets,
         "mask_files": mask_count,

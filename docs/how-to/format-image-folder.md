@@ -14,12 +14,16 @@ Read [Run on your data](../usage.md) for the other parts of a run.
 
 1. It searches `--input_dir` and all its sub-folders for files with an image extension (`--extensions`).
    It skips hidden files.
-2. It applies `--group_regex` to the path of each file, **relative to `--input_dir`**, for example
+2. It gives each file a **plate**: the first folder of its path below `--input_dir` (`plate1` in
+   `plate1/A01_s1_w1.tif`), or capture group 1 of `--plate_regex`. A file without a plate stops the run.
+3. It applies `--group_regex` to the path of each file, **relative to `--input_dir`**, for example
    `plate1/A01_s1_w1.tif`. The parts in round brackets make the name of an **image set**. Files with the
    same name belong to the same image set.
-3. It checks the image sets. Every file must match the pattern. Every image set must have the same number
-   of files. If a check fails, the run stops before CellProfiler starts, and the message shows examples.
-4. It puts whole image sets into chunks. It never splits an image set between two jobs.
+4. It checks the image sets of each plate. Every file must match the pattern. Every image set must have the
+   same number of files. If a check fails, the run stops before CellProfiler starts, and the message shows the
+   plate and examples.
+5. It cuts each plate into chunks of whole image sets. It never splits an image set between two jobs, and a
+   chunk never holds sites of two plates.
 
 A **channel** is one color of light, for example `DNA`. An **image set** is all channel files of one site.
 
@@ -32,8 +36,9 @@ A **channel** is one color of light, for example `DNA`. An **image set** is all 
 
 | Rule | Why |
 | --- | --- |
+| Put the images of each plate into their own folder below `--input_dir`, named after the plate (letters, digits, `.`, `_`, `-`). | The folder name is the plate. It becomes `Metadata_Plate` and the name of the result folder of the plate. |
 | Use one file name pattern for the whole experiment. | One `--group_regex` must fit every file. |
-| Put the plate, well and site in the file name or in the folder names. | The Metadata module reads them from there. Profiling needs them. |
+| Put the well and site in the file name or in the folder names. | The Metadata module reads them from there. Profiling needs them. |
 | Give every site the same files, one for each channel. | An image set with a missing channel stops the run. |
 | Keep thumbnails, overlays, old results and other images out of the folder. | They do not match `--group_regex` and stop the run. |
 | Put `--outdir` outside the image folder. | The workflow stops if it is inside. |
@@ -47,7 +52,7 @@ Each file is one image set. Use this pattern:
 --group_regex '^(.+)$'
 ```
 
-Any folder layout works, because the whole path is the name of the image set. For example:
+Any layout with plate folders works, because the whole path is the name of the image set. For example:
 
 ```text
 images/
@@ -73,20 +78,39 @@ files of one site.
 Choose the layout that your microscope made. The patterns here are examples: change them to fit your
 file names.
 
-=== "All files in one folder"
+=== "PANC1 Cell Painting"
 
     ```text
     images/
-    ├── A01_s1_w1.tif    A01_s1_w2.tif
-    ├── A01_s2_w1.tif    A01_s2_w2.tif
+    ├── PANC1_P01/
+    │   ├── A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff   ... _488_ ... _561_ ... _638_ ... _730_
+    │   └── ...
+    └── PANC1_P02/
+        └── ...
+    ```
+
+    ```bash
+    --group_regex '^(.+?_s\d+)_x'
+    ```
+
+    Image sets: `PANC1_P01/A02_s1`, ..., with 5 files each (405, 488, 561, 638 and 730 nm).
+
+=== "All plates in one folder"
+
+    The plate is part of the file name. `--plate_regex` takes it from there:
+
+    ```text
+    images/
+    ├── P1_A01_s1_w1.tif    P1_A01_s1_w2.tif
+    ├── P2_A01_s1_w1.tif    P2_A01_s1_w2.tif
     └── ...
     ```
 
     ```bash
-    --group_regex '^(.+?_s\d+)_w\d'
+    --plate_regex '^([^_]+)_' --group_regex '^(.+?_s\d+)_w\d'
     ```
 
-    Image sets: `A01_s1` and `A01_s2`, with 2 files each.
+    Plates: `P1` and `P2`. Image sets: `P1_A01_s1`, `P2_A01_s1`, ..., with 2 files each.
 
 === "One folder for each plate"
 
@@ -144,7 +168,8 @@ file names.
 
     ```text
     images/
-    └── r01c01f01p01-ch1sk1fk1fl1.tiff    r01c01f01p01-ch2sk1fk1fl1.tiff
+    └── plate1/
+        └── r01c01f01p01-ch1sk1fk1fl1.tiff    r01c01f01p01-ch2sk1fk1fl1.tiff
     ```
 
     ```bash
@@ -173,15 +198,16 @@ nextflow run . -profile local -stub-run \
     --max_cpus 2 --max_memory 3.GB
 ```
 
-Look at these lines in the log. This example has 2 channels and 6 sites:
+Look at these lines in the log. This example has one plate (`plate1`), 2 channels and 6 sites:
 
 ```text
-[cp-headless] image sets have 2 file(s) each (most common size)
-[cp-headless] 6 image set(s), 12 file(s) -> 1 chunk(s)
+[cp-headless] 1 plate(s): 6 image set(s), 12 file(s) -> 1 chunk(s)
+[cp-headless] plate1: 6 image set(s) of 2 file(s), 1 chunks x 2 cores x 8 GB
 ```
 
-- `N file(s) each` must be your number of channels (times z-planes and time points, if you have them).
-- `image set(s)` must be your number of sites.
+- `plate(s)` must be your number of plates, with one line per plate.
+- `of N file(s)` must be your number of channels (times z-planes and time points, if you have them).
+- `image set(s)` must be your number of sites in each plate.
 
 If the numbers are wrong, or the run stops with a message about `--group_regex`, change the pattern. See
 [Troubleshooting](troubleshooting.md#errors-before-cellprofiler-starts).
@@ -211,8 +237,8 @@ this section if your pipeline already names its channels**, or if your images ha
    (?P<Well>[A-P][0-9]{2})_s(?P<Site>\d+)_w(?P<Channel>\d)
    ```
 
-   If the plate is in the folder name, add a second extraction from the folder with
-   `(?P<Plate>plate\d+)`.
+   You do not need to extract the plate: the workflow writes the plate folder into `Metadata_Plate` of every
+   row. If your pipeline extracts a plate, it must be the name of the plate folder (the workflow checks it).
 
 2. **NamesAndTypes** module. Choose "Images matching rules". Make one rule for each channel, and give each
    one a name:

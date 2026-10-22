@@ -22,8 +22,8 @@ bash scripts/berzelius/submit.sh \
     -A <project-account> \
     -s ampere \
     -e "$PROJ/cp-headless.env" \
-    -p "$PROJ/runs/plate1.yml" \
-    -r "$PROJ/runs/plate1"
+    -p "$PROJ/runs/panc1.yml" \
+    -r "$PROJ/runs/panc1"
 ```
 
 | Option | Meaning |
@@ -44,7 +44,7 @@ use the same account and partition as the head job.
 
 ```bash
 squeue -u "$USER"                             # your jobs in the queue
-tail -f "$PROJ/runs/plate1/logs/head-<jobid>.out"   # the log of the head job
+tail -f "$PROJ/runs/panc1/logs/head-<jobid>.out"    # the log of the head job
 ```
 
 If a CellProfiler job fails, the log of the head job names its work folder, for example
@@ -63,7 +63,8 @@ head job.
 ## Choose the chunk size
 
 A good job takes 15 to 60 minutes. Very short jobs load the scheduler. Very long jobs lose more work when
-they fail.
+they fail. The default is 50 sites. A Cell Painting site with Cellpose and all measurements can take minutes,
+so measure it first:
 
 1. Run one plate, or part of it, with a small chunk size, for example `chunk_size: 20`.
 2. In `trace_<jobid>.txt`, find the time of the CellProfiler jobs. Divide it by the chunk size. The result
@@ -73,11 +74,18 @@ they fail.
 
 Example: one image set takes 12 seconds. Then `chunk_size = 1800 / 12 = 150`.
 
-With `chunk_size: 0`, all image sets run in one job. Such a job must also finish in 72 hours. For more than
-500 image sets, the workflow shows a warning.
+With `chunk_size: 0`, all image sets of a plate run in one job. Such a job must also finish in 72 hours. For
+more than 500 image sets, the workflow shows a warning.
 
-If jobs fail because of memory, the workflow tries again with 1 more core and 7 GB more memory. If many jobs
-need a second try, the images need more memory. Look at `peak_rss` in the trace file.
+If jobs fail because of memory, the workflow tries again with twice the cores and twice the memory. If many
+jobs need a second try, the images need more memory. Look at `peak_rss` in the trace file.
+
+## Cores of the run
+
+`--total_cpus` (default 64 on Berzelius) is the most cores that the run uses at once, for all plates. Nextflow
+keeps at most `total_cpus / segmentation_cpus` jobs in the queue (32 with the defaults). The other jobs wait in
+Nextflow, and it submits one each time a job ends. The ILLUM job of each plate starts first; the chunks of a
+plate start as soon as its ILLUM job is done.
 
 ## Cost
 
@@ -89,7 +97,7 @@ Example (an estimate, not a measurement): a plate with 384 wells and 9 sites has
 The head job adds 2 cores for the duration of the run. For a run of 10 hours, that is 20 core-hours
 (about 1.3 GPU-hours).
 
-The workflow keeps 64 jobs or fewer in the queue (`executor.queueSize`). All projects share the CPU nodes.
-Speak with the other users of your project before you increase this number.
+The workflow keeps `total_cpus / segmentation_cpus` jobs or fewer in the queue (32 with the defaults). All
+projects share the CPU nodes. Speak with the other users of your project before you increase `total_cpus`.
 
 After the run, read the results and remove the work files: see [After a run](berzelius-setup.md#after-a-run).

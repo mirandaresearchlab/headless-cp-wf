@@ -56,9 +56,9 @@ nextflow run "$repo" -c local.config -profile berzelius,test -ansi-log false \
 
 # Compare the result with the reference: 6 image sets and 51 nuclei (one table row each, minus the
 # header row). Other numbers mean that CellProfiler behaves differently here than in the tests.
-features="$test_dir/results/features"
-image_sets=$(($(wc -l <"$features/MyExpt_Image.csv") - 1))
-nuclei=$(($(wc -l <"$features/MyExpt_Nuclei.csv") - 1))
+features="$test_dir/results/cellprofiler_tables"
+image_sets=$(($(wc -l <"$features/Image.csv") - 1))
+nuclei=$(($(wc -l <"$features/Nuclei.csv") - 1))
 echo "Result: $image_sets image sets and $nuclei nuclei. Expected: 6 image sets and 51 nuclei."
 if [[ "$image_sets" -ne 6 || "$nuclei" -ne 51 ]]; then
     echo "ERROR: the results differ from the reference. Do not start large runs." >&2

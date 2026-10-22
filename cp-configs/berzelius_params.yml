@@ -1,0 +1,24 @@
+# Parameters of a PANC1 Cell Painting run on Berzelius, with the two pipelines of this folder.
+# Copy this file to your run folder, replace each <...>, and start the run:
+#   bash scripts/berzelius/submit.sh -A <account> -s ampere -e "$PROJ/cp-headless.env" -p <this file> -r <run folder>
+# Write absolute paths in /proj. YAML does not expand $USER or $PROJ: write them out.
+
+# The two pipelines (see cp-configs/README.md).
+illum_pipeline: /proj/<project>/users/<user>/cp-headless/cp-configs/1_illumination.cppipe
+pipeline: /proj/<project>/users/<user>/cp-headless/cp-configs/2_analysis_cellpose.cppipe
+
+# The images: one sub-folder per plate, for example images/PANC1_P01/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff
+input_dir: /proj/<project>/users/<user>/images
+outdir: /proj/<project>/users/<user>/results/panc1
+
+# The 5 files of one site (405, 488, 561, 638 and 730 nm) share the part before "_x".
+group_regex: '^(.+?_s\d+)_x'
+required_metadata: Plate,Well,Site
+
+# The Cellpose image, pinned by digest (see containers/README.md).
+container: <the Cellpose image>@sha256:<digest>
+
+# Optional. The defaults of the berzelius profile are in the comments.
+# chunk_size: 50            # sites per analysis job; choose it so that a job takes 15-60 min
+# segmentation_cpus: 2      # cores per analysis job (Cellpose); 7 GB per core
+# total_cpus: 64            # cores of the whole run = 32 jobs at once; ask your project before you raise it

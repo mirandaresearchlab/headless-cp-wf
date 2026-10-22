@@ -96,9 +96,9 @@ in our test. Check the tables:
 ```bash
 python3 - <<'EOF'
 import csv
-f = "results_test/features/"
-image = list(csv.DictReader(open(f + "MyExpt_Image.csv")))
-nuclei = list(csv.DictReader(open(f + "MyExpt_Nuclei.csv")))
+f = "results_test/cellprofiler_tables/"
+image = list(csv.DictReader(open(f + "Image.csv")))
+nuclei = list(csv.DictReader(open(f + "Nuclei.csv")))
 print("image sets:", len(image), "nuclei:", len(nuclei))
 EOF
 ```
@@ -112,12 +112,17 @@ Use `-profile docker` and the options of [Run on your data](../usage.md). First 
 
 ```bash
 nextflow run . -profile docker -stub-run \
-    --pipeline /path/to/analysis.cppipe \
+    --illum_pipeline /path/to/1_illumination.cppipe \
+    --pipeline /path/to/2_analysis_cellpose.cppipe \
     --input_dir /path/to/images \
     --outdir /path/to/results \
-    --group_regex '^(.+?_s\d+)_w\d' \
-    --max_cpus 8 --max_memory 32.GB
+    --group_regex '^(.+?_s\d+)_x' \
+    --container <the Cellpose image> \
+    --total_cpus 8 --max_cpus 8 --max_memory 32.GB
 ```
+
+The image folder needs one sub-folder per plate. A pipeline with RunCellpose needs the Cellpose image
+(`--container`, see `containers/README.md`); without Cellpose, leave `--container` out.
 
 The `docker` profile runs each job as your user (`root` in the workstation), so you own the results.
 
@@ -139,7 +144,7 @@ docker run --rm -v "$PWD:/workspace" cp-headless:1.0.0 \
     --outdir /workspace/results --group_regex '^(.+)$' --chunk_size 2 --max_cpus 2 --max_memory 3.GB
 ```
 
-The run must give 6 image sets and 51 nuclei in `results/features/`. For your images, mount their folder,
+The run must give 6 image sets and 51 nuclei in `results/cellprofiler_tables/`. For your images, mount their folder,
 for example `-v /data/images:/data/images:ro`, and use these paths in `--input_dir`. We tested this image on
 a Mac with Docker Desktop, not on a lab server.
 

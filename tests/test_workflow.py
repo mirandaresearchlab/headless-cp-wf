@@ -138,7 +138,7 @@ def make_images(root, names):
 SMALL_MACHINE = ("--max_cpus", "2", "--max_memory", "3.GB", "--max_time", "1.h")
 
 
-def run_stub(tmp_path, input_dir, *args, outdir=None):
+def run_stub(tmp_path, input_dir, *args, outdir=None, profile="local", pipeline=None):
     """Run main.nf with -profile local -stub-run on an image folder.
 
     Parameters
@@ -151,6 +151,10 @@ def run_stub(tmp_path, input_dir, *args, outdir=None):
         More options for `nextflow run`, for example "--chunk_size", 2.
     outdir : pathlib.Path, optional
         The output folder. The default is tmp_path / "results".
+    profile : str, optional
+        The Nextflow profile. The default is "local" (no container).
+    pipeline : pathlib.Path, optional
+        The analysis pipeline. The default is tests/test.cppipe.
 
     Returns
     -------
@@ -168,12 +172,12 @@ def run_stub(tmp_path, input_dir, *args, outdir=None):
             "run",
             str(ROOT),
             "-profile",
-            "local",
+            profile,
             "-stub-run",
             "-work-dir",
             str(tmp_path / "work"),
             "--pipeline",
-            str(ROOT / "tests" / "test.cppipe"),
+            str(pipeline or ROOT / "tests" / "test.cppipe"),
             "--input_dir",
             str(input_dir),
             "--outdir",
@@ -208,7 +212,7 @@ def test_complete_multichannel_sets_are_kept_together(tmp_path):
     result = run_stub(tmp_path, images, "--group_regex", GROUP_REGEX, "--chunk_size", 1)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "2 image set(s), 4 file(s) -> 2 chunk(s)" in result.log
-    assert "image sets have 2 file(s) each" in result.log
+    assert "P1: 2 image set(s) of 2 file(s), 2 chunks" in result.log
 
 
 def test_image_set_with_missing_channel_fails(tmp_path):
@@ -281,11 +285,11 @@ def test_false_boolean_on_command_line_is_false(tmp_path):
 
     # Nextflow passes `--gzip_features false` as the string 'false'. Before boolParam() the
     # workflow treated it as true and wrote .csv.gz files.
-    images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif", "P1/b.tif"])
     result = run_stub(tmp_path, images, "--gzip_features", "false")
     assert result.returncode == 0, result.stdout + result.stderr
-    features = tmp_path / "results" / "features"
-    assert (features / "MyExpt_Image.csv").is_file()
+    features = tmp_path / "results" / "cellprofiler_tables"
+    assert (features / "Image.csv").is_file()
     assert not list(features.glob("*.gz"))
 
 
@@ -297,10 +301,10 @@ def test_true_boolean_on_command_line_is_true(tmp_path):
     tmp_path : pathlib.Path
         Temporary folder from pytest, removed after the test.
     """
-    images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif", "P1/b.tif"])
     result = run_stub(tmp_path, images, "--gzip_features", "true")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (tmp_path / "results" / "features" / "MyExpt_Image.csv.gz").is_file()
+    assert (tmp_path / "results" / "cellprofiler_tables" / "Image.csv.gz").is_file()
 
 
 def test_invalid_boolean_fails(tmp_path):
@@ -311,7 +315,7 @@ def test_invalid_boolean_fails(tmp_path):
     tmp_path : pathlib.Path
         Temporary folder from pytest, removed after the test.
     """
-    images = make_images(tmp_path / "img", ["a.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif"])
     result = run_stub(tmp_path, images, "--save_masks", "maybe")
     assert result.returncode != 0
     assert "--save_masks must be true or false" in result.stdout + result.log
@@ -325,8 +329,8 @@ def test_run_info_records_provenance(tmp_path):
     tmp_path : pathlib.Path
         Temporary folder from pytest, removed after the test.
     """
-    images = make_images(tmp_path / "img", ["a.tif"])
-    result = run_stub(tmp_path, images, "--save_masks", "false")
+    images = make_images(tmp_path / "img", ["P1/a.tif", "P1/b.tif", "P2/a.tif"])
+    result = run_stub(tmp_path, images, "--save_masks", "false", "--chunk_size", 1)
     assert result.returncode == 0, result.stdout + result.stderr
     info = json.loads((tmp_path / "results" / "pipeline_info" / "run_info.json").read_text())
     assert info["workflow"]["name"] == "cp-headless"
@@ -334,6 +338,13 @@ def test_run_info_records_provenance(tmp_path):
     assert info["params"]["save_masks"] == "false"
     assert info["run"]["stub_run"] is True
     assert info["nextflow"]
+
+    # The plates with their sites and chunks, and the illumination mode.
+    assert info["illumination"] == "none"
+    assert info["plates"] == {
+        "P1": {"sites": 2, "files": 2, "files_per_site": 1, "chunks": 2},
+        "P2": {"sites": 1, "files": 1, "files_per_site": 1, "chunks": 1},
+    }
 
 
 # The fake sbatch: save the job script that Nextflow made, then refuse the job (exit 1).
@@ -383,7 +394,7 @@ def run_with_fake_sbatch(tmp_path, *args, profile="slurm", params=(), home=None)
     for name, text in (("sbatch", FAKE_SBATCH), ("apptainer", FAKE_APPTAINER)):
         (bin_dir / name).write_text(text, encoding="utf-8")
         (bin_dir / name).chmod(0o755)
-    images = make_images(tmp_path / "img", ["a.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif"])
     env = nextflow_env()
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     env["SBATCH_LOG"] = str(tmp_path / "sbatch.log")
@@ -551,7 +562,7 @@ def test_stub_run_works_on_a_machine_with_little_memory(tmp_path):
     """
     small = tmp_path / "small.config"
     small.write_text("executor.memory = '7.8 GB'\nexecutor.cpus = 4\n", encoding="utf-8")
-    images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif", "P1/b.tif"])
     result = run_stub(tmp_path, images, "-c", small)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "exceeds available memory" not in result.stdout + result.log
@@ -637,7 +648,7 @@ def trace(outdir):
 
 def test_resume_reuses_the_finished_jobs(tmp_path):
     """Check that a second run with -resume takes all 4 jobs from the cache and runs none again."""
-    images = make_images(tmp_path / "img", ["a.tif", "b.tif", "c.tif", "d.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif", "P1/b.tif", "P1/c.tif", "P1/d.tif"])
     first = run_stub(tmp_path, images, "--chunk_size", 2)
     assert first.returncode == 0, first.stdout + first.stderr
     second = run_stub(tmp_path, images, "--chunk_size", 2, "-resume")
@@ -658,14 +669,14 @@ def test_failed_chunk_stops_the_run_and_resume_finishes_it(tmp_path):
     failing.write_text(
         f"process {{ withName: 'CELLPROFILER' {{ beforeScript = 'test ! -e {marker} || exit 3' }} }}\n"
     )
-    images = make_images(tmp_path / "img", ["a.tif", "b.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif", "P1/b.tif"])
 
     first = run_stub(tmp_path, images, "-c", failing)
     assert first.returncode != 0
     jobs = trace(tmp_path / "results")
     assert ("CELLPROFILER", "FAILED", "3") in jobs
     assert [name for name, _, _ in jobs].count("CELLPROFILER") == 1  # exit 3 is an error: no new try
-    assert not (tmp_path / "results" / "features").exists()
+    assert not (tmp_path / "results" / "cellprofiler_tables").exists()
 
     marker.unlink()
     second = run_stub(tmp_path, images, "-c", failing, "-resume")
@@ -673,7 +684,7 @@ def test_failed_chunk_stops_the_run_and_resume_finishes_it(tmp_path):
     jobs = trace(tmp_path / "results")
     assert ("PATCH_PIPELINE", "CACHED", "0") in jobs
     assert ("CELLPROFILER", "COMPLETED", "0") in jobs
-    assert (tmp_path / "results" / "features" / "MyExpt_Image.csv").is_file()
+    assert (tmp_path / "results" / "cellprofiler_tables" / "Image.csv").is_file()
 
 
 def test_memory_kill_gets_a_new_try(tmp_path):
@@ -685,10 +696,404 @@ def test_memory_kill_gets_a_new_try(tmp_path):
     killed.write_text(
         "process { withName: 'CELLPROFILER' { beforeScript = { task.attempt == 1 ? 'exit 137' : '' } } }\n"
     )
-    images = make_images(tmp_path / "img", ["a.tif"])
+    images = make_images(tmp_path / "img", ["P1/a.tif"])
     result = run_stub(tmp_path, images, "-c", killed)
     assert result.returncode == 0, result.stdout + result.stderr
     cellprofiler = [
         (status, code) for name, status, code in trace(tmp_path / "results") if name == "CELLPROFILER"
     ]
     assert cellprofiler == [("FAILED", "137"), ("COMPLETED", "0")]
+
+
+def trace_rows(outdir):
+    """Read the trace table of a run as one dict per job.
+
+    Parameters
+    ----------
+    outdir : pathlib.Path
+        The output folder of the run.
+
+    Returns
+    -------
+    list of dict
+        The columns of trace.txt, for example "name", "status" and "cpus".
+    """
+    with (outdir / "pipeline_info" / "trace.txt").open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle, delimiter="\t"))
+
+
+def chunk_qc(outdir):
+    """Read the QC file of each chunk.
+
+    The stub job writes its plate, the plates of its illumination files and its cores.
+
+    Parameters
+    ----------
+    outdir : pathlib.Path
+        The output folder of the run.
+
+    Returns
+    -------
+    dict
+        ``{chunk_id: {"plate": ..., "illum_from": ..., "cpus": ...}}``.
+    """
+    return {
+        path.stem[len("qc_") :]: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((outdir / "logs").glob("qc_*_chunk_*.json"))
+    }
+
+
+# Two plates with 3 and 2 single-channel sites. With --chunk_size 2: P1 -> 2 chunks, P2 -> 1 chunk.
+TWO_PLATES = ["P1/s1.tif", "P1/s2.tif", "P1/s3.tif", "P2/s1.tif", "P2/s2.tif"]
+
+
+def test_chunks_never_mix_plates(tmp_path):
+    """Check that each plate is cut into its own chunks, named after the plate, with the plate in the tuple.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", TWO_PLATES)
+    result = run_stub(tmp_path, images, "--group_regex", "^(.+)$", "--chunk_size", 2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # Chunks per plate: 2 + 1, never 3 sites of P1 + 2 sites of P2 cut as 2 + 2 + 1 across plates.
+    qc = chunk_qc(tmp_path / "results")
+    assert sorted(qc) == ["P1_chunk_0001", "P1_chunk_0002", "P2_chunk_0001"]
+    assert {chunk: info["plate"] for chunk, info in qc.items()} == {
+        "P1_chunk_0001": "P1",
+        "P1_chunk_0002": "P1",
+        "P2_chunk_0001": "P2",
+    }
+    assert "2 plate(s): 5 image set(s), 5 file(s) -> 3 chunk(s)" in result.log
+    assert "P1: 3 image set(s) of 1 file(s), 2 chunks x 2 cores x 8 GB" in result.log
+    assert "P2: 2 image set(s) of 1 file(s), 1 chunks x 2 cores x 8 GB" in result.log
+
+    # The masks of each plate go to <plate>/masks/.
+    assert list((tmp_path / "results" / "P1" / "masks").rglob("P1_chunk_0001_*_mask.tiff"))
+    assert list((tmp_path / "results" / "P2" / "masks").rglob("P2_chunk_0001_*_mask.tiff"))
+
+
+def test_image_set_checks_report_the_plate(tmp_path):
+    """Check that a site with a missing channel names its plate in the error.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    names = [*MULTI_CHANNEL, "P2/A01_s1_w1.tif", "P2/A01_s1_w2.tif", "P2/A02_s1_w1.tif"]
+    images = make_images(tmp_path / "img", names)
+    result = run_stub(tmp_path, images, "--group_regex", GROUP_REGEX)
+    assert result.returncode != 0
+    assert "plate P2: 1 image set(s) do not have 2 file(s)" in result.stdout + result.log
+
+
+def test_file_without_plate_folder_fails(tmp_path):
+    """Check that a file directly in input_dir (no plate folder) stops the run with a clear message.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", ["P1/a.tif", "loose.tif"])
+    result = run_stub(tmp_path, images)
+    assert result.returncode != 0
+    assert (
+        "loose.tif has no plate: put the images of each plate into their own folder"
+        in result.stdout + result.log
+    )
+
+
+def test_plate_name_with_a_space_fails(tmp_path):
+    """Check that a plate folder with a space stops the run: plate names become folder and file names.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", ["my plate/a.tif"])
+    result = run_stub(tmp_path, images)
+    assert result.returncode != 0
+    assert "plate name 'my plate'" in result.stdout + result.log
+
+
+def test_plate_regex_takes_the_plate_from_the_path(tmp_path):
+    """Check that --plate_regex finds the plate in the file name when all plates share one folder.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", ["all/PA_s1.tif", "all/PA_s2.tif", "all/PB_s1.tif"])
+    result = run_stub(tmp_path, images, "--plate_regex", "^all/(P[AB])_", "--chunk_size", 5)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(chunk_qc(tmp_path / "results")) == ["PA_chunk_0001", "PB_chunk_0001"]
+
+
+def test_illumination_runs_once_per_plate_and_each_chunk_gets_its_own_plate(tmp_path):
+    """Check the ILLUM wiring: one job per plate, and each chunk gets only the .npy files of its plate.
+
+    The stub ILLUM job writes the plate name into its .npy file. The stub chunk job reads its staged files.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", TWO_PLATES)
+    illum = ROOT / "tests" / "test.cppipe"  # PATCH_PIPELINE is a stub: any .cppipe file works here
+    result = run_stub(tmp_path, images, "--illum_pipeline", illum, "--chunk_size", 2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    jobs = [row["name"].split(" (")[0] for row in trace_rows(tmp_path / "results")]
+    assert jobs.count("ILLUM") == 2
+    assert jobs.count("PATCH_PIPELINE") == 2  # the analysis and the illumination pipeline
+    for chunk, info in chunk_qc(tmp_path / "results").items():
+        assert info["illum_from"].split() == [info["plate"]], chunk
+    assert (tmp_path / "results" / "P1" / "illum" / "IllumDNA.npy").read_text().strip() == "P1"
+    assert (tmp_path / "results" / "pipeline" / "illum_patch_report.json").is_file()
+    assert "illumination   : run (--illum_pipeline)" in result.stdout
+
+
+def test_illum_dir_reuses_the_functions_of_each_plate(tmp_path):
+    """Check that --illum_dir gives each chunk the functions of its own plate, and runs no ILLUM job.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", TWO_PLATES)
+    for plate in ("P1", "P2"):
+        (tmp_path / "old" / plate / "illum").mkdir(parents=True)
+        (tmp_path / "old" / plate / "illum" / "IllumDNA.npy").write_text(f"{plate}\n")
+    result = run_stub(tmp_path, images, "--illum_dir", tmp_path / "old")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    assert "ILLUM" not in [row["name"].split(" (")[0] for row in trace_rows(tmp_path / "results")]
+    for chunk, info in chunk_qc(tmp_path / "results").items():
+        assert info["illum_from"].split() == [info["plate"]], chunk
+
+
+def test_illum_dir_without_the_functions_of_a_plate_fails(tmp_path):
+    """Check that --illum_dir stops the run when a plate has no functions.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", TWO_PLATES)
+    (tmp_path / "old" / "P1").mkdir(parents=True)
+    (tmp_path / "old" / "P1" / "IllumDNA.npy").write_text("P1\n")
+    result = run_stub(tmp_path, images, "--illum_dir", tmp_path / "old")
+    assert result.returncode != 0
+    assert "no .npy files for plate P2" in result.stdout + result.log
+
+
+def test_illum_pipeline_and_illum_dir_together_fail(tmp_path):
+    """Check that calculating and reusing illumination functions at the same time stops the run.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", ["P1/a.tif"])
+    illum = ROOT / "tests" / "test.cppipe"
+    result = run_stub(tmp_path, images, "--illum_pipeline", illum, "--illum_dir", tmp_path)
+    assert result.returncode != 0
+    assert (
+        "set --illum_pipeline (calculate the illumination functions) or --illum_dir"
+        in result.stdout + result.log
+    )
+
+
+def test_one_merge_for_all_plates(tmp_path):
+    """Check the default: one merge over all plates into cellprofiler_tables/.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", TWO_PLATES)
+    result = run_stub(tmp_path, images, "--chunk_size", 2)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    jobs = [row["name"].split(" (")[0] for row in trace_rows(tmp_path / "results")]
+    assert jobs.count("MERGE_FEATURES") == 1
+    tables = tmp_path / "results" / "cellprofiler_tables"
+    assert sorted(path.name for path in tables.glob("*.csv")) == [
+        "Cells.csv",
+        "Cytoplasm.csv",
+        "Image.csv",
+        "Nuclei.csv",
+        "mask_manifest.csv",
+    ]
+
+    # ImageNumber is unique over all plates and chunks: 3 chunks x 2 stub image sets.
+    with (tables / "Image.csv").open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["ImageNumber"] for row in rows] == ["1", "2", "3", "4", "5", "6"]
+    assert {row["Metadata_Plate"] for row in rows} == {"P1", "P2"}
+
+
+def test_one_merge_per_plate_with_merge_all_plates_false(tmp_path):
+    """Check that --merge_all_plates false merges each plate on its own, into <plate>/cellprofiler_tables/.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", TWO_PLATES)
+    result = run_stub(tmp_path, images, "--chunk_size", 2, "--merge_all_plates", "false")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    jobs = [row["name"].split(" (")[0] for row in trace_rows(tmp_path / "results")]
+    assert jobs.count("MERGE_FEATURES") == 2
+    for plate in ("P1", "P2"):
+        assert (tmp_path / "results" / plate / "cellprofiler_tables" / "Cytoplasm.csv").is_file()
+    assert not (tmp_path / "results" / "cellprofiler_tables").exists()
+
+
+def test_analysis_chunks_request_segmentation_cpus(tmp_path):
+    """Check that each analysis chunk asks for --segmentation_cpus cores (default 2), other jobs for 1.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", TWO_PLATES)
+    illum = ROOT / "tests" / "test.cppipe"
+    result = run_stub(tmp_path, images, "--illum_pipeline", illum)
+    assert result.returncode == 0, result.stdout + result.stderr
+    cpus = {(row["name"].split(" (")[0], row["cpus"]) for row in trace_rows(tmp_path / "results")}
+    assert ("CELLPROFILER", "2") in cpus and ("ILLUM", "1") in cpus
+    assert {cores for name, cores in cpus if name == "CELLPROFILER"} == {"2"}
+    assert {info["cpus"] for info in chunk_qc(tmp_path / "results").values()} == {2}
+
+    # --segmentation_cpus 1 gives 1 core, and the log tells how many chunks can run at once.
+    rerun = tmp_path / "rerun"
+    rerun.mkdir()
+    result = run_stub(rerun, images, "--segmentation_cpus", 1, "--total_cpus", 2)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert {info["cpus"] for info in chunk_qc(rerun / "results").values()} == {1}
+    assert "1 per chunk, 2 in total -> 2 chunk(s) at once" in result.stdout
+
+
+def test_segmentation_cpus_above_total_cpus_fails(tmp_path):
+    """Check that a chunk that needs more cores than the whole run stops the run before any job.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", ["P1/a.tif"])
+    result = run_stub(tmp_path, images, "--segmentation_cpus", 4, "--total_cpus", 2)
+    assert result.returncode != 0
+    assert "--segmentation_cpus 4 is more than --total_cpus 2" in result.stdout + result.log
+
+
+def test_default_plugin_folder_is_cp_plugins():
+    """Check that the plugins come from cp-plugins/ of the repository, which has both plugins."""
+    config = resolved_config("local")
+    assert config["params.plugins_dir"] == f"'{ROOT / 'cp-plugins'}'"
+    assert (ROOT / "cp-plugins" / "runcellpose.py").is_file()
+    assert (ROOT / "cp-plugins" / "enforceobjectsonetoone.py").is_file()
+
+
+def cellpose_pipeline(tmp_path):
+    """Write a pipeline file that uses RunCellpose: the test pipeline plus one RunCellpose line.
+
+    The workflow finds plugin modules in the text of the .cppipe file. A stub run does not load the pipeline.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        The folder for the file.
+
+    Returns
+    -------
+    pathlib.Path
+        The pipeline file.
+    """
+    path = tmp_path / "cellpose.cppipe"
+    text = (ROOT / "tests" / "test.cppipe").read_text(encoding="utf-8")
+    path.write_text(
+        text + "\nRunCellpose:[module_num:10|svn_version:'Unknown'|enabled:True]\n", encoding="utf-8"
+    )
+    return path
+
+
+def test_plugin_folder_without_the_plugin_of_the_pipeline_fails(tmp_path):
+    """Check that a pipeline with RunCellpose and a plugin folder without runcellpose.py stops the run.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", ["P1/a.tif"])
+    (tmp_path / "plugins").mkdir()
+    result = run_stub(
+        tmp_path, images, "--plugins_dir", tmp_path / "plugins", pipeline=cellpose_pipeline(tmp_path)
+    )
+    assert result.returncode != 0
+    assert "uses the plugin module RunCellpose, but" in result.stdout + result.log
+    assert "has no runcellpose.py" in result.stdout + result.log
+
+
+def test_runcellpose_with_the_official_container_fails(tmp_path):
+    """Check that RunCellpose stops the run if the container is the official image (it has no Cellpose).
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    images = make_images(tmp_path / "img", ["P1/a.tif"])
+    result = run_stub(tmp_path, images, profile="docker", pipeline=cellpose_pipeline(tmp_path))
+    assert result.returncode != 0
+    assert "uses RunCellpose, but --container" in result.stdout + result.log
+
+
+def test_slurm_queue_size_is_total_cpus_divided_by_segmentation_cpus(tmp_path):
+    """Check that Slurm keeps at most --total_cpus / --segmentation_cpus jobs queued or running.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    params = ("--total_cpus", "16", "--segmentation_cpus", "4", "--max_cpus", "4")
+    _, log, _ = run_with_fake_sbatch(tmp_path, params=params)
+    assert re.search(r"executor 'slurm' > capacity: 4\b", log), [
+        line for line in log.splitlines() if "capacity" in line
+    ]
+
+
+def test_berzelius_queue_size_and_chunk_memory(tmp_path):
+    """Check the Berzelius defaults: 64 cores = 32 chunks of 2 cores at once, with 7 GB per core.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary folder from pytest, removed after the test.
+    """
+    cache = tmp_path / "containers"
+    cache.mkdir()
+    result, log, _ = run_with_fake_sbatch(
+        tmp_path, profile="berzelius", params=(*BERZELIUS, "--container_cache", cache)
+    )
+    assert re.search(r"executor 'slurm' > capacity: 32\b", log), result.stdout + log
+    assert "2 cores x 14 GB" in log

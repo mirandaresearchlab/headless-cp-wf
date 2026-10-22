@@ -85,9 +85,9 @@ The run took 27 seconds in our test. Check the tables:
 ```bash
 python3 - <<'EOF'
 import csv
-f = "results_test/features/"
-image = list(csv.DictReader(open(f + "MyExpt_Image.csv")))
-nuclei = list(csv.DictReader(open(f + "MyExpt_Nuclei.csv")))
+f = "results_test/cellprofiler_tables/"
+image = list(csv.DictReader(open(f + "Image.csv")))
+nuclei = list(csv.DictReader(open(f + "Nuclei.csv")))
 print("image sets:", len(image), "nuclei:", len(nuclei))
 EOF
 ```
@@ -95,7 +95,7 @@ EOF
 The output must be `image sets: 6 nuclei: 51`. If it is different, do not run your own images. Find the
 cause first.
 
-To test `-resume`, run the command of step 5 again with `-resume`. Nextflow then takes all 5 jobs from its
+To test `-resume`, run the command of step 5 again with `-resume`. Nextflow then takes all 6 jobs from its
 cache and runs none again.
 
 ## Step 6. Run your images
@@ -105,15 +105,19 @@ to check your `--group_regex`:
 
 ```bash
 nextflow run . -profile local -c local.config -stub-run \
-    --pipeline /path/to/analysis.cppipe \
+    --illum_pipeline /path/to/1_illumination.cppipe \
+    --pipeline /path/to/2_analysis_cellpose.cppipe \
     --input_dir /path/to/images \
     --outdir /path/to/results \
-    --group_regex '^(.+?_s\d+)_w\d' \
-    --max_cpus 8 --max_memory 32.GB
+    --group_regex '^(.+?_s\d+)_x' \
+    --total_cpus 8 --max_cpus 8 --max_memory 32.GB
 ```
 
-Check the line `N image set(s), M file(s) -> K chunk(s)`. N must be the number of sites. Then run the same
-command without `-stub-run`. If the run stops, run it again with `-resume`.
+The image folder needs one sub-folder per plate. Check the line `P plate(s): N image set(s), M file(s) -> K
+chunk(s)` and the line of each plate. N must be the number of sites. Then run the same command without
+`-stub-run`. If the run stops, run it again with `-resume`. A pipeline with RunCellpose needs Cellpose 3.1.1.2
+in your conda environment, and `CELLPOSE_LOCAL_MODELS_PATH` set to a folder with the `nuclei` and `cyto3`
+models; otherwise use the Cellpose image with Docker.
 
 Set `--max_cpus` and `--max_memory` to less than the workstation has. Other people can share the server.
 Each CellProfiler job asks for 1 core and 8 GB.

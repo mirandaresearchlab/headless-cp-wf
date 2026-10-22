@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+### Changed (breaking): plates, illumination per plate, one table for all plates
+
+The input is now two pipelines and a folder with one sub-folder per plate. The output layout changed.
+
+- **Plates.** Each file gets a plate: the first folder below `--input_dir`, or capture group 1 of the new
+  `--plate_regex`. The run stops if a file has no plate, or a plate name has spaces or special characters.
+  The image-set checks run per plate. Each plate is cut into its own chunks (a chunk never mixes plates),
+  named after the plate: `PANC1_P01_chunk_0001`. The log and `run_info.json` show the sites and chunks of
+  each plate.
+- **Illumination (new process ILLUM).** `--illum_pipeline` runs once per plate, on all images of the plate.
+  `bin/check_illum.py` checks one `.npy` file per SaveImages module, finite values and a minimum > 0. The
+  functions go to `<outdir>/<plate>/illum/`. `--illum_dir` reuses the functions of an earlier run instead.
+  Each analysis chunk gets the functions of its own plate only, after the images in its file list.
+- **Merge.** One merge over all plates into `<outdir>/cellprofiler_tables/` (was `features/`), or one per
+  plate with `--merge_all_plates false`. `ImageNumber` itself is now unique over all plates and chunks;
+  `CPNF_ChunkImageNumber` keeps the value of the chunk (`CPNF_GlobalImageNumber` is gone). Every row of the
+  image and object tables has `Metadata_Plate`.
+- **Compartment check (`--check_compartments`, default true).** The merge stops if the Image, Cells, Nuclei
+  or Cytoplasm table is missing, or a column that joins them into one row per cell (`ImageNumber`,
+  `ObjectNumber`, `Parent_Cells`, `Parent_Nuclei`, plate, well, site), or if a plate, well and site occur
+  twice. The merged tables are ready to be joined into single-cell profiles after the workflow.
+- **Patch step.** ExportToSpreadsheet writes `Image.csv`, `Cells.csv`, ... without a prefix into the job
+  folder, with the image metadata in the object tables. RunCellpose is set to Python and "Use GPU: No".
+  The Images module passes the `.npy` functions ("Images only" dropped them).
+- **Masks** go to `<outdir>/<plate>/masks/`. `--mask_objects` defaults to `Nuclei,Cells,Cytoplasm`.
+- **Defaults.** `--chunk_size` 50 (was 0). `--plugins_dir` is `cp-plugins/` of the repository.
+- **Cores and memory.** `--segmentation_cpus` (default 2) cores per analysis chunk, `--memory_per_cpu`
+  (4 GB; 7 GB on Berzelius) per core. `--total_cpus` limits the cores of the whole run: `executor.cpus` on
+  a workstation, `queueSize = total_cpus / segmentation_cpus` on Slurm (`total_cpus` 200) and Berzelius
+  (64, so 32 chunks). `--total_memory` limits the memory of local runs. The memory of ILLUM and of the
+  chunks doubles on each new try. Berzelius: ILLUM 1 core and 7 GB; chunks 2 cores and 14 GB.
+- `trace.txt` also records the cores and the memory of each job.
+
+### Added: containers and plugins
+
+- `containers/cellprofiler-cellpose/`: CellProfiler 4.2.8 + Cellpose 3.1.1.2 + CPU PyTorch 2.4.1, the
+  `nuclei` and `cyto3` models (checked by SHA-256), and the plugins. Every package is pinned.
+- `cp-plugins/`: `runcellpose.py` and `enforceobjectsonetoone.py` from CellProfiler-plugins, commit
+  `5aaa4e5`.
+- The workflow stops before any job if a pipeline uses a plugin that `--plugins_dir` lacks, or uses
+  RunCellpose in the official CellProfiler image (it has no Cellpose).
+
+### Fixed: patch step and merge
+
+- `patch_cppipe.py` failed on every pipeline whose Metadata module extracts metadata: the check of the new
+  SaveImages modules needs Java, and the script did not start it.
+- With `--required_metadata` and masks, the merge counted the rows of the mask list (one per mask) as the
+  same site twice and stopped the run.
+
 The CellProfiler measurements did not change. A run of the `test` profile gives the same Image, Nuclei and
 Cells values as the original prototype, apart from work-folder paths and execution times.
 
@@ -10,14 +59,16 @@ Cells values as the original prototype, apart from work-folder paths and executi
 - `-profile berzelius` runs the workflow on the Berzelius cluster (NSC). It follows the rules of the site:
   - All jobs go to a CPU partition (`berzelius-cpu` or `berzelius-hopper-cpu`). The workflow stops before it
     submits a job if the account is missing or if the partition is not a CPU partition.
-  - Each CellProfiler job asks for 1 core and 7 GB. Each new try adds 1 core and 7 GB.
+  - Each job asks for at most 7 GB per core (an ILLUM job 1 core and 7 GB, an analysis chunk 2 cores and
+    14 GB). Each new try doubles the cores and the memory.
   - Jobs run on the local disk `/scratch/local`. CellProfiler runs in Apptainer.
-  - The queue holds 64 jobs or fewer. No job asks for more than 72 hours.
+  - The run uses at most 64 cores at once (`--total_cpus`): 32 analysis chunks in the queue. No job asks for
+    more than 72 hours.
   - The workflow stops if the work folder, the results or the image cache is in `$HOME`.
 - `scripts/berzelius/`: `preflight.sh`, `smoke_test.sh`, `submit.sh`, the head job `run_nextflow.sbatch` and
   `make_env.sh`, which writes the settings file from options. A second `submit.sh` with the same run folder continues the run.
 - [Berzelius: set up](https://mirandaresearchlab.github.io/headless-cp-wf/how-to/berzelius-setup/): the Berzelius guide.
-- On a cluster, the workflow warns when more than 500 image sets run as one job (`chunk_size 0`).
+- On a cluster, the workflow warns when more than 500 image sets of a plate run as one job (`chunk_size 0`).
 - CellProfiler jobs ignore your own Python packages (`PYTHONNOUSERSITE=1`).
 
 ### Changed: two supported environments

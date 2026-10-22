@@ -47,11 +47,12 @@ The profile is in `conf/berzelius.config`. It follows the rules of Berzelius:
 | --- | --- |
 | CPU work must go to a CPU partition: `berzelius-cpu` (Ampere system) or `berzelius-hopper-cpu` (Hopper system). | Each job goes to the CPU partition that you choose. The workflow stops before it submits a job if the partition is not a CPU partition. |
 | Each job needs a project account. | The workflow stops if you give no account. |
-| A CPU node has 128 cores and about 7.7 GB of memory per core. Slurm charges each core. | A CellProfiler job asks for 1 core and 7 GB. Each new try after a memory error adds 1 core and 7 GB. |
+| A CPU node has 128 cores and about 7.7 GB of memory per core. Slurm charges each core. | An ILLUM job asks for 1 core and 7 GB. An analysis chunk asks for `--segmentation_cpus` cores (2) with 7 GB each (`--memory_per_cpu`). Each new try after a memory error doubles the cores and the memory. |
 | A job can run for 72 hours or less. | No job asks for more than 72 hours. |
 | Each job has a fast local disk at `/scratch/local`. Slurm removes its files when the job ends. | Each job runs on `/scratch/local`. The workflow copies the results back to `/proj` before the job ends. |
-| Berzelius has Apptainer. It does not have Docker. | CellProfiler runs in Apptainer. The workflow keeps the image in `/proj`. |
-| There are only 8 CPU nodes per system, and all projects share them. | The workflow keeps 64 jobs or fewer in the queue and submits 10 jobs per minute or fewer. |
+| Berzelius has Apptainer. It does not have Docker. | CellProfiler runs in Apptainer. RunCellpose runs Cellpose in the Python of the container, without a GPU. The workflow keeps the image in `/proj`. |
+| Compute nodes may have no internet. | The Cellpose models are inside the image: no job downloads anything. |
+| There are only 8 CPU nodes per system, and all projects share them. | The run uses at most 64 cores at once (`--total_cpus 64`): 32 analysis chunks of 2 cores in the queue. It submits 10 jobs per minute or fewer. |
 | `/home` has 20 GB and 1 million files. | The workflow stops if the work folder, the results or the image cache is in your home folder. |
 | Packages in your home folder can change Python programs in a container. | CellProfiler ignores your own Python packages (`PYTHONNOUSERSITE=1`). |
 
@@ -76,7 +77,8 @@ Collect these facts before you start. Do not guess them.
 | Your system: Ampere or Hopper | Your project allocation decides it. Log in to `berzelius.nsc.liu.se` for Ampere or to `berzelius-hopper.nsc.liu.se` for Hopper. |
 | Your project folder | Usually `/proj/<project>/users/$USER`. In this guide, `$PROJ` means this folder. The name of this folder can differ from the name of the account. |
 | Your images | Copy them into `/proj`, for example with `rsync -av --partial`. First look in `/proj/common-datasets`. |
-| Your CellProfiler pipeline | A `.cppipe` file from CellProfiler 4.2.8. |
+| Your two CellProfiler pipelines | The illumination pipeline and the analysis pipeline: `.cppipe` files from CellProfiler 4.2.8. |
+| The Cellpose image | The CellProfiler image with Cellpose, pushed to a registry and pinned by digest (`containers/README.md`). Ask the maintainer of the workflow for its name. |
 
 ## Find your project account
 
@@ -242,18 +244,33 @@ If you get different numbers, do not start a large run. Find the cause first.
 
 ## Step 6. Write the parameters of your run
 
-Write a params file, for example `$PROJ/runs/plate1.yml`. Put all paths in `/proj`:
+Write a params file, for example `$PROJ/runs/panc1.yml`. For the PANC1 pipelines, start from
+`cp-configs/berzelius_params.yml`: copy it and replace each `<...>`. Put all paths in `/proj`. The image
+folder has one sub-folder per plate (`images/PANC1_P01/`, `images/PANC1_P02/`, ...): one run handles all
+plates.
 
 ```yaml
-pipeline: /proj/<project>/users/<user>/pipelines/analysis.cppipe
-input_dir: /proj/<project>/users/<user>/images/plate1
-outdir: /proj/<project>/users/<user>/results/plate1
-group_regex: '^(.+?_s\d+)_w\d'
-chunk_size: 150
+illum_pipeline: /proj/<project>/users/<user>/pipelines/1_illumination.cppipe
+pipeline: /proj/<project>/users/<user>/pipelines/2_analysis_cellpose.cppipe
+input_dir: /proj/<project>/users/<user>/images
+outdir: /proj/<project>/users/<user>/results/panc1
+group_regex: '^(.+?_s\d+)_x'
+chunk_size: 50
 required_metadata: Plate,Well,Site
+container: <the Cellpose image>@sha256:<digest>
 ```
 
 A YAML file does not expand `$USER`. Write your own user name for `<user>`. `echo $USER` shows it.
+
+Optional: `segmentation_cpus` (cores of one chunk, default 2) and `total_cpus` (cores of the whole run, default
+64 on Berzelius). Speak with the other users of your project before you raise `total_cpus`.
+
+Pull the Cellpose image into your image cache once, in an interactive job (as in step 5):
+
+```bash
+source "$PROJ/cp-headless.env"
+apptainer pull --dir "$NXF_APPTAINER_CACHEDIR" docker://<the Cellpose image>@sha256:<digest>
+```
 
 See [Run on your data](../usage.md) for [`group_regex`](../usage.md#group-the-files-of-one-site) and
 [`required_metadata`](../usage.md#metadata-for-profiling). See [Choose the chunk size](berzelius-batch.md#choose-the-chunk-size)
@@ -265,17 +282,18 @@ Then start the run: [interactive](berzelius-interactive.md) or [batch](berzelius
 
 1. Read the results in your `outdir`. Start with these files:
    - `pipeline/patch_report.json`: the changes that the workflow made to your pipeline.
+   - `logs/qc_illum_<plate>.json`: the illumination functions of each plate (minimum, maximum, mean).
    - `logs/qc_<chunk>.json`: the checks of each chunk and the number of images without objects.
-   - `features/merge_report.json`: the number of rows of each merged table.
+   - `cellprofiler_tables/merge_report.json`: the number of rows of each merged table.
 2. Read the resources that the jobs used in the trace file. A batch run writes
-   `$PROJ/runs/plate1/pipeline_info/trace_<jobid>.txt`. An interactive run writes `pipeline_info/trace.txt`
+   `$PROJ/runs/panc1/pipeline_info/trace_<jobid>.txt`. An interactive run writes `pipeline_info/trace.txt`
    in your `outdir`. The column `peak_rss` shows the memory and `realtime` shows the time of each job.
 3. Remove the work files when you no longer need `-resume`. The work folder holds many small files, and
    `/proj` allows only 2 million files. Remove the files only when the results are in `outdir` as copies
    (`publish_mode: copy`, the default):
 
    ```bash
-   cd "$PROJ/runs/plate1"
+   cd "$PROJ/runs/panc1"
    nextflow clean -f        # removes the work files of the last run in this folder
    nscquota                 # shows your space and file counts
    ```
@@ -312,7 +330,8 @@ There is no backup of `/proj`. Keep a copy of your raw images in a different pla
 | A job cannot download the image | Run step 5 again. It puts the image into the cache before the run. |
 | The head job stopped after 72 hours | Run the same `submit.sh` command again. The run continues. |
 | `run this inside an interactive job on a CPU node` | Start an interactive job first. See [Berzelius: interactive run](berzelius-interactive.md). |
-| CellProfiler is slower than expected | Check that your pipeline uses no GPU plugin, for example Cellpose. On CPU nodes, such plugins are very slow. |
+| CellProfiler is slower than expected | Cellpose runs on CPUs here. Look at the time of RunCellpose in `log_<chunk>.txt`. If it is the slow part, raise `--segmentation_cpus` (for example to 4). |
+| `uses RunCellpose, but --container ... has no Cellpose` | Set `container` in your params file to the Cellpose image. |
 
 ### `mamba` stops because of a lock
 

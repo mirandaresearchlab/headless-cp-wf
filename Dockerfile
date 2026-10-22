@@ -47,6 +47,7 @@ ENV JAVA_CMD=/opt/nextflow-java/bin/java \
 WORKDIR /opt/cp-headless
 COPY main.nf nextflow.config README.md ./
 COPY conf/ ./conf/
+COPY cp-plugins/ ./cp-plugins/
 COPY --chmod=0755 bin/ ./bin/
 COPY tests/ ./tests/
 COPY --chmod=0755 scripts/docker-entrypoint.sh /usr/local/bin/cp-headless

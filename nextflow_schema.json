@@ -2,25 +2,37 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://raw.githubusercontent.com/mirandaresearchlab/headless-cp-wf/main/nextflow_schema.json",
     "title": "cp-headless parameters",
-    "description": "Run a CellProfiler pipeline headless on a folder of microscope images, in chunks, and merge the feature tables and masks.",
+    "description": "Run CellProfiler headless on microscope images, plate by plate: illumination functions once per plate, the analysis in chunks, then one single-cell table of all plates.",
     "type": "object",
     "$defs": {
         "input_output": {
             "title": "Input and output",
             "type": "object",
-            "description": "The CellProfiler pipeline, the image folder, and where the results go.",
+            "description": "The two CellProfiler pipelines, the image folder, and where the results go.",
             "required": ["pipeline", "input_dir"],
             "properties": {
                 "pipeline": {
                     "type": "string",
                     "format": "file-path",
-                    "description": "The CellProfiler pipeline: a .cppipe or .cpproj file.",
+                    "description": "The analysis pipeline (segmentation and features): a .cppipe or .cpproj file. It runs in chunks.",
                     "help_text": "Make it in the CellProfiler program. It must come from the CellProfiler version of the container (DateRevision 428 = 4.2.8)."
+                },
+                "illum_pipeline": {
+                    "type": "string",
+                    "format": "file-path",
+                    "description": "The illumination pipeline: it calculates one illumination function per channel from all images of a plate. It runs once per plate.",
+                    "help_text": "It needs CorrectIlluminationCalculate and a SaveImages module per function that saves .npy at the last cycle. The analysis pipeline loads the functions with NamesAndTypes (for example files that start with IllumDNA). Do not set it together with illum_dir."
+                },
+                "illum_dir": {
+                    "type": "string",
+                    "format": "directory-path",
+                    "description": "Reuse illumination functions instead of calculating them: one sub-folder per plate with its .npy files.",
+                    "help_text": "The workflow looks in <illum_dir>/<plate>/illum/ (the results of an earlier run) and in <illum_dir>/<plate>/. Each plate needs one file per channel."
                 },
                 "input_dir": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "The image folder. The workflow also searches its sub-folders, and skips hidden files."
+                    "description": "The image folder, with one sub-folder per plate. The workflow also searches deeper sub-folders, and skips hidden files."
                 },
                 "outdir": {
                     "type": "string",
@@ -40,10 +52,26 @@
                     "default": false,
                     "description": "Write the merged tables as .csv.gz."
                 },
+                "merge_all_plates": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Merge the tables of all plates into one table per object type (cellprofiler_tables/). false makes one table per plate (<plate>/cellprofiler_tables/)."
+                },
+                "check_compartments": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Stop the merge if the Image, Cells, Nuclei or Cytoplasm table is missing, or a column that joins them: ImageNumber, ObjectNumber, Number_Object_Number, Parent_Cells and Parent_Nuclei (Cytoplasm), Metadata_Plate, Metadata_Well and Metadata_Site.",
+                    "help_text": "With these tables and columns, each cytoplasm object can be joined to its cell, its nucleus and its image in one row per cell. The pipeline must make the objects Cells, Nuclei and Cytoplasm (IdentifyTertiaryObjects), and the Metadata module must make Well and Site. It also checks that no plate, well and site occur twice. Set it to false for other pipelines."
+                },
                 "extensions": {
                     "type": "string",
                     "default": "tif,tiff,png,jpg,jpeg,bmp,c01,dib,flex,czi,nd2,lif,lsm,oib,oif,ims,zvi",
                     "description": "The file extensions of the images, separated by commas. Upper case and lower case are the same."
+                },
+                "plate_regex": {
+                    "type": "string",
+                    "description": "A regular expression that finds the plate of each file. Empty = the first folder below input_dir is the plate.",
+                    "help_text": "The workflow applies it to each file path relative to input_dir and takes capture group 1. Plate names may have letters, digits, '.', '_' and '-'."
                 }
             }
         },
@@ -59,10 +87,10 @@
                 },
                 "chunk_size": {
                     "type": "integer",
-                    "default": 0,
+                    "default": 50,
                     "minimum": 0,
-                    "description": "The number of image sets per CellProfiler job. 0 puts all image sets into one job.",
-                    "help_text": "On a cluster, choose a size that gives jobs of 15 to 60 minutes."
+                    "description": "The number of image sets (sites) per analysis job. The last chunk of a plate may be smaller. 0 puts all image sets of a plate into one job.",
+                    "help_text": "A chunk never holds sites of two plates. On a cluster, choose a size that gives jobs of 15 to 60 minutes."
                 },
                 "strict_image_count": {
                     "type": "boolean",
@@ -96,7 +124,9 @@
                 },
                 "mask_objects": {
                     "type": "string",
-                    "description": "Save masks only for these objects, separated by commas, for example Nuclei,Cells. Empty = all objects."
+                    "default": "Nuclei,Cells,Cytoplasm",
+                    "description": "Save masks for these objects, separated by commas. Empty = all objects of the pipeline.",
+                    "help_text": "A chunk fails if a site misses one of its masks. The masks of a plate go to <outdir>/<plate>/masks/."
                 },
                 "mask_format": {
                     "type": "string",
@@ -113,12 +143,14 @@
                     "type": "string",
                     "default": "cellprofiler/cellprofiler@sha256:fec440caa2b44edf80f9bd440a3d8c6b214d72437332ad2586a32d79e2eae2a4",
                     "description": "The CellProfiler container image. Use the CellProfiler version of your pipeline.",
-                    "help_text": "The default is pinned by its digest, so each run uses the same image."
+                    "help_text": "The default is pinned by its digest, so each run uses the same image. It has no Cellpose: for a pipeline with RunCellpose, use the Cellpose image (containers/cellprofiler-cellpose)."
                 },
                 "plugins_dir": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "A folder with CellProfiler plugins."
+                    "default": "${projectDir}/cp-plugins",
+                    "description": "A folder with CellProfiler plugins. The default is cp-plugins/ of the repository (runcellpose.py, enforceobjectsonetoone.py).",
+                    "help_text": "The workflow stops if the pipeline uses RunCellpose or EnforceObjectsOneToOne and the folder lacks its file."
                 },
                 "cellprofiler_args": {
                     "type": "string",
@@ -130,8 +162,34 @@
         "resources": {
             "title": "Computer resources",
             "type": "object",
-            "description": "The maximum resources of one job. A new try after a memory or time error asks for more, up to these limits.",
+            "description": "The cores and memory of the analysis chunks and of the whole run, and the maximum resources of one job. A new try after a memory or time error asks for more, up to the maximum.",
             "properties": {
+                "segmentation_cpus": {
+                    "type": "integer",
+                    "default": 2,
+                    "minimum": 1,
+                    "description": "The number of cores of one analysis chunk (Cellpose and features). Cellpose uses exactly these cores.",
+                    "help_text": "Raise it later, for example to 4, if Cellpose is the slow part of a chunk."
+                },
+                "memory_per_cpu": {
+                    "type": "string",
+                    "default": "4.GB",
+                    "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+                    "description": "The memory per core of one analysis chunk: 4.GB x 2 cores = 8 GB. The berzelius profile uses 7.GB.",
+                    "help_text": "A starting value: after a test run, set it from trace.txt (peak_rss + 25 %)."
+                },
+                "total_cpus": {
+                    "type": "integer",
+                    "default": 8,
+                    "minimum": 1,
+                    "description": "The most cores that the whole run uses at once, for the ILLUM and analysis jobs of all plates. Jobs that do not fit wait.",
+                    "help_text": "Local runs: Nextflow starts a job only when its cores are free. Slurm and Berzelius: at most total_cpus / segmentation_cpus jobs are queued or running. The slurm profile uses 200, the berzelius profile 64."
+                },
+                "total_memory": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+                    "description": "Local runs: the most memory that all running jobs use together, for example 64.GB. Empty = all memory of the computer."
+                },
                 "max_cpus": {
                     "type": "integer",
                     "default": 16,

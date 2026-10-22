@@ -4,9 +4,9 @@ cp-headless measures cells in large sets of microscope images. It runs **CellPro
 graphical window ("headless"). It uses **Nextflow** to run many CellProfiler jobs at the same time, on a
 lab workstation or on the Berzelius cluster.
 
-You give the workflow a **CellProfiler pipeline** (a `.cppipe` file that you made in the CellProfiler
-program) and a **folder of images**. The workflow gives you feature tables, segmentation masks and
-reports. These tables are the input for **image-based profiling**, where you compare the measurements of
+You give the workflow **two CellProfiler pipelines** (an illumination pipeline and an analysis pipeline,
+`.cppipe` files that you made in the CellProfiler program) and a **folder of images with one sub-folder per
+plate**. The workflow gives you feature tables of all plates, segmentation masks and reports. These tables are the input for **image-based profiling**, where you compare the measurements of
 cells between treatments. Wrong or missing data gives wrong biology, so the workflow checks the data at
 each step and stops when something is wrong.
 
@@ -14,23 +14,24 @@ each step and stops when something is wrong.
 
 | | |
 | --- | --- |
-| **Input** | A CellProfiler pipeline (`.cppipe` / `.cpproj`, CellProfiler 4.2.8) and a folder of images |
-| **Output** | Merged feature tables (one row per image, one row per object), 16-bit segmentation masks, a mask list, check reports |
+| **Input** | An illumination pipeline and an analysis pipeline (`.cppipe`, CellProfiler 4.2.8), and a folder of images with one sub-folder per plate |
+| **Output** | Merged feature tables of all plates (one row per image, one row per object, ready to join into one row per cell), illumination functions, 16-bit segmentation masks, a mask list, check reports |
 | **Runs on** | A lab workstation with Ubuntu (with or without Docker) and the Berzelius cluster (interactive or Slurm batch, with Apptainer) |
-| **Software** | Nextflow 24.04 or newer, Java 17 to 26, CellProfiler 4.2.8 in a container pinned by digest |
+| **Software** | Nextflow 24.04 or newer, Java 17 to 26, CellProfiler 4.2.8 (with Cellpose 3.1.1.2 on CPU) in a pinned container |
 | **Status** | Version 1.0.0 |
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  A[image folder] --> B[1. find the images]
-  B --> C[2. group the files<br/>into image sets]
-  C --> D[3. divide the image<br/>sets into chunks]
-  P[.cppipe file] --> E[4. prepare the pipeline<br/>once]
-  D --> F[5. CellProfiler + checks<br/>one job per chunk]
+  A[image folder<br/>one folder per plate] --> B[1-3. find the images,<br/>group them per plate,<br/>cut each plate into chunks]
+  P[two .cppipe files] --> E[4. prepare the<br/>pipelines]
+  B --> I[5. illumination<br/>one job per plate]
+  E --> I
+  B --> F[6. CellProfiler + checks<br/>one job per chunk]
+  I --> F
   E --> F
-  F --> G[6. merge the tables<br/>of all chunks]
+  F --> G[7. merge all plates]
   G --> H[feature tables, masks,<br/>reports]
 ```
 
@@ -46,8 +47,8 @@ nextflow run . -profile test,local -c local.config     # without Docker (see Run
 nextflow run . -profile test,docker                    # with Docker (see Run with Docker)
 ```
 
-Each command runs CellProfiler on 6 small test images. The tables in `results_test/features/` then have
-6 image sets and 51 nuclei. The [tutorial](tutorials/first-run.md) shows the results and explains them.
+Each command runs CellProfiler on 6 small test images in two plate folders. The tables in
+`results_test/cellprofiler_tables/` then have 6 image sets and 51 nuclei. The [tutorial](tutorials/first-run.md) shows the results and explains them.
 On Berzelius, start with [Berzelius: set up](how-to/berzelius-setup.md).
 
 ## Where next

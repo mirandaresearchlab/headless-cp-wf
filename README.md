@@ -1,7 +1,7 @@
 # cp-headless
 
-cp-headless runs a CellProfiler pipeline on large sets of microscope images, with many jobs at the same time.
-It gives you checked feature tables and segmentation masks for image-based profiling.
+cp-headless runs CellProfiler on large sets of microscope images, plate by plate, with many jobs at the same
+time. It gives you checked feature tables of all plates and segmentation masks for image-based profiling.
 
 [![Docs](https://img.shields.io/badge/docs-github.io-blue)](https://mirandaresearchlab.github.io/headless-cp-wf/)
 [![CI](https://github.com/mirandaresearchlab/headless-cp-wf/actions/workflows/ci.yml/badge.svg)](https://github.com/mirandaresearchlab/headless-cp-wf/actions/workflows/ci.yml)
@@ -9,12 +9,19 @@ It gives you checked feature tables and segmentation masks for image-based profi
 
 ## What it does
 
-You give the workflow a **CellProfiler pipeline** (a `.cppipe` file that you made in the CellProfiler program)
-and a **folder of images**. The workflow runs CellProfiler without its window ("headless"). It uses
-**Nextflow** to run many CellProfiler jobs at the same time, on a laptop or on a computer cluster. You get:
+You give the workflow **two CellProfiler pipelines** (`.cppipe` files that you made in the CellProfiler
+program: an illumination pipeline and an analysis pipeline) and a **folder of images with one sub-folder per
+plate**. The workflow runs CellProfiler without its window ("headless"). It uses **Nextflow** to run many
+CellProfiler jobs at the same time, on a workstation or on the Berzelius cluster:
 
-- **feature tables**: one row per image and one row per cell (or other object), with measurements such as
-  size, shape and intensity,
+- one job per plate calculates the **illumination functions** of the plate,
+- the analysis (for example **Cellpose** segmentation and the features) runs in chunks of sites, each chunk with
+  the functions of its own plate.
+
+You get:
+
+- **feature tables** of all plates: one row per image and one row per cell (or other object), with
+  measurements such as size, shape and intensity,
 - **segmentation masks**: one image per object type that shows where each object is,
 - **reports** that show what the workflow did, which checks it made, and which software it used.
 
@@ -23,11 +30,13 @@ example for missing channels, lost masks or sites that occur twice. It stops whe
 
 ```mermaid
 flowchart LR
-  A[image folder] --> B[group files<br/>into image sets] --> C[divide into<br/>chunks]
-  P[.cppipe] --> D[prepare the<br/>pipeline]
-  C --> E[CellProfiler + checks<br/>one job per chunk]
-  D --> E
-  E --> F[merge the tables] --> G[tables, masks,<br/>reports]
+  A[image folder<br/>one folder per plate] --> B[group files into image sets<br/>and chunks, per plate]
+  P1[illumination .cppipe] --> I[illumination<br/>one job per plate]
+  A --> I
+  P2[analysis .cppipe] --> E
+  B --> E[CellProfiler + checks<br/>one job per chunk]
+  I --> E
+  E --> F[merge all plates] --> G[tables, masks,<br/>reports]
 ```
 
 ## Where it runs
@@ -48,12 +57,15 @@ cd headless-cp-wf
 nextflow run . -profile test,docker
 ```
 
-This runs CellProfiler on 6 small test images. The tables in `results_test/features/` then have 6 image sets
-and 51 nuclei (see [Output](https://mirandaresearchlab.github.io/headless-cp-wf/output/)). Run your own data:
+This runs CellProfiler on 6 small test images in two plate folders. The tables in
+`results_test/cellprofiler_tables/` then have 6 image sets and 51 nuclei (see
+[Output](https://mirandaresearchlab.github.io/headless-cp-wf/output/)). Run your own data:
 
 ```bash
-nextflow run . -profile docker --pipeline analysis.cppipe --input_dir images/ --outdir results/ \
-    --group_regex '^(.+?_s\d+)_w\d' --chunk_size 50
+nextflow run . -profile docker \
+    --illum_pipeline 1_illumination.cppipe --pipeline 2_analysis_cellpose.cppipe \
+    --input_dir images/ --outdir results/ --group_regex '^(.+?_s\d+)_x' \
+    --container <the Cellpose image>
 ```
 
 ## Documentation
@@ -77,6 +89,9 @@ headless-cp-wf/
 ├── nextflow_schema.json       description of each parameter
 ├── conf/                      settings for Slurm and Berzelius
 ├── bin/                       Python helper scripts that run in each job
+├── cp-configs/                the PANC1 pipelines (illumination, analysis) and a Berzelius params file
+├── cp-plugins/                the CellProfiler plugins RunCellpose and EnforceObjectsOneToOne
+├── containers/                the Cellpose image of the jobs
 ├── scripts/                   development, test, Docker-in-container and Berzelius scripts
 ├── tests/                     tests and the 6 test images
 ├── docs/, mkdocs.yml          the documentation site
