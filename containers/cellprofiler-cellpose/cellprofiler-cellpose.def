@@ -1,0 +1,57 @@
+# Apptainer recipe of the Cellpose image: the same steps as the Dockerfile in this folder, for clusters with no
+# Docker and no registry (Berzelius). Use it until the image is pushed to a registry and pinned by digest.
+#
+# Build in an interactive job on a CPU node (not on a login node), from the repository root, because %files reads
+# its paths from the current folder. The build downloads the base image, the pip packages and the Cellpose models.
+#   export APPTAINER_TMPDIR=/scratch/local
+#   apptainer build --fakeroot "$NXF_APPTAINER_CACHEDIR/cp-headless-cellpose-1.0.0.sif" \
+#       containers/cellprofiler-cellpose/cellprofiler-cellpose.def
+# Then give the workflow the .sif file: container: /proj/.../containers/cp-headless-cellpose-1.0.0.sif
+
+Bootstrap: docker
+From: cellprofiler/cellprofiler@sha256:fec440caa2b44edf80f9bd440a3d8c6b214d72437332ad2586a32d79e2eae2a4
+
+%files
+    containers/cellprofiler-cellpose/requirements.txt /tmp/cellpose-requirements.txt
+    containers/cellprofiler-cellpose/models.sha256 /opt/cellpose/models.sha256
+    cp-plugins /opt/cp-plugins
+
+%environment
+    export CELLPOSE_LOCAL_MODELS_PATH=/opt/cellpose/models
+    export NUMBA_CACHE_DIR=/tmp/numba-cache
+
+%post
+    set -e
+    # The ENV of the base image does not apply in %post: use CellProfiler's own Python (/opt/venv) by name.
+    export PATH=/opt/venv/bin:$PATH
+    export CELLPOSE_LOCAL_MODELS_PATH=/opt/cellpose/models
+    export NUMBA_CACHE_DIR=/tmp/numba-cache
+
+    # Cellpose and its dependencies, all pinned. --no-deps: no package of CellProfiler changes.
+    pip install --no-cache-dir --no-deps \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        -r /tmp/cellpose-requirements.txt
+    pip check
+    rm /tmp/cellpose-requirements.txt
+
+    # The models, downloaded once here. The checksums stop the build if a model file changed.
+    mkdir -p "$CELLPOSE_LOCAL_MODELS_PATH"
+    python -c "from cellpose import models; models.Cellpose(model_type='nuclei'); models.Cellpose(model_type='cyto3')"
+    cd "$CELLPOSE_LOCAL_MODELS_PATH"
+    sha256sum *
+    sha256sum -c /opt/cellpose/models.sha256
+    chmod -R a+rX /opt/cellpose /opt/cp-plugins
+    rm -rf /tmp/numba-cache
+
+    # Smoke test: CellProfiler starts, and Cellpose and PyTorch import (CPU build).
+    cellprofiler --version
+    python -c "import cellpose, torch; import importlib.metadata as m; print('cellpose', m.version('cellpose'), 'torch', torch.__version__); assert not torch.cuda.is_available()"
+
+%runscript
+    exec cellprofiler "$@"
+
+%labels
+    org.opencontainers.image.title cp-headless-cellpose
+    org.opencontainers.image.description CellProfiler 4.2.8 with Cellpose 3.1.1.2 (CPU), its models and plugins
+    org.opencontainers.image.source https://github.com/mirandaresearchlab/headless-cp-wf
+    org.opencontainers.image.version 1.0.0

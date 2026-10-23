@@ -50,3 +50,18 @@ must name it by digest:
 4. On Berzelius, pull it once into `--container_cache` (see docs/how-to/berzelius-setup.md).
 
 Never push a changed image under a tag that a run already used: make a new tag.
+
+## Build with Apptainer (no registry)
+
+Until the image is in a registry, build it on Berzelius from `cellprofiler-cellpose/cellprofiler-cellpose.def`
+(the same steps as the Dockerfile). Build in an interactive job on a CPU node, from the repository root:
+
+```bash
+source "$PROJ/cp-headless.env"
+export APPTAINER_TMPDIR=/scratch/local
+apptainer build --fakeroot "$NXF_APPTAINER_CACHEDIR/cp-headless-cellpose-1.0.0.sif" \
+    containers/cellprofiler-cellpose/cellprofiler-cellpose.def
+```
+
+Then give the workflow the file: `container: /proj/<project>/users/<user>/containers/cp-headless-cellpose-1.0.0.sif`.
+A local file is not pinned by a digest: keep the `.sif` file of each run.
