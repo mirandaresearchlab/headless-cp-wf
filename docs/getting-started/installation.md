@@ -65,6 +65,5 @@ The default local budget is 2 CPUs and 16 GB. Each task requests 6 GB.
 These are scheduler requests, not measured minimum requirements for all datasets.
 See [resource planning](../reference/resources.md) before processing large images.
 
-The `test-images` entry may be a link to an external dataset.
-It is not a bundled download. Obtain those images from the maintainer if the link is missing or broken.
+The repository does not include images. Use your own images, with one folder per plate.
 Then continue with the [first run](../tutorials/first-run.md).

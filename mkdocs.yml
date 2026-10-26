@@ -62,6 +62,7 @@ nav:
   - How-to guides:
       - "How-to guides": how-to/index.md
       - "Run on HPC": how-to/run-on-hpc.md
+      - "Berzelius FAQ": how-to/berzelius-faq.md
       - "Change a pipeline": how-to/modify-pipeline.md
       - "Troubleshooting": how-to/troubleshooting.md
   - Reference:

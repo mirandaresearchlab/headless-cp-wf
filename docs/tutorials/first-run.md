@@ -1,9 +1,9 @@
 # Run a small example
 
-This tutorial uses crops of the repository's external test dataset to check the complete workflow.
+This tutorial uses small crops of your own images to check the complete workflow.
 
-Prerequisites: complete [installation](../getting-started/installation.md), activate `cp-headless`,
-and make the test dataset available at `test-images`.
+Prerequisites: complete [installation](../getting-started/installation.md) and activate `cp-headless`.
+You need an image folder with one folder per plate. Each plate needs five channels for sites `A02_s1` and `A03_s1`.
 Run every command from the repository root.
 Use new names for the fixture and project.
 
@@ -16,10 +16,10 @@ Use new names for the fixture and project.
 ## 1. Create small images
 
 ```bash
-python tests/make_fixture.py test-images example-images
+python tests/make_fixture.py <images> example-images
 ```
 
-For the three-plate test dataset, the expected message is:
+For three plates, the expected message is:
 
 ```text
 Created 30 crops in example-images

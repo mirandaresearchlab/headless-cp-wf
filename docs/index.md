@@ -39,5 +39,5 @@ For job dependencies, read [how jobs run](explanation/workflow.md).
 | CellProfiler | Exactly 4.2.8.1 for both CellProfiler packages |
 | Nextflow | At least 25.10.4 in the repository configuration |
 
-There is no `test` profile. Test images are a separate dataset.
+There is no `test` profile. The repository does not include images.
 See [validation status](about/contributing.md#validation-status) for what was checked in this documentation update.

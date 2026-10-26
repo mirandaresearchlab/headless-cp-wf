@@ -87,6 +87,10 @@ The real-image fixture command was run in a temporary folder.
 The table-reading example was checked against a saved plate table.
 
 A complete Nextflow run, a fresh Conda install, and Slurm execution were not performed.
+On Berzelius, the conda setup in [Run on Berzelius](../how-to/run-on-hpc.md) was done,
+and a test with `scripts/berzelius-interactive.sh` on 18 cores completed.
+It ran all 62 tasks on 3 plates (54 image sets) in 22 minutes (5.1 core-hours).
+`scripts/berzelius-run.sbatch` was checked for syntax only. It was not submitted.
 This workspace did not provide Nextflow, Conda, or CellProfiler.
 Historical runtime and disk figures are labelled in [resource planning](../reference/resources.md).
 Scientific claims require representative image review beyond these software checks.

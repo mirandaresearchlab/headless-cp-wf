@@ -22,7 +22,7 @@ Do not delete work files while investigating a failure.
 | Java version or startup error | Nextflow sees an incompatible Java | Check the launcher's Java. Set `NXF_JAVA_HOME` to a supported installation if needed. |
 | `Require cellprofiler=4.2.8.1` | Different CellProfiler version | Recreate the environment from `environment.yml`. Check both CellProfiler package versions. |
 | Conda cannot solve the environment | Package availability, platform, channel, or network problem | Save the complete solver error. Check the supported platform and channels. Do not silently relax pinned versions. |
-| Missing input folder | Incorrect path or broken data link | Check `--images`, `--configs`, and any symlink targets. Obtain test data separately if needed. |
+| Missing input folder | Incorrect path or broken data link | Check `--images`, `--configs`, and any symlink targets. |
 | `No TIFF inputs found` | Empty folder, hidden files, or wrong root | Point `--images` at the parent of the plate folders. Check extensions and visibility. |
 | `Expected images/<plate>/<filename>.tiff` | Wrong folder depth | Put each TIFF directly inside a plate folder. |
 | Requires exactly two pipelines | Missing, extra, or differently named `.cppipe` files | Use the two names listed in [usage](../usage.md). |

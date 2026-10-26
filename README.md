@@ -5,17 +5,18 @@ Run CellProfiler on microscopy plates with Nextflow to produce label masks and o
 ## Quick start
 
 First install Nextflow and prepare the images using the [installation guide](docs/getting-started/installation.md).
-Run these commands from the repository folder. This example requires the separate `test-images` dataset.
+Run these commands from the repository folder. Replace `<images>` with your image folder, with one folder per plate.
 The full workflow example was not rerun during this documentation update.
 
 ```bash
 conda env create -f environment.yml
 conda activate cp-headless
-nextflow run . -profile local --images test-images --configs cp-configs --project my_run
+nextflow run . -profile local --images <images> --configs cp-configs --project my_run
 ```
 
 Results go to `projects/my_run/`, unless that name belongs to another run.
 Nextflow prints the actual output path. Both supplied profiles preserve work files.
+On the Berzelius cluster, follow [Run on Berzelius](docs/how-to/run-on-hpc.md).
 
 ## Documentation
 
