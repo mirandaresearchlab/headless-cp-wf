@@ -1,503 +1,364 @@
 #!/usr/bin/env nextflow
-
-/*
- * cp-headless
- * ---------------
- * Runs CellProfiler without its window ("headless") on a folder of microscope images.
- * You give it two things:
- *   --pipeline  my_pipeline.cppipe   (or .cpproj), made in the CellProfiler program
- *   --input_dir /path/to/images
- *
- * It makes merged feature tables (one row per image and one row per object), a mask for each
- * object type in each image set (16-bit labels), and a list that connects each mask to its images.
- *
- * The file has three parts:
- *   1. helper functions  - parameter checks and the run report (run_info.json)
- *   2. processes         - the three job types: PATCH_PIPELINE, CELLPROFILER, MERGE_FEATURES
- *   3. workflow          - finds the images, groups them into chunks and connects the processes
- */
-
 nextflow.enable.dsl = 2
 
-// ------------------------------------------------------------------ helpers
+/*
+ * Headless CellProfiler workflow.
+ *
+ * Data path:
+ *   1. PREPARE reads every TIFF name once. It groups the files into image sets and plans the batches.
+ *   2. ILLUMINATION runs once per plate. It reads all image sets of that plate and writes one
+ *      correction function (.npy) per channel.
+ *   3. ANALYSIS runs once per batch. It corrects, segments and measures its image sets, then saves
+ *      label masks and feature tables.
+ *   4. MERGE runs once per plate. It joins the batch tables into one row per cell.
+ *   5. CONCAT runs once. It appends all plate tables into one CSV.
+ *
+ * Published layout in <outdir>/projects/<project>/ (default outdir: the launch folder):
+ *   illum/<plate>/            correction functions from step 2
+ *   masks/<plate>/            label masks from step 3
+ *   cp_features/all_plates.csv.gz  per-cell table of all plates from step 5
+ *   logs/                     adapted pipelines, manifests, task logs and QC reports
+ *   report/                   Nextflow report.html, timeline.html, trace.txt (with --project)
+ *
+ * Batch and plate tables stay in work/. Nextflow needs them there to resume a failed run.
+ * Both supplied profiles preserve work files after success and failure (cleanup = false).
+ *
+ * Terms:
+ *   plate      one folder of TIFFs: images/<plate>/
+ *   image set  all channel files of one acquisition position (well, site, X/Y)
+ *   batch      a fixed group of complete image sets from one plate
+ *   manifest   a CSV that lists the files of each image set (CellProfiler LoadData format)
+ *   contract   contract.json: facts that PREPARE read from the pipelines (channels, objects,
+ *              illumination functions, cell compartments)
+ */
 
-// Stop the run with one clear message. All checks in this file use it.
-def cpnfError(String msg) {
-    error("[cp-headless] ERROR: ${msg}")
-}
-
-// Nextflow passes `--flag false` from the command line as the STRING 'false', and Groovy
-// treats every non-empty string as true. Read boolean parameters only through this function.
-def boolParam(String name) {
-    def value = params[name]
-    if (value instanceof Boolean) return value
-    def text = value == null ? '' : value.toString().trim().toLowerCase()
-    if (text in ['true', 'yes', '1']) return true
-    if (text in ['false', 'no', '0', '']) return false
-    cpnfError("--${name} must be true or false, not '${value}'")
-}
-
-// Turn --extensions 'tif,.TIFF, png' into the list [tif, tiff, png]: lower case, without dots.
-def imageExtensions() {
-    params.extensions.toString().tokenize(',')
-        .collect { ext -> ext.trim().toLowerCase().replaceFirst(/^\./, '') }
-        .findAll { ext -> ext }
-}
-
-// True if the path is inside the home folder of the user ($HOME).
-def inHomeDir(path) {
-    def home = System.getenv('HOME')
-    if (!home || path == null) return false
-    def abs = file(path.toString()).toAbsolutePath().normalize()
-    return abs.startsWith(file(home).toAbsolutePath().normalize())
-}
-
-// Berzelius site rules (see conf/berzelius.config). They stop the run before any job is submitted.
-def validateBerzelius() {
-
-    // Every job needs a project account, and CellProfiler must run on a CPU partition.
-    def cpuPartitions = ['berzelius-cpu', 'berzelius-hopper-cpu']
-    if (!params.slurm_account)
-        cpnfError("-profile berzelius needs --slurm_account <project account>. Run `projinfo` on a login node to see it.")
-    if (!(params.slurm_partition?.toString() in cpuPartitions))
-        cpnfError("-profile berzelius needs --slurm_partition berzelius-cpu (Ampere system) or " +
-            "berzelius-hopper-cpu (Hopper system), not '${params.slurm_partition}'. CellProfiler uses only CPUs: " +
-            "on a GPU partition your project pays for GPUs that stay idle.")
-
-    // $HOME on Berzelius has 20 GB and 1 million files. Work files, results and images go to /proj.
-    if (inHomeDir(workflow.workDir))
-        cpnfError("the work directory ${workflow.workDir} is in your home directory (20 GB, 1 million files). " +
-            "Use -work-dir /proj/<project>/users/\$USER/...")
-    if (inHomeDir(params.outdir))
-        cpnfError("--outdir ${params.outdir} is in your home directory (20 GB, 1 million files). Use /proj/<project>/...")
-    if (inHomeDir(params.container_cache))
-        cpnfError("--container_cache ${params.container_cache} is in your home directory (20 GB). Use /proj/<project>/...")
-    if (!params.container_cache)
-        log.warn "[cp-headless] Berzelius: set --container_cache /proj/<project>/users/\$USER/containers, " +
-            "otherwise every new work directory downloads the CellProfiler image again."
-}
-
-// Check all parameters before any job starts, so that a wrong setting fails in seconds, not hours.
-def validateParams() {
-
-    // The two required inputs: the CellProfiler pipeline file and the image folder.
-    if (!params.pipeline)  cpnfError("--pipeline is required (path to a .cppipe or .cpproj file)")
-    if (!params.input_dir) cpnfError("--input_dir is required (folder containing your images)")
-
-    def p = file(params.pipeline)
-    if (!p.exists() || p.isDirectory()) cpnfError("pipeline file not found: ${params.pipeline}")
-    if (!(p.name.toLowerCase() ==~ /.*\.(cppipe|cpproj)$/))
-        log.warn "[cp-headless] '${p.name}' does not end in .cppipe/.cpproj - trying anyway"
-
-    def d = file(params.input_dir)
-    if (!d.exists() || !d.isDirectory()) cpnfError("--input_dir is not a directory: ${params.input_dir}")
-
-    // Read each boolean parameter once, so that a value such as 'maybe' stops the run here.
-    ['save_masks', 'strict_image_count', 'allow_unpatched', 'gzip_features', 'allow_incomplete_sets']
-        .each { name -> boolParam(name) }
-
-    // Image discovery searches input_dir recursively: outputs or task folders inside it would be
-    // read back as input images by a later run (or by this run's own staged links).
-    def inputPath = d.toAbsolutePath().normalize()
-    def outPath   = file(params.outdir).toAbsolutePath().normalize()
-    if (outPath.startsWith(inputPath))
-        cpnfError("--outdir ${outPath} is inside --input_dir ${inputPath}. Choose an output folder outside the image folder.")
-    def workPath  = workflow.workDir.toAbsolutePath().normalize()
-    if (workPath.startsWith(inputPath))
-        cpnfError("the work directory ${workPath} is inside --input_dir ${inputPath}. Set -work-dir outside the image folder.")
-
-    // Simple value checks: the chunk size, the mask format, the extensions and the plugin folder.
-    if (!params.chunk_size.toString().isInteger() || (params.chunk_size as int) < 0)
-        cpnfError("--chunk_size must be an integer >= 0 (0 = all images in one CellProfiler job)")
-    if (!(params.mask_format in ['tiff', 'png', 'npy']))
-        cpnfError("--mask_format must be one of tiff, png, npy")
-    if (!imageExtensions())
-        cpnfError("--extensions is empty")
-    if (params.plugins_dir && !file(params.plugins_dir).isDirectory())
-        cpnfError("--plugins_dir is not a directory: ${params.plugins_dir}")
-
-    // Cluster profiles: warn about a missing Slurm account, and apply the Berzelius rules.
-    if (workflow.profile.tokenize(',').contains('slurm') && !params.slurm_account)
-        log.warn "[cp-headless] -profile slurm without --slurm_account: most clusters reject jobs without an account."
-    if (workflow.profile.tokenize(',').contains('berzelius'))
-        validateBerzelius()
-
-    // --required_metadata must be a list of names, for example 'Plate,Well,Site'.
-    if (params.required_metadata &&!(params.required_metadata.toString() ==~ /\s*\w+(\s*,\s*\w+)*\s*/))
-        cpnfError("--required_metadata must be comma-separated metadata names, e.g. 'Plate,Well,Site'")
-
-    // A broken regular expression would otherwise fail later, in the middle of the grouping step.
-    if (params.group_regex) {
-        try { java.util.regex.Pattern.compile(params.group_regex.toString()) }
-        catch (Exception e) { cpnfError("invalid --group_regex: ${e.message}") }
-    }
-
-    // Without group_regex, each file is one image set. That is wrong for images with several channels.
-    if ((params.chunk_size as int) > 0 && !params.group_regex) {
-        log.warn """\
-            [cp-headless] --chunk_size > 0 without --group_regex: files are split into chunks one by one.
-            That is only correct for SINGLE-channel pipelines. For multi-channel image sets set
-            --group_regex so all channels of a site land in the same chunk (see README).
-            Each chunk checks that CellProfiler made one image set per file.""".stripIndent()
-    }
-}
-
-// Provenance for every run: which code, Nextflow, container and parameters made these results.
-// The CellProfiler version that ran is in pipeline/patch_report.json.
-def gitCommit() {
-
-    // A run from GitHub (nextflow run <repo> -r <tag>) knows its commit. A run from a local folder asks git.
-    // "-dirty" means that the folder had changes that were not committed.
-    if (workflow.commitId) return workflow.commitId
-    try {
-        def proc = ['git', '-C', projectDir.toString(), 'rev-parse', 'HEAD'].execute()
-        proc.waitFor()
-        if (proc.exitValue() != 0) return null
-        def dirty = ['git', '-C', projectDir.toString(), 'status', '--porcelain', '--untracked-files=no'].execute()
-        dirty.waitFor()
-        return proc.text.trim() + (dirty.text.trim() ? '-dirty' : '')
-    } catch (Exception _e) {
-        return null
-    }
-}
-
-// Write <outdir>/pipeline_info/run_info.json: the code version, the run, Nextflow, the container
-// and all parameters. With this file, someone can later find out how the results were made.
-def writeRunInfo() {
-    def info = [
-        workflow : [name: workflow.manifest.name, version: workflow.manifest.version,
-                    git_commit: gitCommit(), repository: workflow.repository, revision: workflow.revision,
-                    project_dir: projectDir.toString()],
-        run      : [name: workflow.runName, session_id: workflow.sessionId.toString(),
-                    start: workflow.start.toString(), profile: workflow.profile, resume: workflow.resume,
-                    stub_run: workflow.stubRun, command_line: workflow.commandLine],
-        nextflow : nextflow.version.toString(),
-        container: params.container,
-        params   : params.collectEntries { k, v -> [(k): v?.toString()] },
-    ]
-    def dir = file("${params.outdir}/pipeline_info")
-    dir.mkdirs()
-    file("${dir}/run_info.json").text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(info))
-}
-
-// ------------------------------------------------------------------ processes
-
-// Each process below is one type of job. Nextflow runs each job in its own folder in work/,
-// inside the CellProfiler container. The scripts in bin/ are on the PATH of each job.
-//
-// The "stub:" blocks replace the real script during `-stub-run`. They make small fake files, so
-// that the tests can check how the jobs connect without running CellProfiler.
-
-// PATCH_PIPELINE runs once per run. It opens the pipeline with CellProfiler itself and makes it safe
-// for headless runs in chunks: it adds mask saving and a spreadsheet export, removes CreateBatchFiles,
-// and sends all outputs to the job folder. patch_report.json lists each change.
-process PATCH_PIPELINE {
-    tag "${cppipe.name}"
-    label 'cellprofiler'
-    publishDir "${params.outdir}/pipeline", mode: params.publish_mode
+/*
+ * PREPARE: runs once for the whole run.
+ * In:   every TIFF path, the two .cppipe files, the helper scripts.
+ * Does: extracts metadata from each filename with the pipeline's regex. Checks the channels and
+ *       the TIFF layout. Groups files into image sets. Cuts each plate into batches. Writes
+ *       working copies of the pipelines that read manifests instead of folders and that save masks.
+ * Out:  the folder 'prepared' with plan.json, manifests/<plate>/*.csv and pipelines/.
+ *       It is published to logs/run_inputs/.
+ */
+process PREPARE {
+    publishDir path: { "${destination}/logs" }, mode: 'copy', saveAs: { 'run_inputs' }
 
     input:
-    path cppipe, stageAs: 'original/*'
-    path plugins, stageAs: 'plugins'
+    val destination
+    path images, stageAs: 'tracked??????/*'
+    path configs, stageAs: 'config/*'
+    path code, stageAs: 'code/*'
+    path plugins, stageAs: 'plugins/*'
 
     output:
-    path 'patched.cppipe',    emit: pipeline
-    path 'patch_report.json', emit: report
+    path 'prepared'
 
     script:
-
-    // Turn the workflow parameters into options for bin/patch_cppipe.py.
-    def args = []
-    if (!boolParam('save_masks'))     args << '--no-masks'
-    if (params.mask_objects)          args << "--objects '${params.mask_objects}'"
-    if (boolParam('allow_unpatched')) args << '--allow-unpatched'
-    if ((params.chunk_size as int) > 0) args << '--chunked'
-    if (plugins)               args << '--plugins-dir "$PWD/plugins"'
     """
-    export HOME="\$PWD" MPLCONFIGDIR="\$PWD/.mpl" QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg PYTHONNOUSERSITE=1
-    patch_cppipe.py \\
-        --input "${cppipe}" \\
-        --output patched.cppipe \\
-        --report patch_report.json \\
-        --mask-format ${params.mask_format} \\
-        ${args.join(' ')}
-    """
-
-    stub:
-    """
-    cp "${cppipe}" patched.cppipe
-    echo '{"objects": ["Nuclei"], "mask_reference_image": "DNA", "masks_added": [{"object": "Nuclei", "suffix": "_Nuclei_mask", "format": "tiff"}], "masks_managed": [{"object": "Nuclei", "suffix": "_Nuclei_mask", "format": "tiff"}]}' > patch_report.json
+    python code/prepare.py --configs config --batch-size ${params.batch_size}
     """
 }
 
-// CELLPROFILER runs once per chunk, and the chunks run at the same time. Each job runs CellProfiler on
-// the files of its chunk, then bin/check_chunk.py checks the result. The check stops the job if
-// image sets, tables, masks or metadata are missing or wrong.
-process CELLPROFILER {
-    tag "${chunk_id} (${n_sets} sets, ${relpaths.size()} files)"
-    label 'cellprofiler'
+/*
+ * ILLUMINATION: runs once per plate. Plates run in parallel.
+ * In:   the plate's full manifest and all its TIFFs.
+ * Does: runs 1_illumination.cppipe. It accumulates every image set of the plate, then saves
+ *       one correction function per channel on the last cycle. Checks the shape and values.
+ * Out:  (plate, folder with Illum<Channel>.npy and provenance.json with SHA-256 checksums).
+ *       Published to illum/<plate>/.
+ */
+process ILLUMINATION {
+    tag "${plate}"
+    publishDir path: { "${destination}/illum" }, mode: 'copy', pattern: 'result/illumination', saveAs: { plate }
+    publishDir path: { "${destination}/logs/${plate}" }, mode: 'copy', pattern: 'result/logs/*', saveAs: { name -> name.tokenize('/').last() }
 
-    // masks keep the input folder structure: results/masks/<subdir>/<image>_<Object>_mask.tiff
-    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'chunk_*/masks/**',
-        saveAs: { fn -> fn.replaceFirst(/^[^\/]+\/masks\//, 'masks/') }
-    publishDir "${params.outdir}/logs", mode: params.publish_mode, pattern: '{log,qc}_*'
-
-    // anything else your own .cppipe saves (overlays, crops, ...) -> cellprofiler_outputs/<chunk>/...
-    publishDir "${params.outdir}/cellprofiler_outputs", mode: params.publish_mode, pattern: 'chunk_*/**',
-        saveAs: { fn -> (fn ==~ /^[^\/]+\/masks\/.*/ || fn.toLowerCase().endsWith('.csv')) ? null : fn }
-
-    // chunk_id: for example chunk_0003. relpaths: the image files of the chunk, relative to input_dir.
-    // n_sets: the number of image sets that the workflow expects in the chunk.
-    // input_dir: the complete image folder, linked into the job folder as 'input'.
     input:
-    tuple val(chunk_id), val(relpaths), val(n_sets)
+    val destination
+    tuple val(plate), path(manifest), path(images, stageAs: 'tracked??????/*')
     path pipeline
-    path patch_report
-    path input_dir, stageAs: 'input'
-    path plugins, stageAs: 'plugins'
+    path contract
+    path code, stageAs: 'code/*'
+    path plugins, stageAs: 'plugins/*'
 
     output:
-
-    // NB: do not declare the "${chunk_id}" directory itself as an output - Nextflow then
-    // skips publishing the files nested in it (masks would silently not be published).
-    path "features_${chunk_id}", type: 'dir',     emit: features
-    tuple val(chunk_id), path("${chunk_id}/masks/**"), optional: true, emit: masks
-    path "${chunk_id}/**", optional: true,        emit: files
-    path "log_${chunk_id}.txt",                   emit: log
-    path "qc_${chunk_id}.json",                   emit: qc
+    tuple val(plate), path('result/illumination'), emit: functions
+    path 'result/logs/*', emit: logs
 
     script:
-    def pluginArg = plugins ? '--plugins-directory "$PWD/plugins"' : ''
-
-    // With chunking, every chunk must hold whole image sets: compare CellProfiler's count with ours.
-    def expected  = (params.group_regex || (params.chunk_size as int) > 0) ? n_sets : -1
-    def strict    = boolParam('strict_image_count') ? '--strict' : ''
-    def requiredMetadata = params.required_metadata ? "--required-metadata '${params.required_metadata}'" : ''
     """
-    set -euo pipefail
-
-    # CellProfiler/matplotlib write settings into \$HOME; containers often have none.
-    export HOME="\$PWD" MPLCONFIGDIR="\$PWD/.mpl" TMPDIR="\$PWD/tmp"
-
-    # No display on cluster nodes: keep Qt and matplotlib from looking for one.
-    export QT_QPA_PLATFORM=offscreen MPLBACKEND=Agg
-
-    # Apptainer binds the host home: never load the user's own Python packages into CellProfiler.
-    export PYTHONNOUSERSITE=1
-
-    # In containers numpy/Java see the HOST's cores and oversubscribe; pin to what we were given.
-    export OMP_NUM_THREADS=${task.cpus} OPENBLAS_NUM_THREADS=${task.cpus} MKL_NUM_THREADS=${task.cpus}
-    mkdir -p "\$TMPDIR" "${chunk_id}"
-
-    # File list for this chunk. Paths go through the staged 'input' link so the original
-    # folder structure (and any folder-name metadata) is preserved.
-    cat > rel_paths.txt <<'__CPNF_FILES__'
-${relpaths.join('\n')}
-__CPNF_FILES__
-    awk -v root="\$PWD/input/" 'NF { print root \$0 }' rel_paths.txt > file_list.txt
-
-    # Stop early, with a clear message, if the job cannot read its images (for example a missing
-    # container mount). Otherwise CellProfiler fails later with a less clear error.
-    unreadable=0
-    while IFS= read -r f; do
-        [ -r "\$f" ] || { echo "Cannot read: \$f" >&2; unreadable=\$((unreadable + 1)); }
-    done < file_list.txt
-    if [ "\$unreadable" -gt 0 ]; then
-        echo "\$unreadable input file(s) are not readable (container mounts? permissions?)" >&2
-        exit 2
-    fi
-
-    # Run CellProfiler: -c = no window, -r = run at once. The log goes to the screen and to a file.
-    # --file-list takes precedence over -i; -i only sets the Default Input Folder, which the
-    # injected mask writer uses to mirror sub-folders.
-    cellprofiler -c -r \\
-        -p "${pipeline}" \\
-        --file-list file_list.txt \\
-        -i "\$PWD/input" \\
-        -o "\$PWD/${chunk_id}" \\
-        -t "\$TMPDIR" \\
-        ${pluginArg} ${params.cellprofiler_args} \\
-        2>&1 | tee "log_${chunk_id}.txt"
-
-    # CellProfiler can end with exit code 0 after errors. check_chunk.py checks the outputs, copies the
-    # tables to features_<chunk>/, makes the mask list, and writes qc_<chunk>.json.
-    check_chunk.py \\
-        --outdir "${chunk_id}" \\
-        --log "log_${chunk_id}.txt" \\
-        --patch-report "${patch_report}" \\
-        --expected-sets ${expected} \\
-        --input-dir "\$PWD/input" \\
-        --features-dir "features_${chunk_id}" \\
-        --manifest "features_${chunk_id}/mask_manifest.csv" \\
-        --qc "qc_${chunk_id}.json" ${strict} ${requiredMetadata}
-    """
-
-    stub:
-    """
-    mkdir -p "${chunk_id}/masks/stub" "features_${chunk_id}"
-    printf 'ImageNumber,Count_Nuclei,FileName_DNA,PathName_DNA\\n1,10,image_1.tif,stub\\n2,12,image_2.tif,stub\\n' > "features_${chunk_id}/MyExpt_Image.csv"
-    printf 'ImageNumber,ObjectNumber,AreaShape_Area\\n1,1,100\\n2,1,90\\n' > "features_${chunk_id}/MyExpt_Nuclei.csv"
-    printf 'ImageNumber,FileName_DNA,PathName_DNA,InputPath_DNA,MaskObject,MaskPath\\n1,image_1.tif,stub,stub/image_1.tif,Nuclei,masks/stub/${chunk_id}_image_1_Nuclei_mask.tiff\\n2,image_2.tif,stub,stub/image_2.tif,Nuclei,masks/stub/${chunk_id}_image_2_Nuclei_mask.tiff\\n' > "features_${chunk_id}/mask_manifest.csv"
-    touch "${chunk_id}/masks/stub/${chunk_id}_image_1_Nuclei_mask.tiff"
-    touch "${chunk_id}/masks/stub/${chunk_id}_image_2_Nuclei_mask.tiff" "log_${chunk_id}.txt"
-    echo '{}' > "qc_${chunk_id}.json"
+    python code/run_task.py illumination --plate '${plate}' \\
+        --manifest '${manifest}' --pipeline '${pipeline}' --contract '${contract}'
     """
 }
 
-// MERGE_FEATURES runs once, after all chunks. It joins each table of all chunks into one table and
-// adds CPNF_Chunk and CPNF_GlobalImageNumber, because CellProfiler starts ImageNumber at 1 in each chunk.
-process MERGE_FEATURES {
-    label 'merge'
-    publishDir "${params.outdir}/features", mode: params.publish_mode
+/*
+ * ANALYSIS: runs once per batch. Batches of all plates run in parallel within the CPU budget.
+ * In:   (plate, batch, batch manifest, the batch's TIFFs, the folder with this plate's .npy files).
+ * Does: checks the .npy checksums against the plate's provenance.json. Adds the .npy files to the
+ *       manifest. Runs the analysis pipeline: apply illumination, segment, measure, save masks,
+ *       export CSVs. Then moves shifted CellProfiler values back to their objects and validates
+ *       every table and mask against the manifest.
+ * Out:  (plate, batch folder with features/*.csv) for MERGE. This folder stays in work/.
+ *       Label masks, published to masks/<plate>/.
+ */
+process ANALYSIS {
+    tag "${plate}/${batch}"
+    publishDir path: { "${destination}/masks/${plate}" }, mode: 'copy', pattern: 'result/masks/*.tiff', saveAs: { name -> name.tokenize('/').last() }
+    publishDir path: { "${destination}/logs/${plate}" }, mode: 'copy', pattern: 'result/logs/*', saveAs: { name -> name.tokenize('/').last() }
 
     input:
-    path chunk_dirs
+    val destination
+    tuple val(plate), val(batch), path(manifest), path(images, stageAs: 'tracked??????/*'), path(illumination)
+    path pipeline
+    path contract
+    path code, stageAs: 'code/*'
+    path plugins, stageAs: 'plugins/*'
 
     output:
-    path '*.csv{,.gz}',        emit: tables
-    path 'merge_report.json',  emit: report
+    tuple val(plate), path("result/analysis/${batch}"), emit: results
+    path 'result/masks/*.tiff', emit: masks
+    path 'result/logs/*', emit: logs
 
     script:
-
-    // With --required_metadata, the merge also stops if one site occurs in two chunks.
-    def unique = params.required_metadata ? "--unique-metadata '${params.required_metadata}'" : ''
     """
-    merge_features.py --outdir . ${boolParam('gzip_features') ? '--gzip' : ''} ${unique} ${chunk_dirs}
+    python code/run_task.py analysis --plate '${plate}' --batch '${batch}' \\
+        --manifest '${manifest}' --pipeline '${pipeline}' --contract '${contract}' \\
+        --illumination '${illumination}'
     """
 }
 
-// ------------------------------------------------------------------ workflow
+/*
+ * MERGE: runs once per plate, after all batches of that plate finish.
+ * In:   (plate, the plate's full manifest, all batch folders of that plate).
+ * Does: joins Image, Cells, Cytoplasm and Nuclei rows into one row per cell. Sorts the rows in
+ *       plate image order, then by cell number. Checks columns and row counts across batches.
+ * Out:  <plate>.csv.gz for CONCAT. It stays in work/ and is not published.
+ */
+process MERGE {
+    tag "${plate}"
+    publishDir path: { "${destination}/logs/${plate}" }, mode: 'copy', pattern: 'result/logs/*', saveAs: { name -> name.tokenize('/').last() }
 
-// The main workflow: check the parameters, find and group the images, then run the three processes.
+    input:
+    val destination
+    tuple val(plate), path(manifest), path(batches, stageAs: 'batches/*')
+    path contract
+    path code, stageAs: 'code/*'
+
+    output:
+    path "result/${plate}.csv.gz", emit: table
+    path 'result/logs/*', emit: logs
+
+    script:
+    """
+    python code/merge_features.py plate --plate '${plate}' --manifest '${manifest}' --batches batches \\
+        --contract '${contract}' --out 'result/${plate}.csv.gz' --report result/logs/merge.json
+    """
+}
+
+/*
+ * CONCAT: runs once, after every plate is merged.
+ * In:   all <plate>.csv.gz files.
+ * Does: checks that every plate table has the same columns in the same order. Joins the plates
+ *       in name order without decompressing the rows.
+ * Out:  all_plates.csv.gz, moved (not copied) to cp_features/. It is the only published feature table.
+ */
+process CONCAT {
+    publishDir path: { "${destination}/cp_features" }, mode: 'move', pattern: 'result/*.csv.gz', saveAs: { name -> name.tokenize('/').last() }
+    publishDir path: { "${destination}/logs" }, mode: 'copy', pattern: 'result/*.json', saveAs: { name -> name.tokenize('/').last() }
+
+    input:
+    val destination
+    path tables, stageAs: 'plates/*'
+    path code, stageAs: 'code/*'
+
+    output:
+    path 'result/all_plates.csv.gz', emit: table
+    path 'result/all_plates.merge.json', emit: logs
+
+    script:
+    """
+    mkdir -p result
+    python code/merge_features.py all plates/*.csv.gz --out result/all_plates.csv.gz --report result/all_plates.merge.json
+    """
+}
+
+/*
+ * Collects the batch folders of each plate into one item for MERGE.
+ * results: one (plate, batch folder) item per finished ANALYSIS task.
+ * plan:    the batch plan from PREPARE. It gives the number of batches per plate.
+ * groupKey tells groupTuple how many batches to expect. A plate is released as soon as its last
+ * batch arrives, so one plate never waits for another.
+ * Returns: one (plate, [batch folders sorted by name]) item per plate. The sort keeps resume stable.
+ */
+def plateBatches(results, plan) {
+    def counts = plan.flatMap { plates -> plates.collect { p -> tuple(p.plate, p.batches.size()) } }
+    results
+        .combine(counts, by: 0)
+        .map { plate, dir, n -> tuple(groupKey(plate, n), dir) }
+        .groupTuple()
+        .map { key, dirs -> tuple(key.getGroupTarget(), dirs.sort { dir -> dir.name }) }
+}
+
+/*
+ * Choose this run's output folder: <outdir>/projects/<name>/.
+ * <name> is --project if that folder is new, or if it already belongs to this session (a resume).
+ * If --project names a folder of another run, warn and use the session ID instead.
+ * Without --project, the session ID is the name.
+ * run.json in the folder records the owning session.
+ */
+def outputFolder(warn) {
+    def root = file("${params.outdir}/projects").toAbsolutePath().normalize()
+    def session = workflow.sessionId.toString()
+    if (params.project) {
+        def folder = root.resolve(params.project.toString())
+        def marker = folder.resolve('run.json')
+        if (!folder.exists() || (marker.exists() && new groovy.json.JsonSlurper().parse(marker.toFile()).session_id == session)) {
+            return folder
+        }
+        if (warn) {
+            log.warn("Project '${params.project}' already exists in ${root} and belongs to another run. This run uses the session ID instead: ${root.resolve(session)}")
+        }
+    }
+    return root.resolve(session)
+}
+
+// Resolve links in the existing ancestor, then append any missing path components.
+def realPath(path) {
+    if (path.exists()) {
+        return path.toRealPath()
+    }
+    return realPath(path.parent).resolve(path.name)
+}
+
 workflow {
-    validateParams()
-
-    // Values that the steps below use.
-    def inputDir     = file(params.input_dir).toAbsolutePath().normalize()
-    def exts         = imageExtensions()
-    def chunkSize    = params.chunk_size as int
-    def groupPattern = params.group_regex ? java.util.regex.Pattern.compile(params.group_regex.toString()) : null
-    def plugins      = params.plugins_dir ? file(params.plugins_dir) : []
-    def allowIncomplete = boolParam('allow_incomplete_sets')
-    def onCluster    = workflow.profile.tokenize(',').any { p -> p in ['slurm', 'berzelius'] }
-
-    // Show the most important settings at the start of the log.
-    log.info """\
-        ==================================  cp-headless  ==================================
-        pipeline     : ${params.pipeline}
-        input_dir    : ${inputDir}
-        outdir       : ${params.outdir}
-        extensions   : ${exts.join(', ')}
-        group_regex  : ${params.group_regex ?: '(none: every file is its own image set)'}
-        chunk_size   : ${chunkSize ?: 'all image sets in one job'}
-        save_masks   : ${boolParam('save_masks')} (${params.mask_format})
-        container    : ${params.container}
-        =================================================================================
-        """.stripIndent()
-
-    writeRunInfo()
-
-    // 1. discover images (recursive, case-insensitive extension match, hidden files skipped)
-    // Each file becomes its path relative to input_dir, for example "plate1/A01_s1_w1.tif".
-    ch_images = channel
-        .fromPath("${inputDir}/**", type: 'file')
-        .filter { f ->
-            def n = f.name.toLowerCase()
-            exts.any { ext -> n.endsWith(".${ext}") }
-        }
-        .map { f -> inputDir.relativize(f).toString() }
-        .ifEmpty { cpnfError("no files with extensions [${exts.join(', ')}] found under ${inputDir}") }
-
-    // 2. group files into image sets, then batch whole image sets into chunks
-    // The capture groups of group_regex make the key of the image set: files with the same key belong
-    // to the same site. A file that does not match gets an "__unmatched__" key of its own.
-    // Without group_regex, each file is an image set of its own ("__single__").
-    ch_chunks = ch_images
-        .map { rel ->
-            def key = "__single__/${rel}"
-            if (groupPattern) {
-                def m = groupPattern.matcher(rel)
-                if (m.find()) {
-                    key = m.groupCount() > 0
-                        ? (1..m.groupCount()).collect { i -> m.group(i) ?: '' }.join('|')
-                        : m.group(0)
-                } else {
-                    key = "__unmatched__/${rel}"
-                }
-            }
-            tuple(key, rel)
-        }
-
-        // Collect the files of each key, then sort all image sets by key. The sort makes the chunks the
-        // same in each run, which -resume needs.
-        .groupTuple(sort: true)
-        .toSortedList { a, b -> a[0] <=> b[0] }
-        .flatMap { groups ->
-
-            // Image-set integrity: every file must match group_regex, and every image set must
-            // have the same number of files (one per channel). The most common size is taken
-            // as the channel count; other sizes mean a missing channel or extra files.
-            def unmatched  = groups.findAll { g -> g[0].startsWith('__unmatched__/') }
-            def matched    = groups.findAll { g -> !g[0].startsWith('__unmatched__/') }
-            def channels   = 0
-            def incomplete = []
-            if (groupPattern && matched) {
-                channels   = matched.collect { g -> g[1].size() }.countBy { n -> n }.max { e -> e.value }.key
-                incomplete = matched.findAll { g -> g[1].size() != channels }
-                log.info "[cp-headless] image sets have ${channels} file(s) each (most common size)"
-            }
-
-            // Stop with examples, or only warn if the user set --allow_incomplete_sets true.
-            def problems = []
-            if (unmatched)
-                problems << "${unmatched.size()} file(s) do not match --group_regex, e.g. ${unmatched.take(3).collect { g -> g[1][0] }}"
-            if (incomplete)
-                problems << "${incomplete.size()} image set(s) do not have ${channels} file(s), e.g. " +
-                    incomplete.take(3).collect { g -> "${g[0]} -> ${g[1]}" }.join('; ')
-            if (problems && allowIncomplete) {
-                log.warn "[cp-headless] ${problems.join('\n')}\n" +
-                    "Continuing because --allow_incomplete_sets is true: unmatched files become their own image sets."
-            } else if (problems) {
-                cpnfError("${problems.join('\n')}\n" +
-                    "Fix --group_regex or --extensions, or remove the files. " +
-                    "Set --allow_incomplete_sets true to process them anyway.")
-            }
-
-            // Cut the sorted image sets into chunks of chunk_size (0 = one chunk with all of them).
-            // A chunk never splits an image set, because it holds whole groups.
-            def batches = chunkSize > 0 ? groups.collate(chunkSize) : [groups]
-            if (onCluster && chunkSize == 0 && groups.size() > 500)
-                log.warn "[cp-headless] ${groups.size()} image sets run as ONE cluster job (--chunk_size 0). " +
-                    "Set --chunk_size so that one job takes 15-60 min: one job can not run longer than the wall-time limit."
-
-            // Name the chunks chunk_0001, chunk_0002, ... Each item is [name, files of the chunk, number of image sets].
-            def width   = Math.max(4, batches.size().toString().length())
-            log.info "[cp-headless] ${groups.size()} image set(s), ${groups.sum { g -> g[1].size() }} file(s) -> ${batches.size()} chunk(s)"
-            batches.indexed().collect { i, batch ->
-                tuple("chunk_${(i + 1).toString().padLeft(width, '0')}", batch.collectMany { g -> g[1] }, batch.size())
+    // After success or failure, save the run status and a copy of .nextflow.log in logs/.
+    workflow.onComplete = {
+        def completedOutput = outputFolder(false)
+        def marker = completedOutput.resolve('run.json')
+        if (marker.exists() && new groovy.json.JsonSlurper().parse(marker.toFile()).session_id == workflow.sessionId.toString()) {
+            def dir = completedOutput.resolve('logs')
+            dir.mkdirs()
+            def stamp = new Date().format('yyyyMMdd-HHmmss-SSS')
+            dir.resolve("status-${stamp}.json").text = groovy.json.JsonOutput.toJson(
+                [success: workflow.success, exit_status: workflow.exitStatus, duration: workflow.duration.toString(), session_id: workflow.sessionId.toString(), error: workflow.errorMessage, command: workflow.commandLine]
+            )
+            def logFile = file("${launchDir}/.nextflow.log")
+            if (logFile.exists()) {
+                java.nio.file.Files.copy(logFile, dir.resolve("nextflow-${stamp}.log"))
             }
         }
+    }
 
-    // 3. patch the pipeline once, run every chunk, merge the tables
-    // Each chunk job gets the same patched pipeline. MERGE_FEATURES waits until all chunks are done (collect).
-    PATCH_PIPELINE(file(params.pipeline), plugins)
-    CELLPROFILER(ch_chunks, PATCH_PIPELINE.out.pipeline, PATCH_PIPELINE.out.report, inputDir, plugins)
-    MERGE_FEATURES(CELLPROFILER.out.features.collect())
 
-    // 4. cross-chunk sanity check: two chunks writing the same mask path would overwrite on publish
-    // This step only warns early. MERGE_FEATURES makes the same check and stops the run.
-    CELLPROFILER.out.masks
-        .flatMap { chunk_id, files ->
-            (files instanceof List ? files : [files]).collect { f ->
-                def s = f.toString()
-                def marker = "/${chunk_id}/masks/"
-                s.substring(s.indexOf(marker) + marker.length())
+    // Check the parameters before any task starts.
+    if (!params.images || !params.configs) {
+        error('Supply two folders: --images images/ --configs cp-configs/')
+    }
+    if (!(params.batch_size.toString() ==~ /[1-9][0-9]*/)) {
+        error('--batch_size must be a positive integer')
+    }
+    if (!(params.total_cpus.toString() ==~ /[1-9][0-9]*/)) {
+        error('--total_cpus must be a positive integer')
+    }
+    if ((params.task_memory as MemoryUnit) > (params.total_memory as MemoryUnit)) {
+        error('--task_memory cannot exceed the shared --total_memory budget')
+    }
+    if ((params.task_memory as MemoryUnit).toBytes() <= 0) {
+        error('--task_memory must be positive')
+    }
+    def imageRoot = file(params.images).toRealPath()
+    def configRoot = file(params.configs).toRealPath()
+    if (!imageRoot.isDirectory() || !configRoot.isDirectory()) {
+        error('Both inputs must be folders')
+    }
+    def configs = configRoot.listFiles().findAll { config -> config.name.endsWith('.cppipe') }.sort { config -> config.name }
+    if (configs*.name != ['1_illumination.cppipe', '2_analysis.cppipe']) {
+        error("--configs requires exactly 1_illumination.cppipe and 2_analysis.cppipe; found ${configs*.name}")
+    }
+
+    // Output folder: <outdir>/projects/<project>/. A run never writes into another run's folder.
+    if (params.project && !(params.project.toString() ==~ /[A-Za-z0-9][A-Za-z0-9_.-]*/)) {
+        error('--project may contain letters, digits, dots, underscores and hyphens')
+    }
+    if (!params.outdir) {
+        error('--outdir must name a folder')
+    }
+    def output = outputFolder(true)
+
+    // Resolve symlinks in the part of each path that exists, so a linked image folder is still detected.
+    if (realPath(output).startsWith(imageRoot) || realPath(workflow.workDir.toAbsolutePath().normalize()).startsWith(imageRoot)) {
+        error('Output and work directories must be outside the image input folder')
+    }
+    if (!output.exists()) {
+        output.mkdirs()
+        output.resolve('run.json').text = groovy.json.JsonOutput.prettyPrint(
+            groovy.json.JsonOutput.toJson(
+                [session_id: workflow.sessionId.toString(), project: output.name, images: imageRoot.toString(), configs: configRoot.toString(), nextflow: nextflow.version.toString(), command: workflow.commandLine]
+            )
+        )
+    }
+    output.resolve('logs').mkdirs()
+    log.info("Outputs: ${output}\nResume: nextflow run . --images '${imageRoot}' --configs '${configRoot}' --outdir '${output.parent.parent}' --project ${output.name} -resume ${workflow.sessionId}")
+    def code = files("${projectDir}/bin/*.py")
+    def plugins = files("${projectDir}/plugins/*.py")
+
+    // Find every TIFF once. The sorted list goes to PREPARE as one item.
+    // Nextflow tracks each file, so a changed image reruns the affected tasks on resume.
+    images = channel.fromPath("${imageRoot}/**", type: 'file', hidden: false)
+        .filter { image -> image.name.toLowerCase().endsWith('.tif') || image.name.toLowerCase().endsWith('.tiff') }
+        .map { path ->
+            if (imageRoot.relativize(path).nameCount != 2) {
+                error("Expected images/<plate>/<filename>.tiff: ${path}")
             }
+            path
         }
-        .toList()
-        .subscribe { paths ->
-            def dups = paths.countBy { p -> p }.findAll { e -> e.value > 1 }
-            if (dups)
-                log.warn "[cp-headless] ${dups.size()} mask path collision(s) detected, e.g. ${dups.keySet().take(3)}; MERGE_FEATURES will fail the run."
+        .toSortedList()
+        .map { paths ->
+            if (!paths) {
+                error('No TIFF inputs found')
+            }
+            paths
         }
+    PREPARE(output.toString(), images, configs, code, plugins)
+    prepared = PREPARE.out
+
+    // Read plan.json into a list of plates. Each plate holds its manifest, its images and its batches.
+    plan = prepared.map { dir ->
+        new groovy.json.JsonSlurper()
+            .parse(dir.resolve('plan.json').toFile())
+            .collect { p ->
+                [plate: p.plate, manifest: dir.resolve(p.manifest), images: p.images.collect { image -> file(image) }, batches: p.batches.collect { b -> [batch: b.batch, manifest: dir.resolve(b.manifest), images: b.images.collect { image -> file(image) }] }]
+            }
+    }
+
+    // One item per plate for ILLUMINATION: (plate, full manifest, all images).
+    plateJobs = plan.flatMap { plates -> plates.collect { p -> tuple(p.plate, p.manifest, p.images) } }
+
+    // One item per batch for ANALYSIS: (plate, batch, batch manifest, batch images).
+    batchJobs = plan.flatMap { plates -> plates.collectMany { p -> p.batches.collect { b -> tuple(p.plate, b.batch, b.manifest, b.images) } } }
+    contract = prepared.map { dir -> dir.resolve('pipelines/contract.json') }
+    ILLUMINATION(output.toString(), plateJobs, prepared.map { dir -> dir.resolve('pipelines/illumination.cppipe') }, contract, code, plugins)
+
+    // combine(by: 0) pairs each batch with the .npy folder of the same plate.
+    // A plate's batches start as soon as that plate's illumination finishes.
+    ANALYSIS(
+        output.toString(),
+        batchJobs.combine(ILLUMINATION.out.functions, by: 0),
+        prepared.map { dir -> dir.resolve('pipelines/analysis.cppipe') },
+        contract,
+        code,
+        plugins,
+    )
+
+    // MERGE gets (plate, full manifest) joined with (plate, all batch folders).
+    MERGE(
+        output.toString(),
+        plateJobs.map { plate, manifest, _paths -> tuple(plate, manifest) }.join(plateBatches(ANALYSIS.out.results, plan)),
+        contract,
+        code,
+    )
+
+    // toSortedList waits for every plate table. This is the only step that waits for all plates.
+    CONCAT(output.toString(), MERGE.out.table.toSortedList { a, b -> a.name <=> b.name }, code)
 }

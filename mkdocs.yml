@@ -1,10 +1,4 @@
-# Documentation site of cp-headless (MkDocs + Material). Build it with:
-#   uv run --with-requirements requirements-docs.txt mkdocs build --strict
-# See docs/about/contributing.md.
-site_name: cp-headless
-site_url: https://mirandaresearchlab.github.io/headless-cp-wf/
-repo_url: https://github.com/mirandaresearchlab/headless-cp-wf
-edit_uri: edit/main/docs/
+site_name: Headless CellProfiler
 
 theme:
   name: material
@@ -16,7 +10,6 @@ theme:
     - search.suggest
     - search.highlight
     - content.code.copy
-    - content.action.edit
     - toc.follow
   palette:
     - media: "(prefers-color-scheme: light)"
@@ -56,60 +49,36 @@ hooks:
 plugins:
   - search
 
-  # Reference page of the bin/ helper scripts, made from their numpy docstrings (reference/api.md).
-  - mkdocstrings:
-      handlers:
-        python:
-          paths: [bin]
-          options:
-            docstring_style: numpy
-            show_source: false
-            show_root_heading: false
-            show_root_toc_entry: false
-            members_order: source
-            heading_level: 3
-            separate_signature: false
-
-extra:
-
-  # Commands whose --help is rendered into reference/cli.md on every build (if that page exists)
-  cli_commands: ["python bin/patch_cppipe.py", "python bin/check_chunk.py", "python bin/merge_features.py"]
-
-  # Folder whose notebooks are copied into docs/notebooks/ on every build
-  notebooks_dir: null
-
 nav:
   - Home: index.md
   - Getting started:
-      - Installation: getting-started/installation.md
-      - "Tutorial: first run": tutorials/first-run.md
-  - Lab workstation:
-      - Run without Docker: how-to/run-without-docker.md
-      - Run with Docker: how-to/run-with-docker.md
-  - Berzelius:
-      - Set up: how-to/berzelius-setup.md
-      - Interactive run: how-to/berzelius-interactive.md
-      - Batch run (Slurm): how-to/berzelius-batch.md
-  - Your data:
-      - how-to/index.md
-      - Run on your data: usage.md
-      - Prepare your image folder: how-to/format-image-folder.md
-      - Change the CellProfiler pipeline: how-to/change-pipeline.md
-      - Output: output.md
-      - Troubleshooting: how-to/troubleshooting.md
+      - "Installation": getting-started/installation.md
+      - "Tutorial": tutorials/first-run.md
+  - Usage:
+      - "Usage": usage.md
+      - "Output": output.md
+  - How-to guides:
+      - "How-to guides": how-to/index.md
+      - "Run on HPC": how-to/run-on-hpc.md
+      - "Change a pipeline": how-to/modify-pipeline.md
+      - "Troubleshooting": how-to/troubleshooting.md
   - Reference:
-      - Parameters: reference/parameters.md
-      - File formats: reference/file-formats.md
-      - Resources: reference/resources.md
-      - Command-line scripts: reference/cli.md
-      - Helper script API: reference/api.md
-      - Container images: reference/tags.md
-      - CellProfiler pipelines: reference/pipelines.md
-      - Glossary: reference/glossary.md
+      - "Resources": reference/resources.md
+      - "Parameters": reference/parameters.md
+      - "Command-line reference": reference/cli.md
+      - "File formats": reference/file-formats.md
+      - "CellProfiler pipelines": reference/pipelines.md
+      - "Glossary": reference/glossary.md
   - Explanation:
-      - How the workflow works: explanation/workflow.md
-      - Data checks and design: explanation/design.md
+      - "How the workflow works": explanation/workflow.md
+      - "Segmentation choices": explanation/segmentation.md
+      - "Design": explanation/design.md
   - About:
-      - Changelog: about/changelog.md
-      - How to cite: about/citation.md
-      - Contributing: about/contributing.md
+      - "Changelog": about/changelog.md
+      - "Citation": about/citation.md
+      - "Contributing": about/contributing.md
+validation:
+  links:
+    not_found: warn
+    unrecognized_links: warn
+    anchors: warn

@@ -1,0 +1,20 @@
+Nextflow 26.10.3 is available - Please consider updating your version to it
+N E X T F L O W  ~  version 25.10.4
+Launching `/root/projects/headless-cellprofiler/main.nf` [mighty_hamilton] DSL2 - revision: c152d229d3
+Outputs: /root/projects/headless-cellprofiler/projects/smoke-test-20261023/results/projects/smoke
+Resume: nextflow run . --images '/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images' --configs '/root/projects/headless-cellprofiler/cp-configs' --outdir '/root/projects/headless-cellprofiler/projects/smoke-test-20261023/results' --project smoke -resume c9e636fc-e7c1-4a3c-9f8a-35eec7ba46f8
+WARN: The `file()` function was called with a glob pattern that matched a collection of files -- use `files()` instead.
+[9f/dc6d93] Submitted process > PREPARE
+[d3/7cfaaa] Submitted process > ILLUMINATION (plate1-1h-Panc1)
+[a8/7b29db] Submitted process > ILLUMINATION (plate3-24h-Panc1)
+[2c/f88dbb] Submitted process > ILLUMINATION (plate2-4h-Panc1)
+[67/7a6c01] Submitted process > ANALYSIS (plate1-1h-Panc1/batch_0001)
+[1f/722f64] Submitted process > ANALYSIS (plate1-1h-Panc1/batch_0002)
+[ad/049cd8] Submitted process > ANALYSIS (plate3-24h-Panc1/batch_0001)
+[ed/a7f33f] Submitted process > ANALYSIS (plate3-24h-Panc1/batch_0002)
+[88/c27369] Submitted process > ANALYSIS (plate2-4h-Panc1/batch_0002)
+[90/6d1eef] Submitted process > ANALYSIS (plate2-4h-Panc1/batch_0001)
+[aa/2c09ef] Submitted process > MERGE (plate1-1h-Panc1)
+[b1/cf9140] Submitted process > MERGE (plate3-24h-Panc1)
+[b1/f22b9b] Submitted process > MERGE (plate2-4h-Panc1)
+[0a/ecc76c] Submitted process > CONCAT
