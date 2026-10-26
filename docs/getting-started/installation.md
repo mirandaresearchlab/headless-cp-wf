@@ -1,120 +1,70 @@
-# Installation
+# Install the workflow
 
-This page tells you how to install the workflow on a lab workstation. A lab workstation is an Ubuntu Linux
-system where you are `root`, for example the container that you reach with SSH on a lab server. After this
-page, you choose how CellProfiler runs: without Docker or with Docker.
+This page prepares a shell that can run Nextflow and CellProfiler.
 
-For Berzelius, do not use this page. Use [Berzelius: set up](../how-to/berzelius-setup.md).
+## Before you start
 
-!!! note "Testing status"
-    We ran every command of this page as `root` in a clean Ubuntu 24.04 container (amd64) on 2026-10-15.
-    We did not run them on a lab server.
+Use a Linux workstation or your cluster's supported Linux environment.
+The repository uses Bash and Unix commands. Other operating systems were not validated here.
+Obtain a copy of this repository from your maintainer, then open a terminal in its root folder.
+The root contains `main.nf` and `environment.yml`.
 
-## Choose how CellProfiler runs
+Install Conda using your institution's instructions or the
+[official Miniforge guide](https://github.com/conda-forge/miniforge#install).
+Provide Java 17 or 21 for the Nextflow launcher.
+Nextflow requires Bash and Java as described in its [installation guide](https://docs.seqera.io/nextflow/install).
 
-| Way | Use it when | Guide |
-| --- | --- | --- |
-| Without Docker | Your workstation has no Docker. This is the simplest way on a lab workstation. | [Run without Docker](../how-to/run-without-docker.md) |
-| With Docker | Docker works in your workstation. CellProfiler then runs in the official container. | [Run with Docker](../how-to/run-with-docker.md) |
+Installation commands below are setup recipes. They were not executed here because Conda and Nextflow were unavailable.
 
-Both ways gave the same results on the test data. See the guides for the details.
-
-## What you need
-
-| Need | How to check |
-| --- | --- |
-| Ubuntu Linux on amd64 | `uname -m` shows `x86_64`. CellProfiler 4.2.8 exists only for Linux on amd64. |
-| A terminal as `root` | `whoami` shows `root`. If you are not `root`, put `sudo` before each `apt` command. |
-| Internet access | The installation downloads packages. |
-| About 5 GB of free space | `df -h ~` |
-
-## Step 1. Install the system tools
+## 1. Create the CellProfiler environment
 
 ```bash
-apt update
-apt install -y git procps curl ca-certificates bzip2 python3
+conda env create -f environment.yml
+conda activate cp-headless
 ```
 
-Run `apt update` first. Without it, `apt install` can fail with `Unable to locate package`. A minimal
-container often lacks these programs. Nextflow needs `ps` from the package `procps`. The merge step of the
-workflow needs `python3` when it runs without a container, for example in the dry run of step 6.
+Expected result: Conda creates and activates `cp-headless`.
+The environment pins Python 3.9.19 and CellProfiler 4.2.8.1.
+It also includes NumPy, SciPy, scikit-image, tifffile, pandas, and pytest.
+The file pins key packages, but it is not a complete dependency lock file.
+Allow time and internet access for downloads and dependency resolution.
 
-## Step 2. Get the code
+!!! important "Activate this environment for each run"
+    The profiles enable Conda support but no process declares a Conda environment.
+    Nextflow therefore uses the Python and CellProfiler commands from the launch environment.
+    The profiles do not automatically install `environment.yml`.
 
-```bash
-git clone https://github.com/mirandaresearchlab/headless-cp-wf.git
-cd headless-cp-wf
-```
+## 2. Install Nextflow separately
 
-## Step 3. Install micromamba
+Keep Nextflow available outside the CellProfiler environment.
+Follow the [official installation guide](https://docs.seqera.io/nextflow/install) to install version 25.10.4 or later.
+Use 25.10.4 when reproducing the baseline documented in this repository.
 
-micromamba installs Nextflow, Java and (for the way without Docker) CellProfiler in separate environments.
-Run the installer, and press Enter at each question to accept the default:
+If activating Conda changes Java, set `NXF_JAVA_HOME` to your Nextflow-compatible Java installation.
+Do not change CellProfiler's Java dependencies merely to satisfy the Nextflow launcher.
+Your cluster administrator can provide the appropriate Java location.
 
-```bash
-bash <(curl -L https://micro.mamba.pm/install.sh)
-```
+## 3. Check the active tools
 
-The installer puts the program in `~/.local/bin/micromamba`. Your terminal does not know the new command
-yet. Run these two lines:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-export MAMBA_ROOT_PREFIX="$HOME/micromamba"
-micromamba --version
-```
-
-The last command prints a version number, for example `2.9.0`.
-
-## Step 4. Install Nextflow and Java
+Run these checks after activating `cp-headless`:
 
 ```bash
-micromamba create -y -n nextflow -c conda-forge -c bioconda nextflow=26.04.6 openjdk=21
-```
-
-Nextflow needs Java 17 to 26. This environment has Java 21.
-
-## Step 5. Activate Nextflow
-
-Run these lines in each new terminal, before you use `nextflow`:
-
-```bash
-export MAMBA_ROOT_PREFIX="$HOME/micromamba"
-export PATH="$MAMBA_ROOT_PREFIX/envs/nextflow/bin:$HOME/.local/bin:$PATH"
-export JAVA_HOME="$MAMBA_ROOT_PREFIX/envs/nextflow/lib/jvm"
-unset JAVA_CMD
-```
-
-`JAVA_HOME` makes Nextflow use the Java 21 of the environment, even if the system has another Java.
-To keep these lines, add them to the end of `~/.bashrc`. A new terminal then runs them for you.
-
-## Step 6. Check the installation
-
-```bash
+python --version
+python -c "from importlib.metadata import version; print(version('cellprofiler')); print(version('cellprofiler-core'))"
 nextflow -version
-nextflow run . -profile test,local -stub-run
+cellprofiler --help
 ```
 
-The first command shows `version 26.04.6`. The second command is a dry run on the test data. Its jobs make
-small fake files instead of running CellProfiler, so it needs no CellProfiler and no Docker. It must show:
+Expected values: Python 3.9.19, two lines containing 4.2.8.1, Nextflow 25.10.4 or later, and CellProfiler help text.
+An import error or missing command means the environment is not ready.
 
-```text
-[cp-headless] 6 image set(s), 6 file(s) -> 3 chunk(s)
-```
+## 4. Prepare storage and data
 
-It must end without `ERROR`. Then go on with [Run without Docker](../how-to/run-without-docker.md) or
-[Run with Docker](../how-to/run-with-docker.md).
+Keep inputs, results, and work files in separate folders.
+The default local budget is 2 CPUs and 16 GB. Each task requests 6 GB.
+These are scheduler requests, not measured minimum requirements for all datasets.
+See [resource planning](../reference/resources.md) before processing large images.
 
-## Troubleshooting
-
-| Message | Cause and solution |
-| --- | --- |
-| `Unable to locate package` | Run `apt update`, then the `apt install` command again. |
-| `micromamba: command not found` | Your terminal does not know the new program. Run the two `export` lines of step 3. |
-| `nextflow: command not found` | Run the lines of step 5. |
-| `Cannot find Java or it's a wrong version` | Nextflow uses another Java. Run the lines of step 5, including `unset JAVA_CMD`. |
-| `Command 'ps' required by nextflow ... cannot be found` | Install `procps` (step 1). |
-| `MERGE_FEATURES` fails in the dry run with `python3: not found` or exit status 127 | Install `python3` (step 1). |
-
-To change the code of the workflow, see [Contributing](../about/contributing.md). It uses a separate
-development environment.
+The `test-images` entry may be a link to an external dataset.
+It is not a bundled download. Obtain those images from the maintainer if the link is missing or broken.
+Then continue with the [first run](../tutorials/first-run.md).

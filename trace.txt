@@ -1,0 +1,12 @@
+task_id	hash	name	status	exit	cpus	memory	realtime	peak_rss	peak_vmem	read_bytes	write_bytes
+1	9d/23a30a	PREPARE	COMPLETED	0	1	6 GB	3.2s	175.4 MB	408.7 MB	0	100 KB
+4	e5/d21727	ILLUMINATION (plate3-24h-Panc1)	COMPLETED	0	1	6 GB	3m 3s	1.2 GB	37.4 GB	0	122.4 MB
+3	1b/59b99d	ILLUMINATION (plate2-4h-Panc1)	COMPLETED	0	1	6 GB	3m 5s	1.2 GB	37.3 GB	0	122.5 MB
+2	2b/235549	ILLUMINATION (plate1-1h-Panc1)	COMPLETED	0	1	6 GB	3m 19s	1.2 GB	37.3 GB	0	122.5 MB
+5	99/97118f	ANALYSIS (plate3-24h-Panc1/batch_0001)	COMPLETED	0	1	6 GB	4m 15s	2.9 GB	40.8 GB	0	184.7 MB
+6	77/55a89f	ANALYSIS (plate3-24h-Panc1/batch_0002)	COMPLETED	0	1	6 GB	4m 33s	3.4 GB	41 GB	0	202 MB
+8	db/01b678	ANALYSIS (plate2-4h-Panc1/batch_0002)	COMPLETED	0	1	6 GB	4m 34s	3.3 GB	41 GB	0	183.7 MB
+11	66/b8aaf9	MERGE (plate3-24h-Panc1)	COMPLETED	0	1	6 GB	4s	295.9 MB	299.5 MB	0	26.1 MB
+7	05/b208de	ANALYSIS (plate2-4h-Panc1/batch_0001)	ABORTED	-	1	6 GB	-	-	-	-	-
+9	03/f27851	ANALYSIS (plate1-1h-Panc1/batch_0001)	ABORTED	-	1	6 GB	-	-	-	-	-
+10	53/8f4f6f	ANALYSIS (plate1-1h-Panc1/batch_0002)	ABORTED	-	1	6 GB	-	-	-	-	-

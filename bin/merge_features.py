@@ -1,288 +1,308 @@
 #!/usr/bin/env python3
-"""Merge the tables of all chunks into one table per name.
+"""MERGE and CONCAT steps: build the per-cell feature table.
 
-CellProfiler starts ImageNumber at 1 in each chunk. If you only put the tables one after the other,
-objects of different images get the same ImageNumber. Thus each merged table gets two columns in front:
-  CPNF_Chunk             - the chunk of the row.
-  CPNF_GlobalImageNumber - an image number that is unique in the run. It has the same value in the
-                           per-image and the per-object tables. Thus you can join the tables on it.
+plate (MERGE, one task per plate)
+  In:  the plate manifest, all batch folders of the plate (features/*.csv.gz) and contract.json.
+  Out: <plate>.csv.gz with one row per cell. It stays in work/ and is not published.
+all (CONCAT, one task)
+  In:  every <plate>.csv.gz.
+  Out: all_plates.csv.gz, the only published feature table. All plate tables must have the same columns.
 
-The merged table has all columns of all chunks. A value that a chunk does not have stays empty. The
-script reads and writes one row at a time, with only the Python standard library. Thus it works on large
-object tables and with any python3.
+File format: a CSV compressed with gzip, stored as two gzip parts ("members"). The first part
+holds only the header line. The second part holds the rows. CONCAT checks each header, then
+copies the compressed rows as they are, without unpacking them. gzip, zcat and pandas read the
+result as one normal CSV.
 
-The merge also stops the run in two cases. In the first case, two chunks wrote the same mask file.
-In the second case (with --unique-metadata), the same plate, well and site occur in two chunks.
-
-Examples
---------
-chunk_0001 has image sets 1-150, and chunk_0002 has image sets 1-150. In the merged tables,
-image set 1 of chunk_0002 gets CPNF_GlobalImageNumber 151.
+How one cell row is built. The object names come from contract.json 'compartments':
+  Cells row      the anchor. The output has one row per cell.
+  Cytoplasm row  the same ObjectNumber as the cell. IdentifyTertiaryObjects keeps the number.
+  Nuclei row     the nucleus whose Parent_Cells equals the cell number (set by RelateObjects).
+  Image row      the image that holds the cell. Its values repeat on each cell row.
+Columns: Metadata_* once, then Image_*, Cells_*, Cytoplasm_*, Nuclei_*.
+Row order: plate image order (Metadata_PlateImageNumber), then cell number.
+The values are copied as text. Nothing is rounded or calculated again.
 """
-
 import argparse
 import contextlib
 import csv
 import gzip
+import io
 import json
-import os
-import sys
-from collections import defaultdict
+import shutil
+from pathlib import Path
 
-# Read and write all CSV files in the same way. "surrogateescape" keeps odd bytes as they are.
-ENC = dict(encoding="utf-8", errors="surrogateescape")
+INDEX = 'Metadata_PlateImageNumber'
+
+# Fastest gzip level. On these tables it compresses as well as level 6 (2.1x) and runs 4x faster.
+LEVEL = 1
+KEYS = ('ImageNumber', 'Metadata_Plate', 'Metadata_Batch', 'Metadata_Acquisition')
 
 
-def set_field_limit():
-    """Allow very long CSV fields.
+def header_member(columns):
+    """Compress the header line on its own, as the first gzip part of a table.
 
-    CellProfiler can write long values, but the default limit of the csv module is small.
+    The result is the same bytes every time for the same columns. CONCAT uses this to find
+    where the header ends and the rows start.
+
+    Args:
+        columns: the column names.
+
+    Returns:
+        The compressed header line as bytes.
+    """
+    text = io.StringIO()
+    csv.writer(text).writerow(columns)
+    return gzip.compress(text.getvalue().encode('utf-8'), compresslevel=LEVEL, mtime=0)
+
+
+def read_table(path):
+    """Read one compressed CellProfiler table.
+
+    Args:
+        path: a .csv.gz file from a batch folder, e.g. features/Cells.csv.gz.
+
+    Returns:
+        (header, rows): the column names, and a list of dicts with one dict per row.
+
+    Raises:
+        ValueError: if the file has no header or a row has the wrong number of values.
+    """
+    with gzip.open(path, 'rt', newline='', encoding='utf-8') as stream:
+        reader = csv.reader(stream)
+        header = next(reader, None)
+        if header is None:
+            raise ValueError(f'Feature table has no header: {path}')
+        rows = list(reader)
+    if any(len(row) != len(header) for row in rows):
+        raise ValueError(f'Malformed row in {path}')
+    return header, [dict(zip(header, row)) for row in rows]
+
+
+def features(header):
+    """Return the columns of a table that go into the per-cell row.
+
+    Metadata_* columns are written once at the start of the row, so they are left out here.
+    ImageNumber is left out too. It is written once as Metadata_ImageNumber.
+    """
+    return [c for c in header if c != 'ImageNumber' and not c.startswith('Metadata_')]
+
+
+def merge_plate(plate, manifest, batches, compartments, out):
+    """Join the batch tables of one plate into one table with one row per cell.
+
+    The function reads one batch at a time, so memory use depends on the batch size only.
+
+    Args:
+        plate: the plate name.
+        manifest: the plate manifest with all image sets in plate order.
+        batches: the batch folders of the plate.
+        compartments: the object names from contract.json, e.g. {"cells": "Cells", ...}.
+        out: the .csv.gz file to write.
+
+    Returns:
+        A summary for merge.json: number of cells, cells without a nucleus or cytoplasm, and so on.
+
+    Raises:
+        ValueError: if a batch is missing or failed, the columns differ between batches, or the
+            rows do not match the counts in Image.csv.
     """
 
-    # Try the largest limit first. Some systems refuse it, so make it 10 times smaller until it works.
-    limit = sys.maxsize
-    while True:
-        try:
-            csv.field_size_limit(limit)
-            return
-        except OverflowError:
-            limit //= 10
+    # The plate manifest gives the order of the image sets. Position 1 is the first image set.
+    with Path(manifest).open(newline='') as stream:
+        order = [row['Metadata_Acquisition'] for row in csv.DictReader(stream)]
+
+    # Position in the plate manifest equals ImageNumber in a single-batch run.
+    index = {acquisition: i for i, acquisition in enumerate(order, 1)}
+    if not order or len(index) != len(order):
+        raise ValueError(f'Plate manifest is empty or has duplicate acquisitions: {manifest}')
+    batches = sorted(batches, key=lambda p: p.name)
+    if not batches or len({b.name for b in batches}) != len(batches):
+        raise ValueError('Require uniquely named batch folders')
+    cells, cytoplasm, nuclei = compartments['cells'], compartments['cytoplasm'], compartments['nuclei']
+    names = {'Image': 'Image', cells: 'Cells', cytoplasm: 'Cytoplasm', nuclei: 'Nuclei'}
+    headers, columns, seen, last, images = {}, None, set(), (0, 0), []
+    report = dict(plate=plate, batches=[b.name for b in batches], image_sets=len(order), cells=0,
+                  cells_without_nucleus=0, cells_without_cytoplasm=0, nuclei_without_cell=0)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open('wb') as raw, contextlib.ExitStack() as rows_member:
+        writer = None
+        for folder in batches:
+
+            # Only use a batch that passed its checks in run_task.py.
+            if not (folder / 'validation.json').exists():
+                raise ValueError(f'Batch did not pass validation: {folder.name}')
+
+            # Read the four tables of this batch. Their columns must be the same in every batch.
+            tables = {}
+            for table in names:
+                header, rows = read_table(folder / 'features' / f'{table}.csv.gz')
+                if table not in headers:
+                    missing = [k for k in KEYS + (() if table == 'Image' else ('ObjectNumber',)) if k not in header]
+                    if missing:
+                        raise ValueError(f'{table}: missing key columns {missing}')
+                    headers[table] = header
+                elif header != headers[table]:
+                    raise ValueError(f'{table}: columns differ in {folder.name}')
+                for row in rows:
+                    if row['Metadata_Plate'] != plate or row['Metadata_Batch'] != folder.name:
+                        raise ValueError(f'{table}: row from another plate or batch in {folder.name}: {row["Metadata_Acquisition"]}')
+                    if row['Metadata_Acquisition'] not in index:
+                        raise ValueError(f'{table}: acquisition not in plate manifest: {row["Metadata_Acquisition"]}')
+                tables[table] = rows
+
+            # With the first batch, build the output columns and start the file with the header.
+            if columns is None:
+                image_header = headers['Image']
+                metadata = [c for c in image_header if c.startswith('Metadata_')]
+                columns = metadata + [INDEX, 'Metadata_ImageNumber', 'Metadata_ObjectNumber']
+                columns += [f'{names[t]}_{c}' for t in names for c in features(headers[t])]
+                if len(set(columns)) != len(columns):
+                    raise ValueError('Per-cell column names collide')
+                raw.write(header_member(columns))
+
+                # Everything written from here on goes into the second gzip part: the rows.
+                rows_gzip = rows_member.enter_context(gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=LEVEL, mtime=0))
+                writer = csv.writer(rows_member.enter_context(io.TextIOWrapper(rows_gzip, encoding='utf-8', newline='')))
+
+            # Group the batch rows by ImageNumber. ImageNumber is unique only inside one batch.
+            by_image = {}
+            for table, rows in tables.items():
+                for row in rows:
+                    by_image.setdefault(row['ImageNumber'], {}).setdefault(table, []).append(row)
+            for number, image_rows in by_image.items():
+                if len(image_rows.get('Image', [])) != 1:
+                    raise ValueError(f'ImageNumber {number} in {folder.name} has no single Image.csv row')
+
+            # Go through the images in plate order.
+            for number, image_rows in sorted(by_image.items(), key=lambda item: index[item[1]['Image'][0]['Metadata_Acquisition']]):
+                image = image_rows['Image'][0]
+                acquisition = image['Metadata_Acquisition']
+
+                # Each object table must have exactly Count_<Object> rows for this image.
+                for table in (cells, cytoplasm, nuclei):
+                    rows = image_rows.get(table, [])
+                    if any(r['Metadata_Acquisition'] != acquisition for r in rows):
+                        raise ValueError(f'{table}: ImageNumber {number} in {folder.name} does not match Image.csv')
+                    if len(rows) != float(image[f'Count_{table}']) or len({r['ObjectNumber'] for r in rows}) != len(rows):
+                        raise ValueError(f'{table}: rows for {acquisition} disagree with Count_{table}')
+
+                # Tertiary objects carry the number of the cell they were cut from.
+                cyto = {r['ObjectNumber']: r for r in image_rows.get(cytoplasm, [])}
+
+                # Find the nucleus of each cell through Parent_Cells. A cell may have at most one.
+                nucleus = {}
+                for r in image_rows.get(nuclei, []):
+                    parent = str(int(float(r[f'Parent_{cells}'])))
+                    if parent == '0':
+                        report['nuclei_without_cell'] += 1
+                    elif parent in nucleus:
+                        raise ValueError(f'Cell {parent} in {acquisition} has several nuclei; one row per cell is ambiguous')
+                    else:
+                        nucleus[parent] = r
+
+                # Write one row per cell, in cell number order.
+                for cell in sorted(image_rows.get(cells, []), key=lambda r: int(r['ObjectNumber'])):
+                    key = (index[acquisition], int(cell['ObjectNumber']))
+
+                    # Batches are contiguous slices of the plate manifest. Anything else breaks the order.
+                    if key in seen or key < last:
+                        raise ValueError(f'Duplicate or out-of-order cell {key} in {folder.name}')
+                    seen.add(key)
+                    last = key
+                    parts = {'Image': image, cells: cell, cytoplasm: cyto.get(cell['ObjectNumber']),
+                             nuclei: nucleus.get(cell['ObjectNumber'])}
+                    if parts[cytoplasm] and int(float(parts[cytoplasm][f'Parent_{cells}'])) not in (key[1], 0):
+                        raise ValueError(f'Cytoplasm {cell["ObjectNumber"]} in {acquisition} belongs to another cell')
+                    report['cells_without_cytoplasm'] += parts[cytoplasm] is None
+                    report['cells_without_nucleus'] += parts[nuclei] is None
+                    if f'Children_{nuclei}_Count' in cell and float(cell[f'Children_{nuclei}_Count']) != int(parts[nuclei] is not None):
+                        raise ValueError(f'Cell {cell["ObjectNumber"]} in {acquisition}: nucleus count disagrees with Children_{nuclei}_Count')
+
+                    # Metadata first, then Image_*, Cells_*, Cytoplasm_*, Nuclei_*. A missing part stays blank.
+                    row = [image[c] for c in metadata] + [key[0], number, cell['ObjectNumber']]
+                    for table in names:
+                        part = parts[table]
+                        row += [part[c] if part else '' for c in features(headers[table])]
+                    writer.writerow(row)
+                    report['cells'] += 1
+            images += [rows['Image'][0]['Metadata_Acquisition'] for rows in by_image.values()]
+
+    # Every image set of the plate must appear exactly once.
+    if sorted(images) != sorted(order):
+        raise ValueError(f'Per-cell table must cover every plate image set exactly once: {plate}')
+    report['columns'] = len(columns)
+    return report
 
 
-def chunk_name(path):
-    """Get the chunk name from the folder of its tables.
+def concatenate(paths, out):
+    """Join the plate tables into one table, in plate name order.
 
-    Parameters
-    ----------
-    path : str
-        A folder such as ".../features_chunk_0003".
+    MERGE already checked every row. This function checks that all headers are the same,
+    writes the header once, then copies the compressed rows of each plate as they are.
 
-    Returns
-    -------
-    str
-        The chunk name, for example "chunk_0003".
+    Args:
+        paths: the <plate>.csv.gz files from MERGE.
+        out: the all_plates.csv.gz file to write.
+
+    Returns:
+        A summary for all_plates.merge.json: the plates, the number of columns, the file size.
+
+    Raises:
+        ValueError: if a table has different columns, or was not written by MERGE.
     """
-    base = os.path.basename(os.path.normpath(path))
-    return base[len("features_") :] if base.startswith("features_") else base
+    paths = sorted(paths, key=lambda p: p.name)
+    if not paths or len({p.name for p in paths}) != len(paths):
+        raise ValueError('Require uniquely named plate tables')
+    header = None
+    with out.open('wb') as target:
+        for path in paths:
+
+            # Read only the first line of the table: its header.
+            with gzip.open(path, 'rt', newline='', encoding='utf-8') as source:
+                columns = next(csv.reader(source), None)
+            if header is None:
+                header = columns
+                target.write(header_member(header))
+            elif columns != header:
+                missing = [c for c in header if c not in columns]
+                extra = [c for c in columns or [] if c not in header]
+                raise ValueError(f'{path.name}: columns differ from {paths[0].name}; missing {missing[:5]}, '
+                                 f'extra {extra[:5]}, same set but different order: {not missing and not extra}')
+
+            # Skip the compressed header part, then copy the compressed rows unchanged.
+            member = header_member(columns)
+            with path.open('rb') as source:
+                if source.read(len(member)) != member:
+                    raise ValueError(f'{path.name}: header is not a separate gzip member (not written by MERGE)')
+                shutil.copyfileobj(source, target, 16 * 1024 * 1024)
+    return dict(plates=[p.name.split('.')[0] for p in paths], columns=len(header), bytes=out.stat().st_size)
 
 
-def as_int(value):
-    """Read an integer that CellProfiler sometimes writes as '3.0'.
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='command', required=True)
+    one = commands.add_parser('plate', help='Join one plate\'s batches into one row per cell')
+    one.add_argument('--plate', required=True)
+    one.add_argument('--manifest', type=Path, required=True)
+    one.add_argument('--batches', type=Path, required=True)
+    one.add_argument('--contract', type=Path, required=True)
+    every = commands.add_parser('all', help='Concatenate plate tables with identical columns')
+    every.add_argument('tables', type=Path, nargs='+')
+    for command in (one, every):
+        command.add_argument('--out', type=Path, required=True)
+        command.add_argument('--report', type=Path, required=True)
+    args = parser.parse_args()
 
-    Parameters
-    ----------
-    value : str or int or float
-        The value, for example "3.0".
-
-    Returns
-    -------
-    int
-        The integer, for example 3.
-
-    Raises
-    ------
-    ValueError
-        If the value is not a number.
-    """
-    return int(float(value))
-
-
-def header_of(path):
-    """Read the column names of a CSV file.
-
-    Parameters
-    ----------
-    path : str
-        Path of the CSV file.
-
-    Returns
-    -------
-    list of str
-        The column names (empty for an empty file).
-    """
-    with open(path, newline="", **ENC) as fh:
-        return next(csv.reader(fh), [])
-
-
-def max_image_number(path):
-    """Find the highest ImageNumber in a table.
-
-    Parameters
-    ----------
-    path : str
-        Path of the CSV file.
-
-    Returns
-    -------
-    int
-        The highest ImageNumber, or 0 if the table has none. The function skips rows with bad values.
-    """
-    best = 0
-    with open(path, newline="", **ENC) as fh:
-        for row in csv.DictReader(fh):
-            with contextlib.suppress(ValueError):
-                best = max(best, as_int(row.get("ImageNumber") or 0))
-    return best
-
-
-def validate_manifest_row(row, chunk, seen_paths):
-    """Check one row of a mask list: the row must be complete, and its mask path safe and unique in the run.
-
-    All chunks publish their masks into the same results/masks/ folder. If two chunks had the same
-    mask path, one mask would replace the other.
-
-    Parameters
-    ----------
-    row : dict
-        One row of a mask_manifest.csv file.
-    chunk : str
-        The chunk of the row, for example "chunk_0002".
-    seen_paths : dict
-        ``{mask path: (chunk, ImageNumber, object)}`` of all rows so far. The function adds the row to it.
-
-    Raises
-    ------
-    SystemExit
-        If the row has no mask path or no object, if the path is not safe, or if another row has the
-        same path.
-    """
-    mask_path = row.get("MaskPath", "")
-    mask_object = row.get("MaskObject", "")
-    if not mask_path or not mask_object:
-        sys.exit(f"[merge_features] ERROR: incomplete mask manifest row in {chunk}: {row}")
-    normalized = mask_path.replace("\\", "/")
-    if not normalized.startswith("masks/") or normalized.startswith("/") or ".." in normalized.split("/"):
-        sys.exit(f"[merge_features] ERROR: unsafe mask path in {chunk}: {mask_path!r}")
-
-    owner = (chunk, row.get("ImageNumber", ""), mask_object)
-    if normalized in seen_paths:
-        sys.exit(
-            f"[merge_features] ERROR: mask path collision for {normalized!r}: "
-            f"{seen_paths[normalized]} and {owner}"
-        )
-    seen_paths[normalized] = owner
-
-
-def main():
-    """Merge each table name over all chunks, and write merge_report.json.
-
-    If a check fails, the function stops the program with an error message.
-    """
-
-    # The options come from the MERGE_FEATURES script in main.nf.
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("chunk_dirs", nargs="+", help="features_<chunk> directories")
-    ap.add_argument("--outdir", default=".")
-    ap.add_argument("--gzip", action="store_true")
-    ap.add_argument(
-        "--unique-metadata",
-        default="",
-        help="comma-separated metadata names (e.g. Plate,Well,Site) that must identify one image set",
-    )
-    args = ap.parse_args()
-    set_field_limit()
-    os.makedirs(args.outdir, exist_ok=True)
-
-    # Find all tables. Sort the chunks by name (chunk_0001, chunk_0002, ...), so that the merged rows
-    # always come in the same order.
-    chunks = sorted(args.chunk_dirs, key=chunk_name)
-    tables = defaultdict(list)  # table file name -> [(chunk, path)]
-    for d in chunks:
-        for name in sorted(os.listdir(d)):
-            if name.lower().endswith(".csv"):
-                tables[name].append((chunk_name(d), os.path.join(d, name)))
-    if not tables:
-        sys.exit("[merge_features] ERROR: no CSV files found in any chunk.")
-
-    # Offsets that make ImageNumber unique. They come from the per-image tables of each chunk.
-    headers = {(c, p): header_of(p) for files in tables.values() for c, p in files}
-    max_img = defaultdict(int)
-    for (chunk, path), hdr in headers.items():
-        if "ImageNumber" in hdr and "ObjectNumber" not in hdr:
-            max_img[chunk] = max(max_img[chunk], max_image_number(path))
-    for (chunk, path), hdr in headers.items():  # chunks without an image table (unusual)
-        if chunk not in max_img and "ImageNumber" in hdr:
-            max_img[chunk] = max(max_img[chunk], max_image_number(path))
-
-    # Each chunk starts after the last image number of all chunks before it.
-    offsets, running = {}, 0
-    for chunk in [chunk_name(d) for d in chunks]:
-        offsets[chunk] = running
-        running += max_img.get(chunk, 0)
-
-    summary = {"chunks": len(chunks), "total_image_sets": running, "tables": {}}
-    seen_mask_paths = {}
-
-    # --unique-metadata 'Plate,Well' -> ['Metadata_Plate', 'Metadata_Well'].
-    unique_columns = [
-        name if name.startswith("Metadata_") else f"Metadata_{name}"
-        for name in (n.strip() for n in args.unique_metadata.split(","))
-        if name
-    ]
-
-    # Merge one table name at a time (for example all MyExpt_Nuclei.csv files).
-    # The merged table gets all columns of all chunks, in the order in which they first occur.
-    # The set makes this fast: a table can have thousands of columns, and a run thousands of chunks.
-    for name, files in sorted(tables.items()):
-        columns, known = [], set()
-        for key in files:
-            for column in headers[key]:
-                if column not in known:
-                    known.add(column)
-                    columns.append(column)
-        has_img = "ImageNumber" in columns
-        out_cols = ["CPNF_Chunk"] + (["CPNF_GlobalImageNumber"] if has_img else []) + columns
-        out_name = name + (".gz" if args.gzip else "")
-        out_path = os.path.join(args.outdir, out_name)
-        opener = (
-            (lambda p: gzip.open(p, "wt", newline="", **ENC))
-            if args.gzip
-            else (lambda p: open(p, "w", newline="", **ENC))
-        )
-        rows = 0
-
-        # Per-image tables: the same metadata key in two chunks means that the workflow processed a site
-        # twice. Causes are the same images given twice, or a plate imaged two times.
-        # Joins on these keys would then be wrong.
-        is_image_table = has_img and "ObjectNumber" not in columns
-        check_keys = bool(unique_columns) and is_image_table and set(unique_columns) <= set(columns)
-        seen_keys = {}
-
-        # Copy the rows of each chunk, one row at a time (little memory, also for large object tables).
-        # For each row: check the mask path and the metadata key, then add the two CPNF_ columns.
-        # A missing column of a chunk stays empty (restval="").
-        with opener(out_path) as out:
-            writer = csv.DictWriter(out, fieldnames=out_cols, restval="", extrasaction="ignore")
-            writer.writeheader()
-            for chunk, path in files:
-                with open(path, newline="", **ENC) as fh:
-                    for row in csv.DictReader(fh):
-                        if name == "mask_manifest.csv":
-                            validate_manifest_row(row, chunk, seen_mask_paths)
-                        if check_keys:
-                            key = tuple(row.get(column, "") for column in unique_columns)
-                            if key in seen_keys:
-                                image_set = dict(zip(unique_columns, key))
-                                sys.exit(
-                                    f"[merge_features] ERROR: {name}: image set {image_set} "
-                                    f"appears in {seen_keys[key]} and in {chunk}."
-                                )
-                            seen_keys[key] = chunk
-                        row["CPNF_Chunk"] = chunk
-                        if has_img:
-                            try:
-                                row["CPNF_GlobalImageNumber"] = offsets[chunk] + as_int(row["ImageNumber"])
-                            except (KeyError, TypeError, ValueError):
-                                row["CPNF_GlobalImageNumber"] = ""
-                        writer.writerow(row)
-                        rows += 1
-        summary["tables"][out_name] = {"rows": rows, "columns": len(out_cols), "chunks": len(files)}
-        print(f"[merge_features] {out_name}: {rows} rows from {len(files)} chunk(s)")
-
-    # merge_report.json: the number of chunks and image sets, and the rows and columns of each table.
-    with open(os.path.join(args.outdir, "merge_report.json"), "w", encoding="utf-8") as fh:
-        json.dump(summary, fh, indent=2)
-
-
-if __name__ == "__main__":
-    main()
+    # Exit code 2 with one clear line tells Nextflow and the user what went wrong.
+    try:
+        if args.command == 'plate':
+            compartments = json.loads(args.contract.read_text())['compartments']
+            report = merge_plate(args.plate, args.manifest, [p for p in args.batches.iterdir() if p.is_dir()],
+                                 compartments, args.out)
+        else:
+            report = concatenate(args.tables, args.out)
+    except (ValueError, FileNotFoundError, KeyError) as error:
+        parser.exit(2, f'Feature merge failed: {error}\n')
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(json.dumps(report, indent=2))
+    print(json.dumps(report))

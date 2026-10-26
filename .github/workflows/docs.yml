@@ -1,8 +1,3 @@
-# Documentation site: build it with MkDocs and publish it on GitHub Pages.
-#   pull request:          build only. --strict fails on broken links and missing pages.
-#   push to main (or run): build, then publish at https://mirandaresearchlab.github.io/headless-cp-wf/
-# Once, an owner must set: Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
-# See docs/about/contributing.md.
 name: docs
 
 on:
@@ -13,13 +8,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# Never cancel a running publication, so that the site is never half updated.
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -30,20 +18,25 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements-docs.txt
       - run: pip install -r requirements-docs.txt
-
-      # docs/.hooks/prebuild.py makes the parameter and command-line reference pages during the build.
       - name: Build (strict - fails on broken links / missing pages)
         run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-  # Publish only from the default branch. Pull requests and other branches only build.
   deploy:
-    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    # Publish from the default branch only. Pull requests build but never deploy.
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

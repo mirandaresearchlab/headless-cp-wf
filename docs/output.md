@@ -1,87 +1,92 @@
-# Output
+# Read results and check completion
 
-This page describes each folder in `--outdir`: what it contains, which step makes it, and how to use it.
-The exact columns and fields of each file are in [File formats](reference/file-formats.md).
+Use this page to locate the outputs and connect each cell row to its mask.
+
+The output root is `<outdir>/projects/<project>/`.
+Without a project name, the session ID becomes the folder name.
+A project name already owned by another session also falls back to the session ID.
+
+## Files in the output folder
+
+| Path relative to the output root | Producer | Content |
+|---|---|---|
+| `run.json` | Workflow startup | Session ID, project name, input paths, Nextflow version, launch command |
+| `illum/<plate>/Illum*.npy` | ILLUMINATION | One correction array per channel |
+| `illum/<plate>/provenance.json` | ILLUMINATION | Plate identity and SHA-256 correction checksums |
+| `masks/<plate>/*.tiff` | ANALYSIS | Unsigned 32-bit object label masks |
+| `cp_features/all_plates.csv.gz` | CONCAT | Combined per-cell measurements, compressed with gzip |
+| `logs/run_inputs/plan.json` | PREPARE | Plates, source files, manifests, and batch sizes |
+| `logs/run_inputs/manifests/<plate>/*.csv` | PREPARE | Complete plate and batch image lists |
+| `logs/run_inputs/pipelines/*.cppipe` | PREPARE | Working pipeline copies |
+| `logs/run_inputs/pipelines/contract.json` | PREPARE | Channels, objects, versions, input file sizes/times, and pipeline checksums |
+| `logs/<plate>/illumination.*` | ILLUMINATION | Log, metrics JSON, and LoadData CSV |
+| `logs/<plate>/batch_*.log` | ANALYSIS | CellProfiler task logs |
+| `logs/<plate>/batch_*.metrics.json` | ANALYSIS | Task timing and resource measurements |
+| `logs/<plate>/batch_*.load_data.csv` | ANALYSIS | Exact image and correction file paths used |
+| `logs/<plate>/batch_*.validation.json` | ANALYSIS | Validation results and measurement repairs |
+| `logs/<plate>/merge.json` | MERGE | Per-plate merge summary |
+| `logs/all_plates.merge.json` | CONCAT | Combined table summary |
+| `logs/status-*.json` | Workflow completion | Success flag, exit status, duration, session, command, error |
+| `logs/nextflow-*.log` | Workflow completion | Saved copy of the launch log when available |
+
+With `--project`, Nextflow writes `report/report.html`, `report/timeline.html`, and `report/trace.txt` in the project folder.
+Without `--project`, it writes them in the launch folder, because the session ID is not known when the profile loads.
+The HTML report summarizes task resources. The timeline shows when tasks ran.
+The launch folder keeps `.nextflow.log`.
+Early startup failures may not produce project outputs. Use `.nextflow.log` in that case.
+
+Batch tables, mask manifests, and per-plate tables remain in the work directory.
+Only the combined feature table is published. Both profiles preserve work files.
+
+## Check the run before using the data
+
+1. Confirm that Nextflow finished successfully.
+2. Read the newest status file and check `success` is true.
+3. Check that the combined CSV exists and the merge summaries cover your plates.
+4. Review batch validation reports and inspect representative masks over the raw images.
+
+Partial outputs can exist after a failure. Passing file checks does not prove biological accuracy.
+
+## Interpret the per-cell table
+
+| Columns | Meaning |
+|---|---|
+| `Metadata_Plate`, `Metadata_Well`, `Metadata_Site`, `Metadata_X`, `Metadata_Y` | Image identity |
+| `Metadata_Acquisition` | Shared filename prefix, such as `A02_s1_x0_y0` |
+| `Metadata_Batch`, `Metadata_ImageNumber` | Batch identity and batch-local image number |
+| `Metadata_PlateImageNumber` | Image position in the sorted plate manifest |
+| `Metadata_ObjectNumber` | Cell label in the Cells mask |
+| `Cells_*`, `Cytoplasm_*`, `Nuclei_*` | Measurements from those cell compartments |
+| `Image_*` | Whole-image measurements repeated for each cell row |
+
+Rows follow plate name order, then plate image order, then cell number.
+Measurements are copied as text without rounding.
+An image with no cells contributes no cell rows. Use manifests and reports to check image coverage.
+Nuclei join through their parent-cell relationships, not by assuming matching label numbers.
+Empty cytoplasm can produce `nan` measurements or blank fields when CellProfiler omits a row.
+Do not replace these values with zero without deciding what that means for your analysis.
+
+For large tables, use pandas `read_csv` with `usecols` or `chunksize` to limit memory.
+The gzip output contains multiple gzip members. Python's gzip reader supports this format.
+See the [tested reading pattern](tutorials/first-run.md#4-read-a-few-cell-identifiers).
+
+## Match a row to a mask
+
+Use this relative path:
 
 ```text
-results/
-├── features/              merged tables, mask_manifest.csv, merge_report.json
-├── masks/                 one mask per image set and object type
-├── cellprofiler_outputs/  other files that your own pipeline saves
-├── pipeline/              patched.cppipe, patch_report.json
-├── logs/                  the CellProfiler log and the checks of each chunk
-└── pipeline_info/         run_info.json and the Nextflow reports
+masks/<Metadata_Plate>/<Metadata_Acquisition>_Cells.tiff
 ```
 
-By default, the workflow copies the results into `--outdir` (`--publish_mode copy`). Thus you can remove the
-`work/` folder after the run.
+Pixel value zero means background. Pixels equal to `Metadata_ObjectNumber` belong to that cell.
+Object numbers are local to an image and object type. They are not global cell identifiers.
+The TIFF description contains JSON metadata, source files, and pipeline steps.
+The default pipeline saves Cells, CellsPaired, Cytoplasm, Nuclei, and NucleiPaired masks.
 
-## features/
+## Checks performed by the software
 
-**Made by:** MERGE_FEATURES, after all chunks. **Use it for:** profiling (for example with
-[CytoTable](https://github.com/cytomining/CytoTable) and [pycytominer](https://github.com/cytomining/pycytominer)).
-
-| File | Content |
-| --- | --- |
-| `<prefix>Image.csv` | One row per image set: counts, image measurements, metadata, file names |
-| `<prefix><Object>.csv` | One row per object, for example `MyExpt_Nuclei.csv` |
-| `<prefix>Experiment.csv` | Information about the CellProfiler run |
-| `mask_manifest.csv` | One row per image set and object type: the mask path and the input images |
-| `merge_report.json` | The number of chunks and image sets, and the size of each table |
-
-The names come from the ExportToSpreadsheet module of your pipeline. `MyExpt_` is its default prefix.
-Each table starts with two columns that the workflow adds:
-
-- `CPNF_Chunk`: the chunk of the row, for example `chunk_0003`.
-- `CPNF_GlobalImageNumber`: an image number that is unique in the complete run.
-
-CellProfiler starts `ImageNumber` at 1 in each chunk. Thus join the image table, the object tables and the
-mask list on `CPNF_GlobalImageNumber`, never on `ImageNumber` alone. With `--gzip_features true`, the files
-end in `.csv.gz`.
-
-## masks/
-
-**Made by:** CELLPROFILER (mask writers that the workflow adds to your pipeline). **Use it for:** checking
-the segmentation, training models, or measuring objects again.
-
-The folder has the same sub-folders as the image folder. The workflow names each mask after the first input
-image of its image set, plus `_<Object>_mask`:
-
-```text
-masks/plate1/site0_DNA_Nuclei_mask.tiff
-masks/plate1/site0_DNA_Cells_mask.tiff
-```
-
-A mask is a 16-bit image (`.tiff` by default, see `--mask_format`). The value 0 is the background. The values
-1, 2, 3, ... are the objects. The value of an object is its `ObjectNumber` in the object table. Use
-`mask_manifest.csv` to find the mask of an image set.
-
-## cellprofiler_outputs/
-
-**Made by:** CELLPROFILER. Files that your own pipeline saves (for example overlays or cropped objects),
-in one sub-folder per chunk. The folder is empty if your pipeline saves no other files.
-
-## pipeline/
-
-**Made by:** PATCH_PIPELINE, once per run.
-
-- `patched.cppipe`: the pipeline that CellProfiler ran. Open it in CellProfiler to see the changes.
-- `patch_report.json`: each change that the workflow made. It also gives the CellProfiler version, the object
-  types, and the modules that need all image sets in one job (`chunk_unsafe_modules`).
-
-## logs/
-
-**Made by:** CELLPROFILER, one pair of files per chunk.
-
-- `log_<chunk>.txt`: the complete CellProfiler log.
-- `qc_<chunk>.json`: the results of the checks. It gives the number of image sets and masks, and the
-  expected numbers. It also gives the number of images without objects, and the warnings and errors.
-
-## pipeline_info/
-
-**Made by:** Nextflow and the workflow.
-
-- `run_info.json`: the git commit, the Nextflow version, the container and all parameters. Keep it with the
-  results: it shows how the workflow made them.
-- `report.html`, `timeline.html`: Nextflow reports. Open them in a web browser.
-- `trace.txt`: the time and memory of each job. Use it to choose the memory and the chunk size.
+Analysis checks the exact image sets, module errors, mask types, mask provenance, counts, labels, and measured areas.
+It checks that each object's measured area equals its mask pixel count.
+Merge rejects missing or unvalidated batches, mismatched columns, inconsistent parent links, and repeated image sets.
+Concatenation rejects differences in column names or order between plate tables.
+See [troubleshooting](how-to/troubleshooting.md) if any check fails.

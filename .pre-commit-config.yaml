@@ -1,7 +1,6 @@
-# Checks that run before each commit (after ./scripts/bootstrap.sh), and on GitHub for each push.
-# Run all of them by hand with: uv run pre-commit run --all-files
+# Checks that run before each commit. Install once with: uvx pre-commit install
+# Run all of them by hand with: uvx pre-commit run --all-files
 # Each check runs only when a file that matches its "files" pattern changed.
-# The folders of the coding-agent skills hold other people's code. No check of this project covers them.
 exclude: ^(\.claude|\.agent)/
 
 minimum_pre_commit_version: "4.0.0"
@@ -11,71 +10,20 @@ repos:
   - repo: local
     hooks:
 
-      # uv.lock must agree with pyproject.toml.
-      - id: uv-lock
-        name: verify uv lockfile
-        entry: uv lock --check
+      # The full test suite in the cp-headless conda environment (CellProfiler, Java, Python 3.9).
+      # GitHub only runs the tests that need no CellProfiler, so this is where the plugin tests run.
+      - id: pytest-cellprofiler
+        name: full test suite (cp-headless environment)
+        entry: bash scripts/test-cellprofiler.sh
         language: system
         pass_filenames: false
-        files: ^(pyproject\.toml|uv\.lock)$
-
-      # Python lint and formatting. Both can correct files.
-      - id: ruff-check
-        name: ruff lint
-        entry: uv run ruff check --fix
-        language: system
-        types: [python]
-
-      - id: ruff-format
-        name: ruff format
-        entry: uv run ruff format
-        language: system
-        types: [python]
-
-      # Every full-line comment block needs an empty line above it (see the script for the rule).
-      # --fix adds the missing empty lines, so that the CI correction commit can include them.
-      - id: comment-spacing
-        name: comment spacing
-        entry: uv run python scripts/check-comment-spacing.py --fix
-        language: system
-        files: \.(nf|config|py|sh|sbatch|ya?ml|toml|example)$|Dockerfile$
-
-      # The fast tests: helper scripts and Berzelius scripts.
-      - id: pytest
-        name: python tests
-        entry: uv run pytest -q
-        language: system
-        pass_filenames: false
-        files: ^(bin/.*\.py|tests/.*\.py|scripts/.*|pyproject\.toml|uv\.lock|Dockerfile|\.dockerignore|\.github/workflows/.*\.ya?ml|nextflow\.config|nextflow_schema\.json)$
-
-      # The same tests, with the helpers on Python 3.8 (the Python of the CellProfiler container).
-      - id: pytest-py38
-        name: helper tests on Python 3.8 (CellProfiler container)
-        entry: bash scripts/test-helpers-py38.sh
-        language: system
-        pass_filenames: false
-        files: ^(bin/.*\.py|tests/.*\.py|scripts/test-helpers-py38\.sh)$
-
-      # The workflow without CellProfiler: one stub run, then the workflow tests.
-      - id: nextflow-stub
-        name: Nextflow stub test
-        entry: bash scripts/test-nextflow.sh
-        language: system
-        pass_filenames: false
-        files: ^(main\.nf|nextflow\.config|conf/.*\.config|bin/.*\.py|tests/test\.cppipe)$
-
-      - id: workflow-tests
-        name: Nextflow workflow tests (stub runs)
-        entry: uv run pytest -q -m workflow
-        language: system
-        pass_filenames: false
-        files: ^(main\.nf|nextflow\.config|conf/.*\.config|bin/.*\.py|tests/.*)$
+        files: ^(bin/.*\.py|plugins/.*\.py|tests/.*\.py|cp-configs/.*|environment\.yml|scripts/test-cellprofiler\.sh)$
 
       # The documentation site: --strict stops on broken links and missing pages (see docs/about/contributing.md).
       # uv installs the pinned docs tools from requirements-docs.txt the first time.
       - id: docs-build
         name: documentation site (mkdocs build --strict)
-        entry: uv run --with-requirements requirements-docs.txt mkdocs build --strict --quiet
+        entry: uv run --no-project --with-requirements requirements-docs.txt mkdocs build --strict --quiet
         language: system
         pass_filenames: false
-        files: ^(docs/.*|mkdocs\.yml|requirements-docs\.txt|nextflow_schema\.json|README\.md|CHANGELOG\.md|bin/.*\.py)$
+        files: ^(docs/.*|mkdocs\.yml|requirements-docs\.txt|README\.md|nextflow\.config|nf-config/.*|cp-configs/.*|bin/.*\.py)$

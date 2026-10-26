@@ -1,0 +1,182 @@
+[
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "source_sha256": "e55c0653142945f41bb9710766d500d77be6110cc36f73322835c390adf96048",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "source_sha256": "57535fc6cb852bed32e04774ab222a0828b908222d886c2c106cd9e4f6e23470",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "source_sha256": "9dc50d6a95eddd0dad5ea4c1c70fec29149a9047be638974b6187c816930c7ac",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "source_sha256": "8b09e9dc93ba960426cd47a6560e1cbe94563cff5d8cafa25ffe5d69f0d5a62e",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A02_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "source_sha256": "2769021bf5baa09455d7f1088820bcf067bb8089a640ff461f401ba4a715b4c0",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "source_sha256": "f43c42e2a34a9b169529af42db5b270e9e8113d328ce53c293e25056ae5f88ba",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "source_sha256": "e293583a7cb81e60a919fc6296d5b52e600b038ae7df89df7ad0022d8a4d5d7a",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "source_sha256": "c0f1cc0fb1079117718a24cf6f80a751d5e172a9f08f54919d5d5cfdd3590b1b",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "source_sha256": "d649be8d91fd8c1e9a2344d9e25958e586f7a2336b438cdd81477aca1d987fcc",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate1-1h-Panc1/A03_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "source_sha256": "7be54c15783c16f8877030f8f5d3cb6d0b50b036acfb5ea1bf958719cc168ae4",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "source_sha256": "b6496a951f1b9ed9e48796d8840cea670a849404827f2c2f5b85ac8dc0182aa5",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "source_sha256": "1220f527d489b98732a7f04fecdb5b9d260d70efd57772a0b721a4d360233e65",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "source_sha256": "2e3d1c9dccc310726acb491af25e6398f0b114273a33a7d39e8551ebf4690c96",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "source_sha256": "fc6d5ceb9325ceb5773f4b79e30685193a8451fe60241a09ff53cffe320f69a3",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A02_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "source_sha256": "6488037d48d3d98dec647e4b665e21e433ffde70eba0b0920918a985f86e7676",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "source_sha256": "0db7935c6eeadfe30628264cdd4e4d6cb681432c0050ed0098b07232dfe63e5e",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "source_sha256": "b5d64ff6eb50829e5b58315216e4847702f09f0ff43cc9cded66ea79e13b1d77",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "source_sha256": "eca99f91b30568491c596ad8495262d12ec180723190bea9c46834a3d75a15ef",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "source_sha256": "9bf2bff6dd6b4308e590ccce47fdf8b68693da8394a79b826215a735874b4347",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate2-4h-Panc1/A03_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "source_sha256": "47fccc3aacf2202930a7f9df3ab1447476443f62e872de3121a510a4dcbae92e",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "source_sha256": "b3a367a7a9f84df37f19e64008ba81d96769e6cf777a3f1602b961ab0d8533ce",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "source_sha256": "c9ecb1dcf1fab8a0b03598cd127999454cb20820fbb37ef15d5769472779999a",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "source_sha256": "4f31cf790166f103c4084361c0e84a56b9ea1023d7bc3821aab86d2a41fa9a79",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "source_sha256": "a10f79fb94d47d8fcec129561e726521a2cb2bd4240a8cdff851e12443439209",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A02_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "source_sha256": "62bf09d3691a4d764dd5d6ba5da4483aa4b30da9b0c1adec417434b5d9085048",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_405_nm_Ex.tiff",
+    "source_sha256": "d3fe59e70231142e16d2fcc249024ed8ce79fcd18564313d05f9ab949998b394",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_488_nm_Ex.tiff",
+    "source_sha256": "06938a324841ef4f55713cfff3fa6e3f3cf2d5a7f47f61756f64cf3f671ca375",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_561_nm_Ex.tiff",
+    "source_sha256": "e4f647f6d6a0bb15cf5362371cdcf2bfe915484be8b18269641434b865598bd2",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_638_nm_Ex.tiff",
+    "source_sha256": "c2d912a4a40188af499fdc9269619f3b5ba6f6bb8281852e03790ad5a5783b71",
+    "crop": "y=0:512,x=0:512"
+  },
+  {
+    "source": "/data/eserrano/test-images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "output": "/root/projects/headless-cellprofiler/projects/smoke-test-20261023/images/plate3-24h-Panc1/A03_s1_x0_y0_Fluorescence_730_nm_Ex.tiff",
+    "source_sha256": "28e01fc2196049a3670d3ee261d640466de023ec8b5f36c2592fea8905c929e6",
+    "crop": "y=0:512,x=0:512"
+  }
+]

@@ -1,53 +1,62 @@
 # CellProfiler pipelines
 
-This page lists what the workflow needs from a CellProfiler pipeline, and describes the test pipeline of the
-repository. How to use your own pipeline: [Change the CellProfiler pipeline](../how-to/change-pipeline.md).
+This list is generated from the supplied `.cppipe` files in source order.
+Both pipelines require CellProfiler and cellprofiler-core 4.2.8.1.
 
-## Requirements for your pipeline
+PREPARE replaces the four input modules with LoadData in working copies.
+It adds SaveLabelMasks before spreadsheet export and redirects outputs into each task.
+It preserves segmentation and measurement settings. The source files stay unchanged.
 
-| Requirement | Why |
-| --- | --- |
-| Made in CellProfiler 4.2.8 (`DateRevision: 428`), or set `--container` to its version | A pipeline from a newer version can fail to load, or give different results |
-| Finds its images with Images, Metadata and NamesAndTypes | The workflow gives each job a list of files (`--file-list`) |
-| NamesAndTypes groups the files as `--group_regex` does | Otherwise the image-set count check stops the run |
-| With `--chunk_size` more than 0: no module that needs all image sets | See the list below |
-| Plugins in `--plugins_dir` | CellProfiler must find them in each job |
+LoadData manifests contain `Metadata_*`, `FileName_<channel>`, and `PathName_<channel>` fields.
+Analysis adds `FileName_Illum<channel>` and `PathName_Illum<channel>` fields.
+See [file formats](file-formats.md) and [outputs](../output.md).
 
-You do not need to add mask saving or ExportToSpreadsheet: the workflow adds them. It also removes
-CreateBatchFiles, and it moves output folders that point outside the job.
+## 1_illumination.cppipe
 
-**Modules that need all image sets in one job.** With `--chunk_size` more than 0, the workflow stops if the
-pipeline contains one of these modules (when they are on):
+| Module number | Module |
+|---|---|
+| 1 | Images |
+| 2 | Metadata |
+| 3 | NamesAndTypes |
+| 4 | Groups |
+| 5 | CorrectIlluminationCalculate |
+| 6 | CorrectIlluminationCalculate |
+| 7 | CorrectIlluminationCalculate |
+| 8 | CorrectIlluminationCalculate |
+| 9 | CorrectIlluminationCalculate |
+| 10 | SaveImages |
+| 11 | SaveImages |
+| 12 | SaveImages |
+| 13 | SaveImages |
+| 14 | SaveImages |
 
-| Module | Condition |
-| --- | --- |
-| `CorrectIlluminationCalculate` | Set to "All: First cycle" or "All: Across cycles" |
-| `LoadData` | Always (each chunk would process the complete CSV file) |
-| `Groups` | Grouping is on |
-| `TrackObjects`, `MakeProjection`, `CalculateStatistics` | Always |
-| `Tile` | Set to tile across cycles |
+## 2_analysis.cppipe
 
-## The test pipeline: `tests/test.cppipe`
+| Module number | Module |
+|---|---|
+| 1 | Images |
+| 2 | Metadata |
+| 3 | NamesAndTypes |
+| 4 | Groups |
+| 5 | CorrectIlluminationApply |
+| 6 | MeasureImageQuality |
+| 7 | ImageMath |
+| 8 | IdentifyPrimaryObjects |
+| 9 | IdentifySecondaryObjects |
+| 10 | FilterObjects |
+| 11 | MaskObjects |
+| 12 | RelateObjects |
+| 13 | IdentifyTertiaryObjects |
+| 14 | MeasureObjectSizeShape |
+| 15 | MeasureObjectIntensity |
+| 16 | MeasureImageIntensity |
+| 17 | MeasureColocalization |
+| 18 | MeasureGranularity |
+| 19 | MeasureTexture |
+| 20 | MeasureObjectIntensityDistribution |
+| 21 | MeasureObjectNeighbors |
+| 22 | MeasureObjectNeighbors |
+| 23 | OverlayOutlines |
+| 24 | SaveImages |
+| 25 | ExportToSpreadsheet |
 
-| Property | Value |
-| --- | --- |
-| CellProfiler version | 4.2.8 (`DateRevision: 428`) |
-| Input | One grayscale channel, `DNA`. NamesAndTypes matches the images by order. |
-| Metadata | None extracted |
-| Objects | `Nuclei`, then `Cells` |
-| Output modules | `CreateBatchFiles` (the workflow removes it). No ExportToSpreadsheet (the workflow adds it). |
-
-| # | Module | What it does |
-| --- | --- | --- |
-| 1 | Images | Uses all image files, except files in hidden folders |
-| 2 | Metadata | Off (extracts nothing) |
-| 3 | NamesAndTypes | Names all images `DNA` |
-| 4 | Groups | Off |
-| 5 | IdentifyPrimaryObjects | Finds `Nuclei` in `DNA`: diameter 6 to 25 pixels, global Minimum Cross-Entropy threshold, the module discards objects on the border |
-| 6 | IdentifySecondaryObjects | Grows `Nuclei` into `Cells` in `DNA` with the Propagation method |
-| 7 | MeasureObjectSizeShape | Measures size and shape of `Nuclei` and `Cells`, with Zernike features |
-| 8 | MeasureObjectIntensity | Measures the `DNA` intensity of `Nuclei` and `Cells` |
-| 9 | CreateBatchFiles | The workflow removes it |
-
-On the 6 test images, this pipeline finds 51 nuclei. `tests/test_cellprofiler.py` checks the number of nuclei
-in each image against these reference numbers.

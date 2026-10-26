@@ -1,18 +1,10 @@
-# How to cite
+# Record the version you used
 
-If you use cp-headless, cite the software and the tools that it runs.
+This checkout contains no `CITATION.cff`, project DOI, or license file.
+Ask the maintainers for the preferred citation and reuse terms.
+Do not infer a project license from its dependencies.
 
-**cp-headless.** Cite the repository and the exact version that you used:
-
-> cp-headless, version 1.0.0. <https://github.com/mirandaresearchlab/headless-cp-wf>
-
-`pipeline_info/run_info.json` of each run records the git commit of the workflow. Give it in your methods
-section, so that others can use exactly the same code.
-
-**CellProfiler.** Stirling DR, Swain-Bowden MJ, Lucas AM, Carpenter AE, Cimini BA, Goodman A.
-CellProfiler 4: improvements in speed, utility and usability. *BMC Bioinformatics* 22, 433 (2021).
-<https://doi.org/10.1186/s12859-021-04344-9>
-
-**Nextflow.** Di Tommaso P, Chatzou M, Floden EW, Barja PP, Palumbo E, Notredame C. Nextflow enables
-reproducible computational workflows. *Nature Biotechnology* 35, 316–319 (2017).
-<https://doi.org/10.1038/nbt.3820>
+For reproducibility, record the repository revision or release, both pipeline files,
+CellProfiler versions, Nextflow version, full command, and the input dataset identifier.
+Keep `run.json`, the contract, adapted pipelines, and validation reports with your analysis.
+The workflow manifest currently declares version 1.0.0. That alone does not identify a code revision.

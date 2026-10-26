@@ -1,57 +1,70 @@
-# Troubleshooting
+# Troubleshoot a failed or unexpected run
 
-This page tells you how to find the cause of an error and fix it. Find the message in the tables below.
+Start with the first failed task and its error message.
 
-## Errors before CellProfiler starts
+## Find the useful logs
 
-| Message | Cause and solution |
-| --- | --- |
-| `image set(s) do not have N file(s)` | A channel is missing, or extra files are in the image folder. Check the examples in the message. See [Group the files of one site](../usage.md#group-the-files-of-one-site). |
-| `file(s) do not match --group_regex` | Thumbnails or other files are in the image folder, or the pattern is too narrow. |
-| `--outdir ... is inside --input_dir` | Choose an output folder outside the image folder. |
-| `must process all image sets in one CellProfiler run` | The pipeline has a module that needs all images. Use `--chunk_size 0`. |
-| `--<name> must be true or false` | Give boolean parameters as `true` or `false`. |
-| `CellProfiler reported errors while loading the pipeline` | A plugin is missing (`--plugins_dir`), or the pipeline comes from a newer CellProfiler (`--container`). |
-| `Process requirement exceeds available memory` | Set `--max_memory` and `--max_cpus` to the size of your computer. |
-| `Cannot find Java or it's a wrong version` | Nextflow needs Java 17 to 26. Run the lines of [Installation, step 5](../getting-started/installation.md#step-5-activate-nextflow). |
-| `docker: command not found` in `.command.run` (exit status 127) | You used `-profile docker`, but Docker is not installed. Install and start it ([Run with Docker](run-with-docker.md)), or use `-profile local` ([Run without Docker](run-without-docker.md)). |
-| `Cannot connect to the Docker daemon` | The Docker service does not run. In a lab workstation, run `bash scripts/start-docker-in-container.sh` ([Run with Docker](run-with-docker.md#step-2-start-docker)). |
-| `Command 'ps' required by nextflow to collect task metrics cannot be found` | The computer has no `ps`, for example in a minimal container. Install the package `procps`. |
-| `Could not import CellProfiler (No module named 'cellprofiler_core')` | With `-profile local`: the jobs use a Python without CellProfiler. Put the `bin` folder of the CellProfiler environment first in `PATH`. See [Run without Docker](run-without-docker.md). |
-| `Error finding javahome on linux: ['bash', '-c', 'type -p java']` | CellProfiler cannot find `java`. With the `local` profile, put the `bin` folder of the CellProfiler environment first in `PATH`. See [Run without Docker](run-without-docker.md). |
-| `nextflow: command not found` | Run the lines of [Installation, step 5](../getting-started/installation.md#step-5-activate-nextflow). On Berzelius, `source` your settings file. |
+1. Read `.nextflow.log` in the folder where you launched Nextflow.
+2. Find the failed process name and its work directory in the error message.
+3. Open `.command.err`, `.command.out`, and `.command.log` inside that work directory, when present.
+4. For CellProfiler failures, read `result/logs/*.log` in the same work directory.
 
-## Errors after a CellProfiler job
+Successful tasks publish logs under the project folder.
+Failed tasks may leave their only detailed logs in the work directory.
+`trace.txt` shows task status and exit codes. Project status files record the overall outcome.
+Do not delete work files while investigating a failure.
 
-| Message | Cause and solution |
-| --- | --- |
-| `CellProfiler processed N image sets but the workflow predicted M` | `--group_regex` does not group the files as NamesAndTypes in your pipeline does. |
-| `required by --required_metadata` | The Metadata module of your pipeline does not make this value. Check its regular expression. |
-| `counts N objects but ... has M rows` | The export of CellProfiler is not complete. Look at the log of the chunk. |
-| `Per-image table is empty` | The filters in the Images or NamesAndTypes module exclude all files. Compare them with your file names and `--extensions`. |
-| `trying to overwrite ... in headless mode` | Your own SaveImages gives two image sets the same file name. Turn on "Create subfolders" in that module, or rename the input files. |
-| `Missing 'Nuclei' mask for ImageNumber ...` | A mask was not saved. Look at the log of the chunk for the error of SaveImages. |
-| `input file(s) are not readable` | The container cannot see the images. Check the mounts and the file permissions. |
-| `AttributeError: 'str' object has no attribute ...` in `check_chunk.py` | A helper script uses a Python feature that is newer than 3.8. See [Contributing](../about/contributing.md). |
+## Symptoms and fixes
 
-## Other problems
+| Symptom or error | Likely cause | Action |
+|---|---|---|
+| `nextflow`, `python`, or `cellprofiler` not found | Missing tool or inactive environment | Follow [installation](../getting-started/installation.md). Activate `cp-headless` before launching. |
+| Java version or startup error | Nextflow sees an incompatible Java | Check the launcher's Java. Set `NXF_JAVA_HOME` to a supported installation if needed. |
+| `Require cellprofiler=4.2.8.1` | Different CellProfiler version | Recreate the environment from `environment.yml`. Check both CellProfiler package versions. |
+| Conda cannot solve the environment | Package availability, platform, channel, or network problem | Save the complete solver error. Check the supported platform and channels. Do not silently relax pinned versions. |
+| Missing input folder | Incorrect path or broken data link | Check `--images`, `--configs`, and any symlink targets. Obtain test data separately if needed. |
+| `No TIFF inputs found` | Empty folder, hidden files, or wrong root | Point `--images` at the parent of the plate folders. Check extensions and visibility. |
+| `Expected images/<plate>/<filename>.tiff` | Wrong folder depth | Put each TIFF directly inside a plate folder. |
+| Requires exactly two pipelines | Missing, extra, or differently named `.cppipe` files | Use the two names listed in [usage](../usage.md). |
+| `unmatched filename` | Filename does not match pipeline metadata rules | Compare it with the [configured rule](../reference/file-formats.md). Check extension and channel spelling. |
+| `missing channels`, `unknown channel`, `duplicate channel` | Incomplete or conflicting image set | Restore the correct files. Check channel mapping in both pipelines. |
+| `ambiguous image set` | Different acquisitions share the configured matching keys | Review metadata and matching rules. Do not combine distinct acquisitions. |
+| `Expected single-plane grayscale TIFF` or `Unsupported TIFF dtype` | Stack, RGB, float, or other unsupported layout | Export one 2D unsigned 8-bit or 16-bit grayscale TIFF per channel. Check the conversion preserves scientific values. |
+| `All images in a plate must share dimensions` | Mixed image sizes | Correct the plate contents or image export. |
+| Unsafe plate or image name | Unsupported characters or a reserved name | Follow the naming rules in [usage](../usage.md). |
+| Output/work directory must be outside images | Results or work files are inside the input root | Choose separate output and work folders. |
+| Invalid batch size or memory budget | Zero, negative, or inconsistent parameter | Use a positive integer batch size. Keep task memory within total memory, including on Slurm. |
+| Project already exists warning | Another session owns the project name | Use the printed session-ID output folder, choose a new name, or resume the original session. |
+| Exit 137, 143, or CellProfiler exit -9 | Memory kill, time limit, cancellation, or another external termination | Read system or Slurm records before deciding. Follow the resource procedure below. |
+| `Illumination checksum mismatch` or plate mismatch | Changed or incorrect correction files | Preserve the files for inspection. Restore matching inputs or run a fresh project. Do not edit the checksum record. |
+| Mask, area, count, provenance, or column validation error | Inconsistent output or unsupported pipeline change | Stop using the affected results. Retain the work directory and reports. Reproduce with the supplied pipelines. |
+| Many cells have blank cytoplasm measurements | Some cells have no cytoplasm pixels | Read [empty-cytoplasm behavior](../output.md#interpret-the-per-cell-table) and inspect the masks. |
+| Final CSV is absent but masks exist | Analysis completed before a later failure | Check MERGE and CONCAT status. Masks alone do not prove run success. |
+| Resume repeats work | Missing cache/output, changed inputs, or changed settings | Restore the original paths and options. CONCAT may repeat because its table was moved. |
+| Berzelius requests shared storage | Missing required paths | Set `--shared_dir`, or both `--nf_work_dir` and `--conda_cache`. |
+| Slurm jobs remain pending | Allocation, partition, or resource availability | Inspect the scheduler reason. Confirm your account and partition with the cluster administrator. |
+| `Fixture destination already exists` | Tutorial crop folder already exists | Use the existing verified fixture or choose a new destination. |
 
-| Problem | Cause and solution |
-| --- | --- |
-| Docker: `cellprofiler: unrecognized arguments ... bash` | Use the `docker` profile. It removes the entry point of the image. |
-| Very slow in containers | Keep the thread settings of the workflow. They limit the threads of each job to its CPU cores. |
-| Jobs stop with exit code 137 or 140 | Not enough memory (137) or time (140). The workflow tries again with more, up to `--max_memory` and `--max_time`. |
+## Resolve resource failures
 
-## Look at a failed job
+First distinguish a task that needs more memory from too many simultaneous tasks.
+Check task metrics, the HTML report, and scheduler records.
+A missing peak-memory value does not rule out a memory kill.
 
-Nextflow prints the work folder of a failed job, for example `work/a6/dca722...`. In that folder:
+For local memory pressure, reduce concurrent jobs with `total_cpus` or `max_forks`.
+Set `total_memory` below the memory actually available to your process, leaving room for Nextflow and the operating system.
+For one oversized task, raise `task_memory` and the total budget if the machine can support them.
+For Slurm time limits, raise `task_time` within your allocation's limits.
+Smaller batches reduce work per analysis job, but do not make a single image smaller.
+Retries do not automatically raise memory or time.
 
-| File | Content |
-| --- | --- |
-| `.command.sh` | The script of the job |
-| `.command.err`, `.command.log` | The messages of the job |
-| `.exitcode` | The exit code |
-| `log_<chunk>.txt` | The CellProfiler log (CELLPROFILER jobs) |
-| `qc_<chunk>.json` | The results of the checks (CELLPROFILER jobs) |
+Use the [resume guide](../usage.md#resume-a-run) after correcting the cause.
+If old CellProfiler processes remain, identify the exact processes belonging to your stopped run before terminating them.
+Do not kill all CellProfiler processes on a shared machine.
 
-To run the job again by hand, go to the folder and run `bash .command.run`.
+## Ask for help
+
+Provide the launch command, software versions, first error, failed process name, and relevant logs.
+Include the batch validation report and pipeline checksums when results fail validation.
+Describe the image dimensions, channel set, and any pipeline changes.
+Remove sensitive paths and sample names before sharing logs outside your group.

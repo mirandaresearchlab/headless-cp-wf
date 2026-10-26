@@ -1,138 +1,92 @@
-# Run on your data
+# Run your own images
 
-This page tells you how to prepare your images and your pipeline, and how to start a run.
-Do the [tutorial](tutorials/first-run.md) first.
+Use this guide after installing the software and checking the small example.
 
-!!! info "Before you start"
-    This page assumes that you installed the workflow and ran its test. On a lab workstation, see
-    [Installation](getting-started/installation.md). On Berzelius, see [Berzelius: set up](how-to/berzelius-setup.md). To check, open a terminal in the
-    folder `headless-cp-wf` and run `nextflow -version`. It must print a version number.
+## Prepare the inputs
 
-## Prepare the input
-
-You need two things.
-
-**1. A CellProfiler pipeline** (`.cppipe` or `.cpproj`), made in CellProfiler **4.2.8**. The line
-`DateRevision: 428` at the top of a `.cppipe` file means 4.2.8. The pipeline must find its images with the
-Images, Metadata and NamesAndTypes modules. The workflow gives CellProfiler a list of files for each job.
-See [CellProfiler pipelines](reference/pipelines.md) for the other requirements.
-
-**2. An image folder.** The workflow searches it and all its sub-folders for files with an image extension
-(`--extensions`). It skips hidden files. For example:
+Store TIFFs exactly one folder below the image root:
 
 ```text
 images/
-├── plate1/
-│   ├── A01_s1_w1.tif   A01_s1_w2.tif      site 1 of well A01, channels 1 and 2
-│   ├── A01_s2_w1.tif   A01_s2_w2.tif
-│   └── ...
-└── plate2/
-    └── ...
+  plate1/
+    A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff
+    A02_s1_x0_y0_Fluorescence_488_nm_Ex.tiff
+    A02_s1_x0_y0_Fluorescence_561_nm_Ex.tiff
+    A02_s1_x0_y0_Fluorescence_638_nm_Ex.tiff
+    A02_s1_x0_y0_Fluorescence_730_nm_Ex.tiff
 ```
 
-For more layouts (one folder for each channel, one folder for each well), see
-[Prepare your image folder](how-to/format-image-folder.md).
+These five files form one image set. Every set needs all configured channels.
+All images within one plate must have the same width and height.
+Do not use RGB images, image stacks, floating-point TIFFs, or deeper subfolders.
+The filename must match the pipeline's metadata rule.
+Discovery accepts `.tif` and `.tiff`, but the configured filename rule must also accept the extension.
+See [file formats](reference/file-formats.md) for the exact rule.
 
-!!! warning "Keep the image folder clean"
-    Thumbnails, overlays or old results in the image folder stop the run, because they do not match
-    `group_regex`. The output folder must not be in the image folder.
+Plate names must start with a letter or digit. Remaining characters may be letters, digits, dots, underscores, or hyphens.
+Do not name a plate `logs`, `pipelines`, or `manifests`.
+The workflow skips hidden input files. It does not need a metadata spreadsheet.
 
-## Group the files of one site
+The configuration folder must contain exactly these two `.cppipe` files:
 
-The workflow does not name your channels. Your pipeline does that, in the NamesAndTypes module. See
-[Define the channels in your pipeline](how-to/format-image-folder.md#define-the-channels-in-your-pipeline).
+- `1_illumination.cppipe`
+- `2_analysis.cppipe`
 
-A microscope usually saves one file per channel. CellProfiler must get all channel files of a site in the
-same job. `--group_regex` is a regular expression for this. The workflow applies it to the path of each file
-in the image folder. The parts in round brackets make the name of the image set. Files with the same name
-belong to the same image set.
+Keep the filename and channel rules consistent in both pipelines.
+See [pipeline changes](how-to/modify-pipeline.md) before editing them.
 
-| File names | `--group_regex` |
-| --- | --- |
-| One channel: each file is one image set | `'^(.+)$'` |
-| `A01_s1_w1.tif`, `A01_s1_w2.tif` (MetaXpress) | `'^(.+?_s\d+)_w\d'` |
-| `r01c01f01p01-ch1sk1fk1fl1.tiff` (Opera, Operetta) | `'(r\d+c\d+f\d+p\d+)-ch'` |
-| `plate1/B03/site2_DAPI.tif` | `'^(.+/site\d+)_'` |
+## Start a local run
 
-The workflow then checks the image sets before CellProfiler starts. Every file must match the pattern, and
-every image set must have the same number of files. If a check fails, the run stops and shows examples. See
-[Data checks and design](explanation/design.md).
-
-To test your pattern before a large run, run the workflow with `-stub-run`. It makes the checks and starts no
-CellProfiler job. See [Check the folder before a large run](how-to/format-image-folder.md#check-the-folder-before-a-large-run).
-
-## Choose the chunk size
-
-`--chunk_size` is the number of image sets in one CellProfiler job. The jobs run at the same time.
-
-- `0` (the default) puts all image sets into one job. This is always correct, but slow for large data.
-- On a cluster, choose a size that gives jobs of 15 to 60 minutes. See
-  [Choose the chunk size](how-to/berzelius-batch.md#choose-the-chunk-size).
-
-Some pipelines must process all images in one job, for example illumination correction calculated from all
-images. The workflow stops if you divide such a pipeline into chunks. Use `--chunk_size 0` for them.
-
-## Start the run
+This is an unexecuted recipe for your data. Replace `images` with your image folder.
+Activate `cp-headless` first and run from the repository root.
 
 ```bash
-nextflow run . -profile docker \
-    --pipeline    /path/to/analysis.cppipe \
-    --input_dir   /path/to/images \
-    --outdir      /path/to/results \
-    --group_regex '^(.+?_s\d+)_w\d' \
-    --chunk_size  50 \
-    --max_cpus 8 --max_memory '32.GB'
+nextflow run . -profile local \
+  --images images --configs cp-configs \
+  --outdir results --project screen01 \
+  --nf_work_dir work-screen01
 ```
 
-Set `--max_cpus` and `--max_memory` to the size of your computer. Each CellProfiler job asks for 1 core and
-8 GB.
+Expected results go to `results/projects/screen01/`.
+If another session owns that project name, Nextflow warns and uses its session ID instead.
+Always use the output path printed at startup.
+Keep results and work folders outside the image input folder.
 
-You can also keep the parameters in a file and give it with `-params-file`. This keeps a record of the run:
+| Profile | Execution | Environment |
+|---|---|---|
+| `local` | Runs jobs on this machine within the shared CPU and memory budget | Activated `cp-headless` |
+| `berzelius` | Submits jobs to Slurm | Activated environment accessible on compute nodes |
 
-```yaml title="params.yml"
-pipeline: /data/exp1/analysis.cppipe
-input_dir: /data/exp1/images
-outdir: /data/exp1/results
-group_regex: '^(.+?_s\d+)_w\d'
-chunk_size: 50
-required_metadata: Plate,Well,Site
-max_memory: 32.GB
-```
+Always select a profile. Without one, profile-specific resource limits, reports, and retries do not apply.
+Use single-dash Nextflow options such as `-profile` and `-resume`.
+Use double-dash workflow parameters such as `--images` and `--batch_size`.
+All workflow parameters appear in the [generated reference](reference/parameters.md).
+
+## Resume a run
+
+Keep `.nextflow/`, the work directory, inputs, code, and original output folder.
+Resume from the same launch directory with the same active environment.
+
+The startup message includes the session ID, inputs, and output path.
+It omits the profile, resource overrides, batch size, and custom work directory.
+Add those original options when resuming.
+
+Template only: replace `SESSION_ID` with the ID from `run.json`.
 
 ```bash
-nextflow run . -profile docker -params-file params.yml
+nextflow run . -profile local \
+  --images images --configs cp-configs \
+  --outdir results --project screen01 \
+  --nf_work_dir work-screen01 \
+  -resume SESSION_ID
 ```
 
-All parameters are in the [parameter reference](reference/parameters.md).
+Nextflow can reuse valid cached tasks when their inputs and settings still match.
+Missing work outputs or changed inputs can cause tasks to run again.
+The final table is moved out of its task folder, so CONCAT may run again on resume.
+Neither profile deletes work files automatically.
+Only remove a run's work data after checking and archiving results, when you no longer need resume.
 
-## Profiles
-
-Choose one or more profiles with `-profile`, separated by commas.
-
-| Profile | Use when |
-| --- | --- |
-| `test` | You want to run the included test data. Combine it with one of the profiles below. |
-| `local` | CellProfiler runs from your conda environment on the workstation, without a container. See [Run without Docker](how-to/run-without-docker.md). |
-| `docker` | CellProfiler runs in the official container with Docker. See [Run with Docker](how-to/run-with-docker.md). |
-| `berzelius` | You run on Berzelius. It uses Slurm and Apptainer. See [Berzelius: set up](how-to/berzelius-setup.md). |
-
-The profiles `slurm`, `apptainer` and `singularity` also exist. The `berzelius` profile builds on the `slurm`
-settings and turns on Apptainer itself. We support and test these settings only as parts of `berzelius`.
-
-## Continue a run
-
-Add `-resume` to continue a run that stopped. Nextflow runs only the jobs that changed or failed, and uses
-the results of the other jobs. Start the run from the same folder, because Nextflow keeps its cache in
-`.nextflow/` there.
-
-## Metadata for profiling
-
-For profiling, you join the tables on plate, well and site. Your pipeline gets these values from the file
-names or folder names with its Metadata module. Add `--required_metadata Plate,Well,Site` (use the names that
-your Metadata module makes). The workflow then stops if a value is missing or empty, or if two image sets
-have the same values.
-
-## Next steps
-
-- What each result file contains: [Output](output.md).
-- Problems: [Troubleshooting](how-to/troubleshooting.md).
+With `--project`, both profiles write `trace.txt`, `report.html`, and `timeline.html` to `report/` in the project folder.
+Without `--project`, they overwrite these files in the launch folder. Avoid concurrent runs from the same launch folder.
+For cluster use, see [run on Berzelius](how-to/run-on-hpc.md).

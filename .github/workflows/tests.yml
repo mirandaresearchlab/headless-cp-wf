@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The input, output and merge tests need only NumPy, tifffile and pytest.
+  # test_segmentation.py needs CellProfiler and Java (Python 3.9 conda environment), so it runs
+  # locally through pre-commit instead (scripts/test-cellprofiler.sh).
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy tifffile pytest
+      - run: python -m pytest -q tests --ignore=tests/test_segmentation.py
