@@ -23,7 +23,7 @@ Start with the [documentation home](docs/index.md), [first run](docs/tutorials/f
 or [troubleshooting](docs/how-to/troubleshooting.md).
 The MkDocs site includes job diagrams, setup, inputs, outputs, and generated reference pages.
 See [preview and build instructions](docs/about/contributing.md).
-A hosted documentation URL is not configured in this checkout.
+The hosted documentation is at <https://mirandaresearchlab.github.io/headless-cp-wf/>.
 
 ## Citation
 

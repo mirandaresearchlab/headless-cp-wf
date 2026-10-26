@@ -33,12 +33,15 @@ The browser renders them from text. A strict build checks Markdown and links, bu
 
 ## Continuous checks and optional hosting
 
-The GitHub Actions workflow builds documentation on pushes and pull requests.
-Deployment requires a manual workflow dispatch with the `deploy` input enabled on the default branch.
-No site was published during this update.
-To enable hosting, select GitHub Actions in the repository's Pages settings.
-Set the real `site_url` and `repo_url` in `mkdocs.yml` once the repository address is known.
-No remote address is available in this checkout, so these values are intentionally absent.
+The `docs` GitHub Actions workflow builds documentation on pushes and pull requests.
+Each push to the default branch also publishes the site to
+[GitHub Pages](https://mirandaresearchlab.github.io/headless-cp-wf/).
+Pull requests build the site but never publish it.
+Hosting requires GitHub Actions as the source in the repository's Pages settings.
+
+The `tests` workflow runs on the same events. One job runs the input, output and merge tests
+with NumPy, tifffile and pytest only. A second job creates `environment.yml` with micromamba
+and runs the full suite, including the CellProfiler plugin tests.
 
 ## Check software changes
 

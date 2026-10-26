@@ -1,4 +1,6 @@
 site_name: Headless CellProfiler
+site_url: https://mirandaresearchlab.github.io/headless-cp-wf/
+repo_url: https://github.com/mirandaresearchlab/headless-cp-wf
 
 theme:
   name: material
