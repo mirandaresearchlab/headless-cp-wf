@@ -39,9 +39,23 @@ Each push to the default branch also publishes the site to
 Pull requests build the site but never publish it.
 Hosting requires GitHub Actions as the source in the repository's Pages settings.
 
-The `tests` workflow runs on the same events. One job runs the input, output and merge tests
-with NumPy, tifffile and pytest only. A second job creates `environment.yml` with micromamba
-and runs the full suite, including the CellProfiler plugin tests.
+The `tests` workflow runs on the same events. It runs the input, output and merge tests
+with NumPy, tifffile and pytest only. The CellProfiler plugin tests do not run on GitHub.
+
+## Pre-commit checks
+
+The CellProfiler plugin tests run locally before each commit. Install the hooks once:
+
+```bash
+conda env create -f environment.yml
+uvx pre-commit install
+```
+
+When a Python file, pipeline or `environment.yml` changes, the hook runs the full suite in
+the `cp-headless` environment through `scripts/test-cellprofiler.sh`. It works with conda, mamba
+or micromamba. Set `CP_ENV` to use another environment name or a prefix path.
+A second hook runs the strict documentation build when documentation sources change.
+Run every check by hand with `uvx pre-commit run --all-files`.
 
 ## Check software changes
 
@@ -54,7 +68,7 @@ python -m pytest -q tests
 Expected result: all tests pass. The full suite requires CellProfiler and Java.
 The input, output, and merge tests can also run with their smaller NumPy/tifffile/pytest dependencies.
 Keep documentation changes with the behavior changes they describe.
-The repository's pre-commit configuration provides Python and Nextflow formatting checks.
+See [pre-commit checks](#pre-commit-checks) to run the full suite automatically before each commit.
 
 For batch-equivalence checks, `tests/benchmark.nf` reuses a completed baseline's illumination files.
 `tests/compare_runs.py` compares masks and gzip feature tables, excluding batch-dependent fields.

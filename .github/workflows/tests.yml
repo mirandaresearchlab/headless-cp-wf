@@ -15,28 +15,14 @@ concurrency:
 
 jobs:
   # The input, output and merge tests need only NumPy, tifffile and pytest.
-  # Versions match environment.yml so failures point at the code, not the toolchain.
+  # test_segmentation.py needs CellProfiler and Java (Python 3.9 conda environment), so it runs
+  # locally through pre-commit instead (scripts/test-cellprofiler.sh).
   unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
-      - run: pip install numpy==1.24.4 tifffile==2022.4.8 pytest==7.4.4
+          python-version: "3.12"
+      - run: pip install numpy tifffile pytest
       - run: python -m pytest -q tests --ignore=tests/test_segmentation.py
-
-  # The full suite, including the SaveLabelMasks plugin, in the pinned CellProfiler environment.
-  # Java comes from the openjdk package that cellprofiler pulls in.
-  cellprofiler:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -el {0}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: mamba-org/setup-micromamba@v2
-        with:
-          environment-file: environment.yml
-          cache-environment: true
-      - run: python -m pytest -q tests
