@@ -7,7 +7,7 @@ The numbers in the answers apply when you use the suggested settings for a full 
 
 ```bash
 sbatch -A <account> scripts/berzelius-run.sbatch <images> <project_name> 9 \
-    --task_memory '7 GB' --task_time 2h --max_jobs 64
+    --task_memory '7 GB' --task_time 2h --max_jobs 96
 ```
 
 ## Cores and memory
@@ -47,7 +47,7 @@ No. Each task is its own Slurm job, and Slurm controls the memory of each job:
 
 - Slurm starts a job only on a node that has 7 GB free.
 - Slurm stops a task that uses more than its 7 GB. Other tasks are not affected.
-- `--max_jobs` sets the maximum number of tasks at the same time. With 64 tasks, the maximum is 64 cores and 448 GB.
+- `--max_jobs` sets the maximum number of tasks at the same time. With 96 tasks, the maximum is 96 cores and 672 GB.
 
 `--total_memory` limits the memory only in an interactive session.
 In a batch job, the workflow uses it only to check that `--task_memory` is not larger.
@@ -135,7 +135,7 @@ Slurm divides the work between nodes only by task.
 | Interactive session | The number of cores in the session (`-c`). One node has 128 cores. |
 | Batch job | `--max_jobs` (default 8) |
 
-All users share the 8 CPU nodes. Ask your group before you use more than 64.
+All users share the 8 CPU nodes. Ask your group before you use more than 96.
 
 ### What does the head job do and what does it use?
 
@@ -148,6 +148,52 @@ The head job does not run CellProfiler.
 | Memory | about 15.5 GB (the Slurm default for 2 cores) |
 | Nextflow memory | at most 4 GB (`NXF_OPTS='-Xms512m -Xmx4g'`) |
 | Time limit | 72 hours. Submit the same command again to continue. |
+
+### Which nodes do my jobs use?
+
+Run this command. The last column shows the node of each running job:
+
+```bash
+squeue -u $USER -o "%.10i %.25j %.3t %.10M %R"
+```
+
+To count the running tasks on each node, run:
+
+```bash
+squeue -u $USER -t R -h -o "%N" | sort | uniq -c
+```
+
+For jobs that are complete, run `sacct -u $USER -S today --format=JobID,JobName%25,State,Elapsed,NodeList`.
+
+## Submitted jobs
+
+### Can I log out after I submit the job?
+
+Yes. `sbatch` jobs run on the compute nodes, not in your terminal.
+You can close the terminal, log out or shut your laptop. The job continues.
+This is not true for an interactive session. It ends when you leave.
+
+Before you leave, run `squeue -u $USER`. The head job must be in the list with `R` (running) or `PD` (waiting).
+
+### How long does the run take?
+
+Add the time of each plate. For plates of 3,420 image sets with `--max_jobs 96`, one plate takes about 4 to 5 hours of computing time.
+The estimate has a formula: see [Estimate the run time and the cost](run-on-hpc.md#estimate-the-run-time-and-the-cost).
+Time in the queue is not included.
+
+## Disk space
+
+### How much disk space is free?
+
+Run `nscquota`. The line for your project shows the used space, the quota and the hard limit.
+The quota is the limit to use for planning. Above the quota, the project has only a short grace period.
+The `df` command shows the hard limit, so it shows more free space than you can use.
+
+### What if the project does not have enough space for all plates?
+
+Run the plates one after another with `scripts/berzelius-run-plates.sbatch`.
+It deletes the work files of each plate after the plate is complete.
+See [Run one plate at a time](run-on-hpc.md#run-one-plate-at-a-time-when-disk-space-is-short).
 
 ## Software and setup
 

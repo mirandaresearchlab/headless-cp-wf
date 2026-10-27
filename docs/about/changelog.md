@@ -8,6 +8,9 @@ This page records the scope of the documentation update.
 - Added `scripts/berzelius-run.sbatch`. It runs Nextflow as a Slurm head job, for full screens.
 - Rewrote [Run on Berzelius](../how-to/run-on-hpc.md): setup, both ways to run, resume and common problems.
 - Added the [Berzelius FAQ](../how-to/berzelius-faq.md): cores, memory, cost and job placement.
+- Added `scripts/berzelius-run-plates.sbatch`. It runs one plate at a time and deletes the work files of each finished plate.
+- Each project now starts Nextflow from its own folder, `$PROJ/runs/<project>-launch`. Before, projects that started from the repository folder shared one session and one results folder.
+- Added the disk space, job check and node questions to the FAQ. Changed the suggested `--max_jobs` to 64 to 96.
 
 ## First documentation update
 

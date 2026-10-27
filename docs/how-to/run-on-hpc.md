@@ -194,6 +194,23 @@ Nextflow submits each CellProfiler task as its own Slurm job on `berzelius-cpu`.
 
 You can close your terminal. The head job continues without you.
 
+### Check the job
+
+| Question | Command |
+|---|---|
+| Is the job running? | `squeue -u $USER` |
+| Which node does each job use? | `squeue -u $USER -o "%.10i %.25j %.3t %.10M %R"` |
+| How many tasks run on each node? | `squeue -u $USER -t R -h -o "%N" \| sort \| uniq -c` |
+| Did a finished job succeed? | `sacct -u $USER -S today --format=JobID,JobName%25,State,Elapsed,ExitCode,NodeList` |
+| What is Nextflow doing? | `tail -n 30 cp-headless-<jobid>.log` |
+
+In `squeue`, `R` means the job runs and `PD` means it waits. For a waiting job, the last column shows the reason.
+The run is complete when these three things are true:
+
+1. The head job `cp-headless` is no longer in `squeue`.
+2. `sacct` shows `COMPLETED` and the exit code `0:0` for the head job.
+3. The end of the log shows `[SUCCESS] completed=<N> failed=0`.
+
 ### Choose resources for a full screen
 
 In the benchmark run, one image set took 4.4 to 6.7 minutes on one core (5.4 minutes on average).
@@ -205,13 +222,13 @@ Make each task run for 15 to 60 minutes. Fewer, longer tasks wait less time in t
 | Batch size | 9 | 9. One task then runs for about 50 minutes. |
 | `--task_time` | 4 hours | 2 hours |
 | `--task_memory` | 6 GB | 7 GB. The largest benchmark task used 5.0 GB. A CPU core comes with about 7.7 GB, so 7 GB still costs one core. |
-| `--max_jobs` | 8 | 32 to 64. This is the number of tasks that run at the same time. All users share the 8 CPU nodes. Ask the group before you increase it. |
+| `--max_jobs` | 8 | 64 to 96. This is the number of tasks that run at the same time. All users share the 8 CPU nodes. Ask the group before you use more than 96. |
 
 To change a setting, add it after the batch size:
 
 ```bash
 sbatch -A <account> scripts/berzelius-run.sbatch /proj/<project>/users/$USER/my-images screen01 9 \
-    --task_time 2h --task_memory '7 GB' --max_jobs 64
+    --task_time 2h --task_memory '7 GB' --max_jobs 96
 ```
 
 ### Estimate the run time and the cost
@@ -225,6 +242,7 @@ sbatch -A <account> scripts/berzelius-run.sbatch /proj/<project>/users/$USER/my-
 | `--max_jobs 8` | About 5 days |
 | `--max_jobs 32` | About 32 hours |
 | `--max_jobs 64` | About 17 hours |
+| `--max_jobs 96` | About 13 hours |
 | `--max_jobs 128` | About 10 hours |
 
 The cost in core-hours is the same for each `--max_jobs` value. More jobs only make the run finish sooner.
@@ -233,9 +251,59 @@ These numbers come from the benchmark run (about 430 cells for each image set). 
 Time in the queue is not included.
 
 Plan the disk space too. The benchmark run used about 33 MB of work files and 15 MB of final table for each image set.
-For 10,200 image sets, this is about 500 GB in addition to the images. Run `nscquota` to check your quota.
+For 10,200 image sets, this is about 500 GB in addition to the images.
+Run `nscquota` to see the free space. Use the quota that `nscquota` shows. The size that `df` shows is larger than the quota.
+If the free space is too small, [run one plate at a time](#run-one-plate-at-a-time-when-disk-space-is-short).
 
 All settings are in [parameters](../reference/parameters.md).
+
+## Run one plate at a time when disk space is short
+
+A normal batch job keeps the work files of all plates until the run is complete.
+If the project quota is too small for this, run the plates one after another.
+The script `scripts/berzelius-run-plates.sbatch` does this in one head job.
+Only the work files of one plate exist at any time.
+
+A plate needs about 0.05 GiB for each image set. A plate of 3,420 image sets needs about 170 GiB.
+Check the free space with `nscquota` before you submit.
+
+Submit from the repository folder:
+
+```bash
+DATA=/proj/<project>/users/$USER/my-images \
+OUT=/proj/<project>/users/$USER/results/screen01 \
+MAX_JOBS=96 \
+sbatch -A <account> scripts/berzelius-run-plates.sbatch
+```
+
+`DATA` is the folder with one folder per plate. `OUT` is the results folder.
+To run only some plates, add their folder names at the end of the command.
+The settings `BATCH_SIZE`, `TASK_MEMORY` and `TASK_TIME` work in the same way.
+The defaults are the values in [Choose resources for a full screen](#choose-resources-for-a-full-screen).
+
+For each plate, in alphabetical order, the script does these steps:
+
+1. It skips the plate if the file `OUT/<plate>/DONE` exists.
+2. It checks that enough space is free. If not, it stops before it writes any file.
+3. It runs the workflow for this plate. The tasks of the plate run in parallel, as in a normal batch job.
+4. It deletes the work files of the plate. It does this only if the workflow reports success and the final table exists.
+5. It writes the file `OUT/<plate>/DONE`, which contains the path of the results.
+
+Each plate gets its own table: `OUT/<plate>/projects/<folder>/cp_features/all_plates.csv.gz`.
+To see the result path of each plate, run `cat OUT/*/DONE`.
+
+If a plate fails, the script stops and keeps the work files of this plate.
+Fix the cause and submit the same command again. The script skips the finished plates and resumes the failed plate.
+
+!!! warning "You cannot resume a finished plate"
+    The script deletes the work files of a finished plate. To run this plate again, delete its `DONE` file and the plate folder in `OUT`.
+
+!!! note "The space check can be skipped"
+    `nscquota` sometimes returns no answer. The script tries three times. Then it prints a warning and starts the plate without the check.
+    Check the free space yourself before you submit.
+
+The plates run one after another, so the run takes longer than one run for all plates.
+If enough space is free, use the normal batch job.
 
 ## Find the results
 
@@ -243,10 +311,13 @@ Both scripts write to the same places:
 
 | What | Where |
 |---|---|
-| Results | `$PROJ/runs/projects/<project_name>/` |
+| Results | `$PROJ/runs/projects/<folder>/`. The folder is usually a session ID, not the project name. The log shows the path after `Outputs:`. |
 | Time and memory of each task | `$PROJ/runs/projects/<project_name>/report/trace.txt` |
 | Nextflow work files | `$PROJ/runs/<project_name>-work/` |
-| Nextflow log | `.nextflow.log` in the repository folder |
+| Nextflow log | `$PROJ/runs/<project_name>-launch/.nextflow.log` |
+
+To find the results folder, run `grep Outputs: cp-headless-<jobid>.log`.
+Each project starts Nextflow from its own `-launch` folder. For this reason, two projects never share a session or a results folder.
 
 See [output](../output.md) for what each result file contains.
 
@@ -285,6 +356,9 @@ A batch job stops after 72 hours. Submit the same `sbatch` command again to cont
 | The script shows fewer cores than you expected | The session has fewer cores | Close it and start a new session with a larger `-c`. |
 | Task jobs stay `PENDING` | The CPU nodes are busy | Wait. Run `squeue -u $USER` to see the reason. |
 | Exit status 137 or 143 | The task used too much memory or time | Read `trace.txt`. Increase `--task_memory` or `--task_time` and resume. |
+| `needs about N GiB, but only M GiB is free` | The plate script found too little free space | Free space in the project, then submit the same command again. |
+| `nscquota gave no answer` | `nscquota` failed three times | Check the free space with `nscquota`. The run is not stopped. |
+| `Set DATA ... and OUT` | The plate script needs both settings | Set `DATA` and `OUT` in the command. |
 
 For other errors, see [troubleshooting](troubleshooting.md).
 For questions about cores, memory, cost and nodes, see the [Berzelius FAQ](berzelius-faq.md).

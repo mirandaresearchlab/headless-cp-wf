@@ -42,11 +42,18 @@ export NXF_HOME="$PROJ/.nextflow"
 # Keep the Nextflow driver small: it only submits and watches jobs.
 export NXF_OPTS='-Xms512m -Xmx4g'
 
+# Each project starts Nextflow from its own folder. Nextflow resumes the last session of the
+# folder it starts in, so a shared folder would mix the results of different projects.
+repo="$PWD"
+launch="$PROJ/runs/$project-launch"
+mkdir -p "$launch"
+cd "$launch"
+
 echo "Job $SLURM_JOB_ID: account $SLURM_JOB_ACCOUNT, images $images, batch_size $batch_size, project $project"
 
-nextflow run . -profile berzelius -resume \
+nextflow run "$repo" -profile berzelius -resume \
     --images "$images" \
-    --configs "$PWD/cp-configs" \
+    --configs "$repo/cp-configs" \
     --outdir "$PROJ/runs" --project "$project" \
     --nf_work_dir "$PROJ/runs/$project-work" \
     --conda_cache "$PROJ/runs/conda-cache" \

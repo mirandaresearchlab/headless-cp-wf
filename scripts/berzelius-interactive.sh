@@ -41,11 +41,18 @@ eval "$(conda shell.bash hook)"
 conda activate "$CP_ENV"
 export NXF_HOME="$PROJ/.nextflow"
 
+# Each project starts Nextflow from its own folder. Nextflow resumes the last session of the
+# folder it starts in, so a shared folder would mix the results of different projects.
+repo="$PWD"
+launch="$PROJ/runs/$project-launch"
+mkdir -p "$launch"
+cd "$launch"
+
 echo "Job $SLURM_JOB_ID: $cores cores, $total_memory, images $images, batch_size $batch_size, project $project"
 
-nextflow run . -profile local -resume \
+nextflow run "$repo" -profile local -resume \
     --images "$images" \
-    --configs "$PWD/cp-configs" \
+    --configs "$repo/cp-configs" \
     --outdir "$PROJ/runs" --project "$project" \
     --nf_work_dir "$PROJ/runs/$project-work" \
     --batch_size "$batch_size" \

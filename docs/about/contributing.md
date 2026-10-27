@@ -87,10 +87,22 @@ The real-image fixture command was run in a temporary folder.
 The table-reading example was checked against a saved plate table.
 
 A complete Nextflow run, a fresh Conda install, and Slurm execution were not performed.
-On Berzelius, the conda setup in [Run on Berzelius](../how-to/run-on-hpc.md) was done,
-and a test with `scripts/berzelius-interactive.sh` on 18 cores completed.
-It ran all 62 tasks on 3 plates (54 image sets) in 22 minutes (5.1 core-hours).
-`scripts/berzelius-run.sbatch` was checked for syntax only. It was not submitted.
+On Berzelius, the conda setup in [Run on Berzelius](../how-to/run-on-hpc.md) was done.
+A test with `scripts/berzelius-interactive.sh` on 18 cores ran all 62 tasks on 3 plates (54 image sets).
+It took 22 minutes and 5.1 core-hours.
+
+The three Berzelius scripts then ran on a small input: 3 plates with 2 cropped image sets each.
+Each run had 14 tasks and ended with `[SUCCESS] completed=14 failed=0`.
+Each run wrote 98 table rows to its own results folder.
+
+- `scripts/berzelius-run.sbatch` (Slurm head job): completed in 5 minutes 47 seconds.
+- `scripts/berzelius-interactive.sh` (6-core Slurm allocation): completed in 1 minute 39 seconds.
+- `scripts/berzelius-run-plates.sbatch` (one plate at a time): completed in 15 minutes 40 seconds.
+  It ran 3 plates, wrote the `DONE` files and deleted the work folders.
+
+These runs found two problems. Both are fixed and checked again.
+Projects that started from the repository folder shared one session and one results folder.
+The check for free disk space was skipped when `nscquota` gave no answer. The script now tries three times.
 This workspace did not provide Nextflow, Conda, or CellProfiler.
 Historical runtime and disk figures are labelled in [resource planning](../reference/resources.md).
 Scientific claims require representative image review beyond these software checks.
