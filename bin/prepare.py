@@ -183,6 +183,8 @@ def adapt(config_dir, output):
             exporter.wants_prefix.value = False
             exporter.directory.value = 'Default Output Folder sub-folder|features'
             active.insert(active.index(exporter), SaveLabelMasks())
+        
+        # iterate over the modules, set their number and hide their window. The LoadData module is first.
         for i, module in enumerate(active, 1):
             module.set_module_num(i)
             module.show_window = False
@@ -193,6 +195,8 @@ def adapt(config_dir, output):
                     if isinstance(item, Directory) and item.value.startswith('Elsewhere...|') and item.value != 'Elsewhere...|':
                         raise ValueError(f'{module.module_name}: absolute output destination requires review: {item.value}')
             result.add_module(module)
+        
+        # The analysis copy must export every object that CellProfiler counts, so the next step can find them.
         if kind == 'analysis':
 
             # Every object type that CellProfiler counts gets a mask and a table.

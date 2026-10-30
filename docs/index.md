@@ -3,6 +3,12 @@
 This workflow turns microscopy images into cell measurements without opening the CellProfiler window.
 
 You supply one folder per plate and two CellProfiler pipeline files.
+
+!!! important "You must provide your own pipelines"
+    The workflow does not create the pipelines. Provide `1_illumination.cppipe` and `2_analysis.cppipe`, made for your images.
+    The files in `cp-configs/` are examples for one screen with five channels. They may not fit your images.
+    See [provide your own pipelines](usage.md#provide-your-own-pipelines).
+
 The workflow corrects uneven lighting, finds objects, measures them, and checks the outputs.
 It saves label masks and one compressed CSV table with one row per cell.
 
@@ -33,7 +39,7 @@ For job dependencies, read [how jobs run](explanation/workflow.md).
 | Item | Support |
 |---|---|
 | Input images | Single-plane, unsigned 8-bit or 16-bit grayscale TIFFs |
-| Default channels | DNA, RNA, AGP, Mito, ER |
+| Channels of the example pipelines | DNA, RNA, AGP, Mito, ER |
 | Segmentation | Traditional nuclei detection and watershed cell segmentation |
 | Execution | Local workstation or the supplied Berzelius Slurm profile |
 | CellProfiler | Exactly 4.2.8.1 for both CellProfiler packages |

@@ -27,13 +27,28 @@ Plate names must start with a letter or digit. Remaining characters may be lette
 Do not name a plate `logs`, `pipelines`, or `manifests`.
 The workflow skips hidden input files. It does not need a metadata spreadsheet.
 
+You must also provide two CellProfiler pipeline files. See [Provide your own pipelines](#provide-your-own-pipelines).
+The filename rule of the images must match the pipelines.
+
+## Provide your own pipelines
+
+The workflow does not create pipelines. You provide the two CellProfiler pipeline files.
+
+!!! important "The files in `cp-configs/` are examples"
+    The supplied files fit one screen. That screen has five channels (DNA, RNA, AGP, Mito, ER) and its own file names.
+    They may not fit your channels, your file names or your objects. Make your own files for your images.
+
 The configuration folder must contain exactly these two `.cppipe` files:
 
-- `1_illumination.cppipe`
-- `2_analysis.cppipe`
+- `1_illumination.cppipe`: calculates the illumination correction of each plate
+- `2_analysis.cppipe`: applies the correction, finds the cells and measures them
 
-Keep the filename and channel rules consistent in both pipelines.
-See [pipeline changes](how-to/modify-pipeline.md) before editing them.
+The workflow stops with an error if the folder has other `.cppipe` files or if one of the two names is missing.
+Use CellProfiler 4.2.8.1 to make and save the files. Keep the filename and channel rules the same in both pipelines.
+Before the first job starts, PREPARE checks the pipelines. The rules are on the page [Change a CellProfiler pipeline](how-to/modify-pipeline.md).
+Test your pipelines on a few image sets before you run a full screen.
+
+Give the folder with `--configs <folder>`. On Berzelius, see [Before you start](how-to/run-on-hpc.md#before-you-start).
 
 ## Start a local run
 

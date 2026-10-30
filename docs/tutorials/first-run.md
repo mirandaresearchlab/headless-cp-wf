@@ -1,6 +1,7 @@
 # Run a small example
 
 This tutorial uses small crops of your own images to check the complete workflow.
+It uses the example pipelines in `cp-configs`. For other images, [provide your own pipelines](../usage.md#provide-your-own-pipelines).
 
 Prerequisites: complete [installation](../getting-started/installation.md) and activate `cp-headless`.
 You need an image folder with one folder per plate. Each plate needs five channels for sites `A02_s1` and `A03_s1`.

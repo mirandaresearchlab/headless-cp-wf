@@ -100,7 +100,11 @@ Each run wrote 98 table rows to its own results folder.
 - `scripts/berzelius-run-plates.sbatch` (one plate at a time): completed in 15 minutes 40 seconds.
   It ran 3 plates, wrote the `DONE` files and deleted the work folders.
 
-These runs found two problems. Both are fixed and checked again.
+A run with three plates of 17,100 images each stopped on plate 3 because two tasks reached a time limit of 2 hours.
+The failure text in [When a job stops or fails](../how-to/berzelius-faq.md#when-a-job-stops-or-fails) comes from that run.
+The restart of that run, and a `scancel` of the head job, were not tested when the FAQ was written.
+
+The small runs found two problems. Both are fixed and checked again.
 Projects that started from the repository folder shared one session and one results folder.
 The check for free disk space was skipped when `nscquota` gave no answer. The script now tries three times.
 This workspace did not provide Nextflow, Conda, or CellProfiler.

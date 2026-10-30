@@ -36,6 +36,14 @@ You need:
 - A Berzelius account and a project. Run `projinfo` on the login node to see your Slurm account.
 - A copy of this repository in your project folder, `/proj/<project>/users/$USER`.
 - Your images in `/proj`, with one folder per plate. See [usage](../usage.md) for the folder layout.
+- Your own CellProfiler pipelines: `1_illumination.cppipe` and `2_analysis.cppipe`. The files in `cp-configs` are examples for one screen. See [Provide your own pipelines](../usage.md#provide-your-own-pipelines).
+
+The scripts read the pipelines from different places:
+
+| Script | Where it reads the pipelines |
+|---|---|
+| `scripts/berzelius-run.sbatch` and `scripts/berzelius-interactive.sh` | The folder `cp-configs` in the repository. Put your two files in this folder. Keep a copy of the examples first. |
+| `scripts/berzelius-run-plates.sbatch` | The folder in `CONFIGS`, for example `CONFIGS=/proj/<project>/users/$USER/my-pipelines`. The default is `cp-configs`. |
 
 !!! warning "Rules on Berzelius"
     - Do not run CellProfiler or install software on the login node. Use an interactive session or a batch job.
@@ -220,7 +228,7 @@ Make each task run for 15 to 60 minutes. Fewer, longer tasks wait less time in t
 | Setting | Default | Suggestion for a full screen |
 |---|---|---|
 | Batch size | 9 | 9. One task then runs for about 50 minutes. |
-| `--task_time` | 4 hours | 2 hours |
+| `--task_time` | 4 hours | 4 hours. In a benchmark, tasks of a plate with more cells took up to 113 minutes. A limit of 2 hours stopped the run. |
 | `--task_memory` | 6 GB | 7 GB. The largest benchmark task used 5.0 GB. A CPU core comes with about 7.7 GB, so 7 GB still costs one core. |
 | `--max_jobs` | 8 | 64 to 96. This is the number of tasks that run at the same time. All users share the 8 CPU nodes. Ask the group before you use more than 96. |
 
@@ -228,7 +236,7 @@ To change a setting, add it after the batch size:
 
 ```bash
 sbatch -A <account> scripts/berzelius-run.sbatch /proj/<project>/users/$USER/my-images screen01 9 \
-    --task_time 2h --task_memory '7 GB' --max_jobs 96
+    --task_time 4h --task_memory '7 GB' --max_jobs 96
 ```
 
 ### Estimate the run time and the cost
@@ -272,14 +280,15 @@ Submit from the repository folder:
 ```bash
 DATA=/proj/<project>/users/$USER/my-images \
 OUT=/proj/<project>/users/$USER/results/screen01 \
-MAX_JOBS=96 \
+MAX_JOBS=96 TASK_TIME=4h \
 sbatch -A <account> scripts/berzelius-run-plates.sbatch
 ```
 
 `DATA` is the folder with one folder per plate. `OUT` is the results folder.
 To run only some plates, add their folder names at the end of the command.
 The settings `BATCH_SIZE`, `TASK_MEMORY` and `TASK_TIME` work in the same way.
-The defaults are the values in [Choose resources for a full screen](#choose-resources-for-a-full-screen).
+The script uses 9, 7 GB and 2 hours if you do not set them. Set `TASK_TIME=4h`, as in the example.
+See [Choose resources for a full screen](#choose-resources-for-a-full-screen).
 
 For each plate, in alphabetical order, the script does these steps:
 
@@ -343,6 +352,7 @@ Use the same project name. Do not delete the work folder.
 | The project name | All steps. A new name is a new run. |
 
 A batch job stops after 72 hours. Submit the same `sbatch` command again to continue.
+For what happens when a job fails or is killed, see the [FAQ](berzelius-faq.md#when-a-job-stops-or-fails).
 
 ## Fix common problems
 
@@ -355,7 +365,8 @@ A batch job stops after 72 hours. Submit the same `sbatch` command again to cont
 | `Not in a Slurm job` | You ran the interactive script on the login node | Start an interactive session first. |
 | The script shows fewer cores than you expected | The session has fewer cores | Close it and start a new session with a larger `-c`. |
 | Task jobs stay `PENDING` | The CPU nodes are busy | Wait. Run `squeue -u $USER` to see the reason. |
-| Exit status 137 or 143 | The task used too much memory or time | Read `trace.txt`. Increase `--task_memory` or `--task_time` and resume. |
+| Exit status 137 or 143 | The task used too much memory, or Slurm or a user cancelled it | Read `trace.txt`. Increase `--task_memory` and resume. |
+| Exit status 140 | The task reached its time limit | Increase `--task_time` and resume. |
 | `needs about N GiB, but only M GiB is free` | The plate script found too little free space | Free space in the project, then submit the same command again. |
 | `nscquota gave no answer` | `nscquota` failed three times | Check the free space with `nscquota`. The run is not stopped. |
 | `Set DATA ... and OUT` | The plate script needs both settings | Set `DATA` and `OUT` in the command. |

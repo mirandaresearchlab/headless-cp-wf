@@ -7,21 +7,21 @@ The numbers in the answers apply when you use the suggested settings for a full 
 
 ```bash
 sbatch -A <account> scripts/berzelius-run.sbatch <images> <project_name> 9 \
-    --task_memory '7 GB' --task_time 2h --max_jobs 96
+    --task_memory '7 GB' --task_time 4h --max_jobs 96
 ```
 
 ## Cores and memory
 
 ### How many cores and how much memory does each task get?
 
-Each task gets 1 core, 7 GB of memory and a time limit of 2 hours.
+Each task gets 1 core, 7 GB of memory and a time limit of 4 hours.
 Each task runs on one node.
 
 | Setting | Value | Option |
 |---|---|---|
 | Cores | 1 | `--task_cpus` (default 1) |
 | Memory | 7 GB | `--task_memory` (default 6 GB) |
-| Time limit | 2 hours | `--task_time` (default 4 hours) |
+| Time limit | 4 hours | `--task_time` (default 4 hours) |
 
 All five steps get the same values: PREPARE, ILLUMINATION, ANALYSIS, MERGE and CONCAT.
 
@@ -197,6 +197,13 @@ See [Run one plate at a time](run-on-hpc.md#run-one-plate-at-a-time-when-disk-sp
 
 ## Software and setup
 
+### Do I need to provide the CellProfiler pipelines?
+
+Yes. You provide `1_illumination.cppipe` and `2_analysis.cppipe`, made for your images.
+The files in `cp-configs` are examples for one screen with five channels. They may not fit your images.
+The folder must contain exactly these two `.cppipe` files.
+See [Provide your own pipelines](../usage.md#provide-your-own-pipelines) and [Before you start](run-on-hpc.md#before-you-start).
+
 ### Must Nextflow and CellProfiler use the same Python version?
 
 No. Nextflow is a Java program. It does not use Python.
@@ -210,7 +217,90 @@ The `conda` and `mamba` commands are available only after `module load Miniforge
 On Berzelius, `mamba install` also needs the environment path, for example `-p /proj/<project>/users/$USER/envs/cp-headless`.
 See [Set up once](run-on-hpc.md#set-up-once).
 
-## Stopped runs
+## When a job stops or fails
+
+### What happens when a job stops early or fails?
+
+Nextflow keeps the work of every task that finished. The next run reuses it.
+
+| What happened | What happens to the run | What you do |
+|---|---|---|
+| A task fails. For example, it reaches its time limit (exit status 140). | Nextflow stops the run. It cancels the tasks that are still running or waiting. | Find the failed task in the log. Fix the cause. Submit the same command. |
+| Slurm stops a task for memory (exit status 137), or someone cancels a task (exit status 143) | Nextflow tries the task again, up to 2 times, with the same memory. If it fails again, the run stops. | Increase `--task_memory`. Submit the same command. |
+| The head job reaches its 72-hour limit, or you cancel it with `scancel` | The run stops. Finished tasks stay saved. | Run `squeue -u $USER`. Cancel task jobs that remain. Submit the same command. |
+| An interactive session ends | The tasks in the session stop. | Start a new session. Run the same script command again. |
+
+When Nextflow stops after a task failure, it cancels the other tasks.
+The cancelled tasks show `CANCELLED` in `sacct`. They are not errors.
+The head job ends with state `FAILED`.
+Nextflow cancels its task jobs when a task fails. We did not test what happens to the task jobs when you cancel the head job with `scancel`. Check with `squeue`.
+
+### How do I see why a job failed?
+
+Read the end of the log of the head job (`cp-headless-<jobid>.log` or `cp-plates-<jobid>.log`).
+Look for the text `Error executing process`. These lines follow it:
+
+| Line | What it tells you |
+|---|---|
+| `Error executing process > 'ANALYSIS (<plate>/batch_0014)'` | The step and the batch that failed |
+| `terminated with an error exit status (140)` | The exit status |
+| `Work dir:` | The folder with the files of this task. `.command.log` and `.command.err` in it show the output. |
+
+The exit status tells you the cause:
+
+| Exit status | Cause | Fix |
+|---|---|---|
+| 137 | Slurm stopped the task because it used more memory than `--task_memory`. | Increase `--task_memory`. |
+| 140 | The task ran longer than `--task_time`. | Increase `--task_time`. |
+| 143 | Slurm or a user cancelled the task. | Check why. Submit the same command. |
+| Other | The task itself failed. | Read `.command.err` in the work folder. |
+
+To see the job details, run:
+
+```bash
+sacct -u $USER -S today --format=JobID,JobName%40,State,Elapsed,Timelimit,ExitCode
+```
+
+A task that reached its time limit can show `FAILED` and not `TIMEOUT`. Compare `Elapsed` with `Timelimit`.
+If they are almost the same, the task reached its time limit.
+
+### What stays on disk after a failure?
+
+| What | State after a failure |
+|---|---|
+| Work files of the finished tasks | Kept in the work folder. The next run reuses them. |
+| Masks and logs of the finished ANALYSIS tasks | Kept in the results folder. |
+| Final table (`all_plates.csv.gz`) | Not written. MERGE and CONCAT write it at the end of a plate. |
+| `DONE` file of the plate script | Not written. The script writes it only after a plate succeeds. |
+| Work files of the failed plate (plate script) | Kept. The script deletes them only after a plate succeeds. |
+
+The work files use quota. Delete the work folder only when you do not need to resume the run.
+
+### How do I restart after a failure?
+
+1. Fix the cause. For example, increase `--task_time` or `--task_memory`.
+2. Check that the folders from the first run are still there: the work folder and the `-launch` folder.
+3. Submit the same command as before. Change only the setting that caused the failure.
+
+For the plate script, use the same `DATA` and `OUT`. A different `OUT` starts every plate again.
+The script skips the plates that have a `DONE` file and resumes the plate that failed.
+It does not start the next plate while a plate fails.
+
+Changing `--task_time`, `--task_memory` or the number of cores does not make finished tasks run again.
+See [Continue a stopped run](run-on-hpc.md#continue-a-stopped-run) for the changes that do.
+
+### Do I pay for a task that fails?
+
+Yes. Berzelius charges the cores for the time that a job ran, also when it fails or you cancel it.
+A task that reaches a time limit of 2 hours costs 2 hours of one core.
+
+### What happened in a real run?
+
+A run used three plates of 17,100 images each, with `--task_time 2h`.
+Plate 1 and plate 2 finished. Their tasks took 41 to 47 minutes on average.
+The tasks of plate 3 took longer: 57 minutes on average and up to 113 minutes.
+Two tasks reached the 2-hour limit and failed with exit status 140. Nextflow stopped the run and cancelled 93 other tasks.
+133 tasks of plate 3 finished before the stop. A new run with `--task_time 4h` should reuse them. We did not test this yet.
 
 ### If ILLUMINATION is complete and ANALYSIS stops, does ILLUMINATION run again?
 
