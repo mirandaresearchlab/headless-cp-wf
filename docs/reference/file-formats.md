@@ -3,7 +3,8 @@
 Use this reference to check image names and channel assignments.
 
 The filename expression below comes directly from the illumination pipeline.
-PREPARE requires compatible metadata and channel rules in the analysis pipeline.
+`bin/make_samplesheet.py` uses it to read the metadata from file names. The workflow itself does not.
+PREPARE requires the same channel rules in both pipelines.
 
 ```text
 ^(?P<Well>(?P<Row>[A-P])(?P<Column>[0-9]{2}))_s(?P<Site>[0-9]+)_x(?P<X>[0-9]+)_y(?P<Y>[0-9]+)_Fluorescence_(?P<Wavelength>[0-9]+)_nm_Ex\.tiff?$
@@ -19,12 +20,12 @@ PREPARE requires compatible metadata and channel rules in the analysis pipeline.
 
 Images must be unsigned 8-bit or 16-bit grayscale TIFFs with one series and one page.
 The image axes must be YX. Every image within a plate must have the same dimensions.
-With `--images`, the plate name comes from the parent folder after resolving file links.
+For `bin/make_samplesheet.py`, the plate name is the parent folder, after resolving file links.
 
 ## Samplesheet
 
-With `--input`, the samplesheet gives the metadata and the path of each image file.
-The filename expression above is then not used, so the files can have any names and be in any folder.
+The samplesheet (`--input`) gives the metadata and the path of each image file.
+The files can have any names and be in any folder.
 The samplesheet is a CSV file with one row per image file:
 
 ```text
@@ -49,7 +50,7 @@ Do not use the columns `batch`, `plateImageNumber`, `imageNumber`, and `objectNu
 PREPARE checks every row and every file before the first CellProfiler task starts.
 
 Each run writes its samplesheet to `logs/run_inputs/samplesheet.csv`.
-To make a samplesheet from a folder of images, use `bin/cp_inputs.py` (see [helper scripts](cli.md)).
+To make a samplesheet from a folder of images, use `bin/make_samplesheet.py` (see [helper scripts](cli.md)).
 Check the result, delete rows that you do not want, then give it with `--input`.
 
 ## Manifests

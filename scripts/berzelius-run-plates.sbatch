@@ -4,12 +4,10 @@
 # the next plate. The run then needs extra disk space for about one plate, not for all plates.
 #
 # Submit from the repository folder, on the login node:
-#   DATA=<images> OUT=<results> sbatch -A <account> scripts/berzelius-run-plates.sbatch
-#   DATA=<images> OUT=<results> sbatch -A <account> scripts/berzelius-run-plates.sbatch <plate> [...]
-#   SHEET=<samplesheet.csv> OUT=<results> sbatch -A <account> scripts/berzelius-run-plates.sbatch [<plate> ...]
+#   SHEET=<samplesheet.csv> OUT=<results> sbatch -A <account> scripts/berzelius-run-plates.sbatch
+#   SHEET=<samplesheet.csv> OUT=<results> sbatch -A <account> scripts/berzelius-run-plates.sbatch <plate> [...]
 #
-# SHEET a samplesheet CSV with one row per image file (see docs/reference/file-formats.md), or
-# DATA  a folder with one sub-folder per plate. Set one of the two.
+# SHEET samplesheet CSV with one row per image file (see docs/reference/file-formats.md) (required)
 # OUT   folder for the results, one sub-folder per plate (required)
 # The other settings below can be set in the same way, for example MAX_JOBS=96.
 #
@@ -23,13 +21,11 @@
 #SBATCH -o cp-plates-%j.log
 set -euo pipefail
 
-if [[ -z "${OUT:-}" || -z "${DATA:-}${SHEET:-}" || ( -n "${DATA:-}" && -n "${SHEET:-}" ) ]]; then
-    echo "Set OUT (the results folder) and one of SHEET (a samplesheet) or DATA (the plate folders). See the top of this script." >&2
+if [[ -z "${SHEET:-}" || -z "${OUT:-}" || ! -f "${SHEET:-}" ]]; then
+    echo "Set SHEET (a samplesheet file) and OUT (the results folder). See the top of this script." >&2
     exit 1
 fi
-if [[ -n "${SHEET:-}" ]]; then
-    SHEET="$(realpath "$SHEET")"
-fi
+SHEET="$(realpath "$SHEET")"
 
 PROJ="${PROJ:-/proj/berzelius-2025-380/users/$USER}"
 REPO="${REPO:-$SLURM_SUBMIT_DIR}"                       # the workflow (main.nf)
@@ -51,8 +47,8 @@ MAX_JOBS="${MAX_JOBS:-96}"
 CHANNELS="${CHANNELS:-5}"           # images in one image set
 GIB_PER_SET="${GIB_PER_SET:-0.05}"
 
-# With SHEET: print the plates of the samplesheet, or (with a plate name) write the rows of that
-# plate to a new samplesheet. Relative paths become absolute, because the new file is elsewhere.
+# Print the plates of the samplesheet, or (with a plate name) write the rows of that plate to a
+# new samplesheet. Relative paths become absolute, because the new file is elsewhere.
 sheet_plates() {
     python - "$SHEET" "$@" <<'EOF'
 import csv, os, sys
@@ -105,13 +101,11 @@ export NXF_OPTS='-Xms512m -Xmx4g'
 
 if [[ $# -gt 0 ]]; then
     plates=("$@")
-elif [[ -n "${SHEET:-}" ]]; then
+else
     plate_list=$(sheet_plates)          # an assignment, so set -e stops the job if this fails
     mapfile -t plates <<< "$plate_list"
-else
-    mapfile -t plates < <(find "$DATA/" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n' | sort)
 fi
-echo "Job $SLURM_JOB_ID: ${#plates[@]} plates from ${SHEET:-$DATA}, results in $OUT"
+echo "Job $SLURM_JOB_ID: ${#plates[@]} plates from $SHEET, results in $OUT"
 
 for plate in "${plates[@]}"; do
     dir="$OUT/$plate"
@@ -120,25 +114,14 @@ for plate in "${plates[@]}"; do
         continue
     fi
 
-    # Each plate gets its own input: a samplesheet with only its rows, or a folder with a link to its images.
+    # Each plate gets its own samplesheet with only its rows. Replace it only if its rows changed:
+    # a new file time would make Nextflow run PREPARE again, and with it every task.
     mkdir -p "$dir/input" "$dir/launch"
-    if [[ -n "${SHEET:-}" ]]; then
-        # Replace the plate's samplesheet only if its rows changed. A new file time would make
-        # Nextflow run PREPARE again, and with it every task, so -resume would reuse nothing.
-        images=$(sheet_plates "$plate" "$dir/input/samplesheet.new.csv")
-        if cmp -s "$dir/input/samplesheet.new.csv" "$dir/input/samplesheet.csv"; then
-            rm "$dir/input/samplesheet.new.csv"
-        else
-            mv "$dir/input/samplesheet.new.csv" "$dir/input/samplesheet.csv"
-        fi
-        source_opt=(--input "$dir/input/samplesheet.csv")
-    elif [[ -d "$DATA/$plate" ]]; then
-        images=$(find -L "$DATA/$plate" -maxdepth 1 -type f \( -iname '*.tif' -o -iname '*.tiff' \) ! -name '.*' | wc -l)
-        ln -sfn "$(realpath "$DATA/$plate")" "$dir/input/$plate"
-        source_opt=(--images "$dir/input")
+    images=$(sheet_plates "$plate" "$dir/input/samplesheet.new.csv")
+    if cmp -s "$dir/input/samplesheet.new.csv" "$dir/input/samplesheet.csv"; then
+        rm "$dir/input/samplesheet.new.csv"
     else
-        echo "$plate: no folder $DATA/$plate" >&2
-        exit 1
+        mv "$dir/input/samplesheet.new.csv" "$dir/input/samplesheet.csv"
     fi
 
     # A new plate must fit under the quota. A plate that stopped already has part of its files.
@@ -158,9 +141,9 @@ for plate in "${plates[@]}"; do
     # Each plate has its own launch folder, so -resume continues the session of this plate only.
     cd "$dir/launch"
     if ! nextflow run "$REPO" -profile berzelius -resume \
-        "${source_opt[@]}" --configs "$CONFIGS" \
+        --input "$dir/input/samplesheet.csv" --configs "$CONFIGS" \
         --outdir "$dir" --project "$plate" \
-        --nf_work_dir "$dir/work" --conda_cache "$OUT/conda-cache" \
+        --nf_work_dir "$dir/work" \
         --slurm_account "$SLURM_JOB_ACCOUNT" \
         --batch_size "$BATCH_SIZE" --task_memory "$TASK_MEMORY" \
         --task_time "$TASK_TIME" --max_jobs "$MAX_JOBS"; then

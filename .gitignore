@@ -20,3 +20,6 @@ __pycache__/
 
 # docs build
 site/
+
+# Local link to test images (each user makes their own)
+test-images

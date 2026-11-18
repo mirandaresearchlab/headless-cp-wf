@@ -12,7 +12,7 @@ import tifffile
 
 # The scripts in bin/ are not a package. Add the folder to the import path.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bin'))
-from prepare import write_csv
+from cp_inputs import write_csv
 from run_task import realign, validate_analysis
 
 

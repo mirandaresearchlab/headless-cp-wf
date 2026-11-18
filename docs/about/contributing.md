@@ -57,6 +57,26 @@ or micromamba. Set `CP_ENV` to use another environment name or a prefix path.
 A second hook runs the strict documentation build when documentation sources change.
 Run every check by hand with `uvx pre-commit run --all-files`.
 
+## Code layout
+
+The workflow follows the nf-core layout:
+
+| Path | Content |
+|---|---|
+| `main.nf` | Entry point: checks the parameters, chooses the output folder, starts the workflow |
+| `workflows/cellprofiler.nf` | The workflow: how the samplesheet, plates and batches flow through the steps |
+| `modules/local/<step>/main.nf` | One process each: PREPARE, ILLUMINATION, ANALYSIS, MERGE, CONCAT |
+| `nextflow.config` | All parameters, reports and profiles |
+| `conf/base.config` | Process settings for every profile |
+| `conf/local.config`, `conf/berzelius.config` | Executor settings for one profile |
+| `bin/` | Python scripts that the processes run. `cp_inputs.py` is the shared input library |
+| `plugins/` | The SaveLabelMasks CellProfiler module |
+| `scripts/` | Berzelius run scripts and the Parquet conversion |
+| `tests/` | Unit tests and `make_fixture.py` |
+
+Python functions use NumPy-style docstrings. The processes stage `bin/` and `plugins/` as inputs,
+so a change to a script reruns the tasks that use it on `-resume`.
+
 ## Check software changes
 
 In the full `cp-headless` environment, run:
@@ -70,9 +90,11 @@ The input, output, and merge tests can also run with their smaller NumPy/tifffil
 Keep documentation changes with the behavior changes they describe.
 See [pre-commit checks](#pre-commit-checks) to run the full suite automatically before each commit.
 
-For batch-equivalence checks, `tests/benchmark.nf` reuses a completed baseline's illumination files.
-`tests/compare_runs.py` compares masks and gzip feature tables, excluding batch-dependent fields.
-Review their help and source before use. These benchmark runs were not executed during this documentation update.
+The Parquet tests need DuckDB, which `cp-headless` does not have. Without it, pytest skips them. Run them with:
+
+```bash
+uv run --python 3.12 --with duckdb==1.4.1 --with pytest pytest -q tests/test_concat_parquet.py
+```
 
 ## Validation status
 

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Make a small test image folder: 512x512 crops of two real sites per plate.
+"""Make a small test image folder: 1024x1024 crops of two real sites per plate.
 
     python tests/make_fixture.py <images> <new folder>
 
 For each plate it reads the five channel files of sites A02_s1 and A03_s1. It writes the top-left
-512x512 pixels with the original values to <new folder>/<plate>/<same filename>.
+1024x1024 pixels with the original values to <new folder>/<plate>/<same filename>.
+The crops must be more than twice the adaptive threshold window of the analysis pipeline
+(501 pixels), or CellProfiler stops.
 <new folder>.json records the source path, SHA-256 and crop of each file.
 It never changes the source images and stops if the new folder already exists.
 """
@@ -15,17 +17,24 @@ from pathlib import Path
 
 import tifffile
 
+# Crop size in pixels. See the module docstring.
+CROP = 1024
+
 
 def make_fixture(source, destination):
     """Write the crops and the JSON record.
 
-    Args:
-        source: the image folder with one subfolder per plate.
-        destination: the new folder for the crops. It must not exist yet.
+    Parameters
+    ----------
+    source : Path
+        The image folder with one subfolder per plate.
+    destination : Path
+        The new folder for the crops. It must not exist yet.
 
-    Raises:
-        ValueError: if the destination exists, or a plate does not have two complete
-            five-channel sites.
+    Raises
+    ------
+    ValueError
+        If the destination exists, or a plate does not have two complete five-channel sites.
     """
 
     # Never write into an existing folder.
@@ -42,7 +51,7 @@ def make_fixture(source, destination):
             data = tifffile.imread(path)
 
             # Same top-left field region and original intensity values in every channel.
-            cropped = data[:512, :512]
+            cropped = data[:CROP, :CROP]
             out = destination / plate.name / path.name
             out.parent.mkdir(parents=True, exist_ok=True)
             tifffile.imwrite(out, cropped, photometric='minisblack')
@@ -50,7 +59,7 @@ def make_fixture(source, destination):
             # Record where each crop came from, with the checksum of the source.
             records.append({'source': str(path.resolve()), 'output': str(out.resolve()),
                                 'source_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                                'crop': 'y=0:512,x=0:512'})
+                                'crop': f'y=0:{CROP},x=0:{CROP}'})
     destination.with_suffix('.json').write_text(json.dumps(records, indent=2))
     print(f'Created {len(records)} crops in {destination}')
 

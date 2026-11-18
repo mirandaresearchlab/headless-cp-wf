@@ -69,7 +69,7 @@ Do not replace these values with zero without deciding what that means for your 
 
 For large tables, use pandas `read_csv` with `usecols` or `chunksize` to limit memory.
 The gzip output contains multiple gzip members. Python's gzip reader supports this format.
-See the [tested reading pattern](tutorials/first-run.md#4-read-a-few-cell-identifiers).
+See the [tested reading pattern](tutorials/first-run.md#5-read-a-few-cell-identifiers).
 
 ## Match a row to a mask
 

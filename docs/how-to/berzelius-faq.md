@@ -6,7 +6,7 @@ For the steps to run the workflow, see [Run on Berzelius](run-on-hpc.md).
 The numbers in the answers apply when you use the suggested settings for a full screen:
 
 ```bash
-sbatch -A <account> scripts/berzelius-run.sbatch <images> <project_name> 9 \
+sbatch -A <account> scripts/berzelius-run.sbatch <samplesheet.csv> <project_name> 9 \
     --task_memory '7 GB' --task_time 4h --max_jobs 96
 ```
 
@@ -282,7 +282,7 @@ The work files use quota. Delete the work folder only when you do not need to re
 2. Check that the folders from the first run are still there: the work folder and the `-launch` folder.
 3. Submit the same command as before. Change only the setting that caused the failure.
 
-For the plate script, use the same `DATA` and `OUT`. A different `OUT` starts every plate again.
+For the plate script, use the same `SHEET` and `OUT`. A different `OUT` starts every plate again.
 The script skips the plates that have a `DONE` file and resumes the plate that failed.
 It does not start the next plate while a plate fails.
 
