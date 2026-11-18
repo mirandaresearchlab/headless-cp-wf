@@ -48,9 +48,9 @@ def make_fixture(source, destination):
             tifffile.imwrite(out, cropped, photometric='minisblack')
 
             # Record where each crop came from, with the checksum of the source.
-            records.append(dict(source=str(path.resolve()), output=str(out.resolve()),
-                                source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-                                crop='y=0:512,x=0:512'))
+            records.append({'source': str(path.resolve()), 'output': str(out.resolve()),
+                                'source_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                                'crop': 'y=0:512,x=0:512'})
     destination.with_suffix('.json').write_text(json.dumps(records, indent=2))
     print(f'Created {len(records)} crops in {destination}')
 

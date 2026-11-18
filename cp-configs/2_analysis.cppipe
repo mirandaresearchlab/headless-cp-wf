@@ -180,20 +180,20 @@ ImageMath:[module_num:7|svn_version:'Unknown'|variable_revision_number:5|show_wi
     Multiply the image by:1.0
     Measurement:
 
-IdentifyPrimaryObjects:[module_num:8|svn_version:'Unknown'|variable_revision_number:15|show_window:False|notes:['Watershed replacement: Otsu nuclei detection, intensity declumping, diameter 20-80 px. Starting range around the former 40 px expectation. Validate for each assay.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+IdentifyPrimaryObjects:[module_num:8|svn_version:'Unknown'|variable_revision_number:15|show_window:False|notes:['Minimum Cross-Entropy nuclei detection, intensity declumping, diameter 30-120 px, smoothing 20, minimum distance 34. Shape declumping left dense colonies over the size limit, and CellProfiler removed them. Validate for each assay.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
     Select the input image:CorrDNA
     Name the primary objects to be identified:NucleiPaired
-    Typical diameter of objects, in pixel units (Min,Max):20,80
+    Typical diameter of objects, in pixel units (Min,Max):30,120
     Discard objects outside the diameter range?:Yes
     Discard objects touching the border of the image?:No
     Method to distinguish clumped objects:Intensity
     Method to draw dividing lines between clumped objects:Intensity
-    Size of smoothing filter:10
-    Suppress local maxima that are closer than this minimum allowed distance:7.0
+    Size of smoothing filter:20
+    Suppress local maxima that are closer than this minimum allowed distance:34.0
     Speed up by using lower-resolution image to find local maxima?:Yes
     Fill holes in identified objects?:After both thresholding and declumping
-    Automatically calculate size of smoothing filter for declumping?:Yes
-    Automatically calculate minimum allowed distance between local maxima?:Yes
+    Automatically calculate size of smoothing filter for declumping?:No
+    Automatically calculate minimum allowed distance between local maxima?:No
     Handling of objects if excessive number of objects identified:Continue
     Maximum number of objects:500
     Use advanced settings?:Yes
@@ -201,7 +201,7 @@ IdentifyPrimaryObjects:[module_num:8|svn_version:'Unknown'|variable_revision_num
     Threshold strategy:Global
     Thresholding method:Minimum Cross-Entropy
     Threshold smoothing scale:1.3488
-    Threshold correction factor:1.0
+    Threshold correction factor:1.2
     Lower and upper bounds on threshold:0.0,1.0
     Manual threshold:0.0
     Select the measurement to threshold with:None
@@ -216,29 +216,29 @@ IdentifyPrimaryObjects:[module_num:8|svn_version:'Unknown'|variable_revision_num
     # of deviations:2.0
     Thresholding method:Minimum Cross-Entropy
 
-IdentifySecondaryObjects:[module_num:9|svn_version:'Unknown'|variable_revision_number:10|show_window:False|notes:['Nucleus-seeded gradient watershed on the existing mean of CorrAGP and CorrER. Subsequent border filtering is unchanged.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
+IdentifySecondaryObjects:[module_num:9|svn_version:'Unknown'|variable_revision_number:10|show_window:False|notes:['Nucleus-seeded propagation on the existing mean of CorrAGP and CorrER. Adaptive threshold (window 501), so one bright object does not raise the threshold of the whole image. Threshold lowered to include dim cytoplasm, and smoothed for even edges. Subsequent border filtering is unchanged.']|batch_state:array([], dtype=uint8)|enabled:True|wants_pause:False]
     Select the input objects:NucleiPaired
     Name the objects to be identified:CellsPaired
-    Select the method to identify the secondary objects:Watershed - Gradient
+    Select the method to identify the secondary objects:Propagation
     Select the input image:CellBody
     Number of pixels by which to expand the primary objects:10
-    Regularization factor:0.05
+    Regularization factor:0.2
     Discard secondary objects touching the border of the image?:No
     Discard the associated primary objects?:No
     Name the new primary objects:FilteredNuclei
     Fill holes in identified objects?:Yes
     Threshold setting version:12
-    Threshold strategy:Global
+    Threshold strategy:Adaptive
     Thresholding method:Minimum Cross-Entropy
-    Threshold smoothing scale:0.0
-    Threshold correction factor:1.0
+    Threshold smoothing scale:5.0
+    Threshold correction factor:0.7
     Lower and upper bounds on threshold:0.0,1.0
     Manual threshold:0.0
     Select the measurement to threshold with:None
     Two-class or three-class thresholding?:Two classes
     Log transform before thresholding?:No
     Assign pixels in the middle intensity class to the foreground or the background?:Foreground
-    Size of adaptive window:50
+    Size of adaptive window:501
     Lower outlier fraction:0.05
     Upper outlier fraction:0.05
     Averaging method:Mean

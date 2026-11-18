@@ -1,6 +1,6 @@
 # Change a CellProfiler pipeline
 
-Use this procedure when your image naming or analysis settings differ from the supplied pipelines.
+Use this procedure to make your own pipelines. The supplied pipelines are examples for one screen. See [Provide your own pipelines](../usage.md#provide-your-own-pipelines).
 
 This procedure requires CellProfiler 4.2.8.1 and a representative test dataset.
 It was reviewed against PREPARE checks but not executed with a new pipeline during this documentation update.

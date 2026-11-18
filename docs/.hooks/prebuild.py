@@ -5,7 +5,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DESCRIPTIONS = {
-    'images': 'Required image root containing one folder per plate.',
+    'input': 'Samplesheet CSV with one row per image file. Give --input or --images, not both. See file formats.',
+    'images': 'Image root containing one folder per plate. Give --images or --input, not both.',
     'configs': 'Required folder containing the two named pipeline files.',
     'project': 'Output project name. Defaults to the session ID. Existing names owned by another session fall back to that ID.',
     'outdir': 'Parent of projects/. Must keep the resolved output outside the image root.',
@@ -82,7 +83,9 @@ def generate():
         if name == 'merge_features':
             lines += ['', '`one` defines `plate` arguments. `every` defines `all` arguments.', '`command` adds `--out` and `--report` to both subcommands.']
         lines += ['']
-    lines += ['`cp_inputs.py` is an imported validation module, not a command-line interface.', '',
+    lines += ['## cp_inputs.py', '',
+              'Writes a samplesheet for a folder of images. PREPARE also imports its checks.', '',
+              '```bash', 'python bin/cp_inputs.py --images <images> --configs cp-configs --out samplesheet.csv', '```', '',
               'Argument parsing errors return status 2. Successful helpers return status 0.',
               'Uncaught validation errors return a nonzero status. Nextflow treats them as task failures.']
     save('reference/cli.md', lines)
@@ -113,10 +116,32 @@ def generate():
         '| 405 | DNA |', '| 488 | RNA |', '| 561 | AGP |', '| 638 | Mito |', '| 730 | ER |', '',
         'Images must be unsigned 8-bit or 16-bit grayscale TIFFs with one series and one page.',
         'The image axes must be YX. Every image within a plate must have the same dimensions.',
-        'Plate identity comes from the parent folder after resolving file links.', '',
+        'With `--images`, the plate name comes from the parent folder after resolving file links.', '',
+        '## Samplesheet', '',
+        'With `--input`, the samplesheet gives the metadata and the path of each image file.',
+        'The filename expression above is then not used, so the files can have any names and be in any folder.',
+        'The samplesheet is a CSV file with one row per image file:', '',
+        '```text', 'plate,well,site,channel,path',
+        'plate1,A02,1,DNA,/data/plate1/A02_s1_w1.tiff', 'plate1,A02,1,RNA,/data/plate1/A02_s1_w2.tiff', '```', '',
+        '| Column | Required | Meaning |', '|---|---|---|',
+        '| `plate` | Yes | Plate name. It must start with a letter or digit. Other characters may be letters, digits, dots, underscores, or hyphens. |',
+        '| `well` | Yes | Well, for example `A02`. |',
+        '| `site` | Yes | Site (field of view) in the well, for example `1`. |',
+        '| `channel` | Yes | CellProfiler image name from the pipelines, for example `DNA`. See the table above. |',
+        '| `path` | Yes | The TIFF file. A relative path starts from the folder of the samplesheet. |',
+        '| `acquisition` | No | Name of the image set in mask file names and `Metadata_Acquisition`. Default: `<well>_s<site>`. |',
+        '| any other | No | More metadata. A column `x` becomes `Metadata_X` in the per-cell table. |', '',
+        'The rows with the same plate, well, site, and other metadata form one image set.',
+        'Each image set needs exactly one file for each channel of the pipelines.',
+        'Do not use the columns `batch`, `plateImageNumber`, `imageNumber`, and `objectNumber`. The workflow writes them itself.',
+        'PREPARE checks every row and every file before the first CellProfiler task starts.', '',
+        'Each run writes its samplesheet to `logs/run_inputs/samplesheet.csv`.',
+        'To make a samplesheet from a folder of images, use `bin/cp_inputs.py` (see [helper scripts](cli.md)).',
+        'Check the result, delete rows that you do not want, then give it with `--input`.', '',
+        '## Manifests', '',
         'Generated manifests use one CSV row per image set, with metadata and a path/filename pair for each channel.',
-        'The workflow creates these manifests. Users do not supply a separate spreadsheet.', '',
-        'Metadata includes Plate, Well, Row, Column, Site, X, Y, Acquisition, and Batch.',
+        'The workflow creates these manifests from the samplesheet or the image folder.', '',
+        'Metadata includes Plate, Well, Site, the other filename or samplesheet fields (for these images: Row, Column, X, Y), Acquisition, and Batch.',
         'See [input layout](../usage.md) and [output formats](../output.md).'])
 
 

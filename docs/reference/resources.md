@@ -33,7 +33,7 @@ They describe one dataset, not a guarantee for your data or machine.
 The original hardware details were not recorded.
 
 
-Measured on `test-images` (3 plates, 54 image sets, 2500 × 2500 pixels per image):
+Measured on a benchmark dataset (3 plates, 54 image sets, 2500 × 2500 pixels per image):
 
 - **Per image set:** 5.0 to 6.0 minutes of analysis, on 1 CPU. Peak memory is 3.2 to 5.1 GB per task. 90% of the time is spent in measurement modules.
 - **Illumination:** about 4 minutes per plate, or about 12 seconds per image set.
@@ -50,7 +50,7 @@ Small batches can improve parallelism on small datasets, but add task startup ov
 
 ## Disk space
 
-Measured on `test-images`, about 430 cells per image set:
+Measured on the same benchmark dataset, about 430 cells per image set:
 
 | Data | Per image set |
 |---|---|

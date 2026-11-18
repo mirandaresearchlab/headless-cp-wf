@@ -17,6 +17,7 @@ PREPARE validates images and adapts pipelines.
 | `parser` | `--configs` | `type=Path, required=True` |
 | `parser` | `--batch-size` | `type=int, required=True` |
 | `parser` | `--images-list` | `type=Path` |
+| `parser` | `--samplesheet` | `type=Path` |
 | `parser` | `--out` | `type=Path, default=Path('prepared')` |
 
 ## run_task.py
@@ -60,7 +61,13 @@ A one-time conversion utility. The workflow does not call it.
 | `parser` | `source` | `Positional argument` |
 | `parser` | `destination` | `Positional argument` |
 
-`cp_inputs.py` is an imported validation module, not a command-line interface.
+## cp_inputs.py
+
+Writes a samplesheet for a folder of images. PREPARE also imports its checks.
+
+```bash
+python bin/cp_inputs.py --images <images> --configs cp-configs --out samplesheet.csv
+```
 
 Argument parsing errors return status 2. Successful helpers return status 0.
 Uncaught validation errors return a nonzero status. Nextflow treats them as task failures.

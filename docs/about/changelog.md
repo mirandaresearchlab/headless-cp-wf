@@ -2,6 +2,20 @@
 
 This page records the scope of the documentation update.
 
+## Berzelius scripts
+
+- Added `scripts/berzelius-interactive.sh`. It runs the workflow inside an interactive session, for tests.
+- Added `scripts/berzelius-run.sbatch`. It runs Nextflow as a Slurm head job, for full screens.
+- Rewrote [Run on Berzelius](../how-to/run-on-hpc.md): setup, both ways to run, resume and common problems.
+- Added the [Berzelius FAQ](../how-to/berzelius-faq.md): cores, memory, cost and job placement.
+- Added `scripts/berzelius-run-plates.sbatch`. It runs one plate at a time and deletes the work files of each finished plate.
+- Each project now starts Nextflow from its own folder, `$PROJ/runs/<project>-launch`. Before, projects that started from the repository folder shared one session and one results folder.
+- Added the disk space, job check and node questions to the FAQ. Changed the suggested `--max_jobs` to 64 to 96.
+- Added the note that users must provide their own `1_illumination.cppipe` and `2_analysis.cppipe`: README, home page, [usage](../usage.md#provide-your-own-pipelines), the Berzelius guide and the FAQ.
+- Added the FAQ section [When a job stops or fails](../how-to/berzelius-faq.md#when-a-job-stops-or-fails). Changed the suggested `--task_time` to 4 hours, because tasks of a slower plate took up to 113 minutes.
+
+## First documentation update
+
 The MkDocs guide adds installation, a cropped-data tutorial, job diagrams, input and output reference,
 resource planning, cluster instructions, and troubleshooting.
 It replaces incorrect cleanup guidance: both supplied profiles preserve work files.
