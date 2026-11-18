@@ -4,9 +4,10 @@
 # as its own Slurm job on berzelius-cpu, with the same account as the head job.
 #
 # Submit from the repository folder, on the login node:
-#   sbatch -A <account> scripts/berzelius-run.sbatch <images> <project> [batch_size] [extra Nextflow options]
+#   sbatch -A <account> scripts/berzelius-run.sbatch <samplesheet.csv or images> <project> [batch_size] [extra Nextflow options]
 #
-# images      folder with one sub-folder per plate
+# images      a samplesheet CSV (one row per image file, see docs/reference/file-formats.md),
+#             or a folder with one sub-folder per plate
 # project     output name under $PROJ/runs/projects/
 # batch_size  image sets per CellProfiler task (default 9)
 # PROJ and CP_ENV can be set in the environment to override the defaults below.
@@ -21,7 +22,7 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 
 if [[ $# -lt 2 ]]; then
-    echo "Usage: sbatch -A <account> scripts/berzelius-run.sbatch <images> <project> [batch_size] [options]" >&2
+    echo "Usage: sbatch -A <account> scripts/berzelius-run.sbatch <samplesheet.csv or images> <project> [batch_size] [options]" >&2
     exit 1
 fi
 if [[ ! -f main.nf ]]; then
@@ -30,6 +31,14 @@ if [[ ! -f main.nf ]]; then
 fi
 
 images="$(realpath "$1")"
+if [[ -f "$images" ]]; then
+    source_opt=(--input "$images")
+elif [[ -d "$images" ]]; then
+    source_opt=(--images "$images")
+else
+    echo "Not a samplesheet or a folder: $1" >&2
+    exit 1
+fi
 project="$2"
 batch_size="${3:-9}"
 PROJ="${PROJ:-/proj/berzelius-2025-380/users/$USER}"
@@ -52,7 +61,7 @@ cd "$launch"
 echo "Job $SLURM_JOB_ID: account $SLURM_JOB_ACCOUNT, images $images, batch_size $batch_size, project $project"
 
 nextflow run "$repo" -profile berzelius -resume \
-    --images "$images" \
+    "${source_opt[@]}" \
     --configs "$repo/cp-configs" \
     --outdir "$PROJ/runs" --project "$project" \
     --nf_work_dir "$PROJ/runs/$project-work" \

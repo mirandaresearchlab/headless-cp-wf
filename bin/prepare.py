@@ -4,8 +4,11 @@
 The step runs once, before any CellProfiler task. It checks all inputs, so a problem stops the
 run in seconds instead of after hours.
 
-Data in:  every TIFF path (Nextflow stages them as tracked*/), the --configs folder, the batch size.
+Data in:  every TIFF path (Nextflow stages them as tracked*/), the --configs folder, the batch size,
+          and with --input the samplesheet (--samplesheet). Without a samplesheet, the metadata
+          comes from the folder and file names. With one, it comes from the samplesheet columns.
 Data out: the folder 'prepared'. Nextflow publishes it to logs/run_inputs/. It holds:
+  samplesheet.csv                      one row per image file; use it as --input for a new run
   plan.json                            the plates, their images and their batches
   manifests/<plate>/illumination.csv   every image set of the plate (CellProfiler LoadData format)
   manifests/<plate>/batch_NNNN.csv     the image sets of one batch
@@ -24,7 +27,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from cp_inputs import read_config, validate_images
+from cp_inputs import read_config, read_samplesheet, validate_images, write_samplesheet
 
 
 def write_csv(path, rows):
@@ -316,7 +319,7 @@ def adapt(config_dir, output):
     return report
 
 
-def prepare(config_dir, paths, batch_size, destination):
+def prepare(config_dir, paths, batch_size, destination, samplesheet=None):
     """Check the images, write the manifests and plan.json, then write the pipeline copies.
 
     A batch is a run of consecutive image sets from one plate. A batch never splits the
@@ -324,13 +327,32 @@ def prepare(config_dir, paths, batch_size, destination):
 
     Args:
         config_dir: the --configs folder.
-        paths: all TIFF paths of the run.
+        paths: all TIFF paths of the run. With a samplesheet, these are the files that Nextflow
+            staged from it, or an empty list to use the files of the samplesheet.
         batch_size: the number of image sets per analysis batch.
         destination: the output folder ('prepared').
+        samplesheet: the --input samplesheet, or None for a folder run.
     """
     config = read_config(config_dir)
-    image_sets = validate_images(paths, config)
+    if samplesheet is None:
+        image_sets = validate_images(paths, config)
+    else:
+        image_sets = read_samplesheet(samplesheet, config)
+        listed = {Path(p) for s in image_sets for p in s["images"].values()}
+
+        # Nextflow must stage (and so track) exactly the files of the samplesheet.
+        if paths:
+            staged = {Path(p).resolve() for p in paths}
+            if staged != listed:
+                raise ValueError(
+                    f"Staged files differ from the samplesheet: {len(staged - listed)} extra, "
+                    f"{len(listed - staged)} missing, for example {sorted(staged ^ listed)[:3]}"
+                )
+        paths = sorted(listed)
     destination.mkdir(parents=True, exist_ok=True)
+
+    # The samplesheet of this run. Given back with --input, it gives the same image sets.
+    write_samplesheet(destination / "samplesheet.csv", image_sets, config)
     pipelines = destination / "pipelines"
     pipelines.mkdir(exist_ok=True)
 
@@ -418,10 +440,12 @@ if __name__ == "__main__":
     parser.add_argument("--configs", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--images-list", type=Path)
+    parser.add_argument("--samplesheet", type=Path)
     parser.add_argument("--out", type=Path, default=Path("prepared"))
     args = parser.parse_args()
 
-    # Inside Nextflow the images are the staged tracked*/ links. For a manual test, pass a list file.
+    # Inside Nextflow the images are the staged tracked*/ links. For a manual test, pass a list
+    # file, or only a samplesheet.
     paths = (
         [Path(p) for p in args.images_list.read_text().splitlines()]
         if args.images_list
@@ -430,6 +454,6 @@ if __name__ == "__main__":
     try:
         if args.batch_size < 1:
             raise ValueError("Batch size must be positive")
-        prepare(args.configs, paths, args.batch_size, args.out)
+        prepare(args.configs, paths, args.batch_size, args.out, args.samplesheet)
     except (ValueError, StopIteration, KeyError) as error:
         parser.exit(2, f"Input/pipeline validation failed: {error}\n")

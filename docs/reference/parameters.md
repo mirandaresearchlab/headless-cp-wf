@@ -7,7 +7,8 @@ Defaults below are configuration values. Descriptions explain path fallbacks and
 
 | Parameter | Local default | Berzelius default | Meaning |
 |---|---|---|---|
-| `--images` | `null` | `null` | Required image root containing one folder per plate. |
+| `--input` | `null` | `null` | Samplesheet CSV with one row per image file. Give --input or --images, not both. See file formats. |
+| `--images` | `null` | `null` | Image root containing one folder per plate. Give --images or --input, not both. |
 | `--configs` | `null` | `null` | Required folder containing the two named pipeline files. |
 | `--project` | `null` | `null` | Output project name. Defaults to the session ID. Existing names owned by another session fall back to that ID. |
 | `--outdir` | `'.'` | `'.'` | Parent of projects/. Must keep the resolved output outside the image root. |

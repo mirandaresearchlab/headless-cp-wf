@@ -187,10 +187,11 @@ Nextflow submits each CellProfiler task as its own Slurm job on `berzelius-cpu`.
 3. Submit the head job:
 
     ```bash
-    sbatch -A <account> scripts/berzelius-run.sbatch /proj/<project>/users/$USER/my-images screen01 9
+    sbatch -A <account> scripts/berzelius-run.sbatch /proj/<project>/users/$USER/samplesheet.csv screen01 9
     ```
 
-    The arguments are the image folder, the project name and the batch size.
+    The arguments are the samplesheet (or the image folder), the project name and the batch size.
+    See [Prepare the inputs](../usage.md#prepare-the-inputs) to make the samplesheet.
     The batch size is optional. The default is 9.
 
 4. Watch the jobs:
@@ -286,6 +287,9 @@ sbatch -A <account> scripts/berzelius-run-plates.sbatch
 
 `DATA` is the folder with one folder per plate. `OUT` is the results folder.
 To run only some plates, add their folder names at the end of the command.
+To use a samplesheet, set `SHEET=<samplesheet.csv>` instead of `DATA`. The script then runs
+each `plate` of the samplesheet with only its own rows. Not tested yet: a full run in this mode.
+The split of the samplesheet into plates has a test.
 The settings `BATCH_SIZE`, `TASK_MEMORY` and `TASK_TIME` work in the same way.
 The script uses 9, 7 GB and 2 hours if you do not set them. Set `TASK_TIME=4h`, as in the example.
 See [Choose resources for a full screen](#choose-resources-for-a-full-screen).
@@ -382,7 +386,7 @@ Berzelius support: berzelius-support@nsc.liu.se. Give the job ID, the command an
 
     ```bash
     nextflow run . -profile local -resume \
-      --images <images> --configs cp-configs \
+      --input <samplesheet.csv> --configs cp-configs \
       --outdir $PROJ/runs --project <project_name> \
       --nf_work_dir $PROJ/runs/<project_name>-work \
       --total_cpus <cores> --total_memory '<cores x 7> GB' --batch_size 1
@@ -392,7 +396,7 @@ Berzelius support: berzelius-support@nsc.liu.se. Give the job ID, the command an
 
     ```bash
     nextflow run . -profile berzelius -resume \
-      --images <images> --configs cp-configs \
+      --input <samplesheet.csv> --configs cp-configs \
       --outdir $PROJ/runs --project <project_name> \
       --nf_work_dir $PROJ/runs/<project_name>-work \
       --conda_cache $PROJ/runs/conda-cache \

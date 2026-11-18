@@ -15,6 +15,7 @@ A project name already owned by another session also falls back to the session I
 | `illum/<plate>/provenance.json` | ILLUMINATION | Plate identity and SHA-256 correction checksums |
 | `masks/<plate>/*.tiff` | ANALYSIS | Unsigned 32-bit object label masks |
 | `cp_features/all_plates.csv.gz` | CONCAT | Combined per-cell measurements, compressed with gzip |
+| `logs/run_inputs/samplesheet.csv` | PREPARE | One row per image file: metadata, channel, and path. Use it as `--input` for a new run |
 | `logs/run_inputs/plan.json` | PREPARE | Plates, source files, manifests, and batch sizes |
 | `logs/run_inputs/manifests/<plate>/*.csv` | PREPARE | Complete plate and batch image lists |
 | `logs/run_inputs/pipelines/*.cppipe` | PREPARE | Working pipeline copies |

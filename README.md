@@ -17,7 +17,7 @@ The full workflow example was not rerun during this documentation update.
 ```bash
 conda env create -f environment.yml
 conda activate cp-headless
-nextflow run . -profile local --images <images> --configs <configs> --project my_run
+nextflow run . -profile local --input <samplesheet.csv> --configs <configs> --project my_run
 ```
 
 Results go to `projects/my_run/`, unless that name belongs to another run.

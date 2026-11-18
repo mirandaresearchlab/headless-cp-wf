@@ -4,6 +4,39 @@ Use this guide after installing the software and checking the small example.
 
 ## Prepare the inputs
 
+A run needs the two pipeline files and one image input:
+
+- `--input samplesheet.csv`: a CSV file with one row per image file. Each row gives the plate,
+  well, site, channel, and path of one file. The files can have any names and be in any folder.
+- `--images <folder>`: a folder with one sub-folder per plate. The metadata comes from the
+  folder and file names, with the filename rule of the pipelines.
+
+### Samplesheet
+
+```text
+plate,well,site,channel,path
+plate1,A02,1,DNA,/data/plate1/A02_s1_w1.tiff
+plate1,A02,1,RNA,/data/plate1/A02_s1_w2.tiff
+plate1,A02,1,AGP,/data/plate1/A02_s1_w3.tiff
+plate1,A02,1,Mito,/data/plate1/A02_s1_w4.tiff
+plate1,A02,1,ER,/data/plate1/A02_s1_w5.tiff
+```
+
+These five rows form one image set. `channel` is the image name in the pipelines.
+Extra columns become metadata in the per-cell table. All columns are in [file formats](reference/file-formats.md#samplesheet).
+
+You do not have to write the samplesheet by hand. If your files are in plate folders and the
+pipelines can read their names, this command writes it for you:
+
+```bash
+python bin/cp_inputs.py --images images --configs cp-configs --out samplesheet.csv
+```
+
+Open the file and check it. Delete rows to run only some plates, wells, or sites.
+Every run also writes its samplesheet to `logs/run_inputs/samplesheet.csv`.
+
+### Image folder
+
 Store TIFFs exactly one folder below the image root:
 
 ```text
@@ -25,10 +58,12 @@ See [file formats](reference/file-formats.md) for the exact rule.
 
 Plate names must start with a letter or digit. Remaining characters may be letters, digits, dots, underscores, or hyphens.
 Do not name a plate `logs`, `pipelines`, or `manifests`.
-The workflow skips hidden input files. It does not need a metadata spreadsheet.
+The same plate name rules apply to the `plate` column of a samplesheet.
+The workflow skips hidden input files.
 
 You must also provide two CellProfiler pipeline files. See [Provide your own pipelines](#provide-your-own-pipelines).
-The filename rule of the images must match the pipelines.
+With `--images`, the filename rule of the images must match the pipelines.
+With `--input`, the channel names in the samplesheet must match the pipelines.
 
 ## Provide your own pipelines
 
@@ -52,12 +87,13 @@ Give the folder with `--configs <folder>`. On Berzelius, see [Before you start](
 
 ## Start a local run
 
-This is an unexecuted recipe for your data. Replace `images` with your image folder.
+This is an unexecuted recipe for your data. Replace `samplesheet.csv` with your samplesheet.
+For an image folder, use `--images images` instead of `--input samplesheet.csv`.
 Activate `cp-headless` first and run from the repository root.
 
 ```bash
 nextflow run . -profile local \
-  --images images --configs cp-configs \
+  --input samplesheet.csv --configs cp-configs \
   --outdir results --project screen01 \
   --nf_work_dir work-screen01
 ```
@@ -65,7 +101,7 @@ nextflow run . -profile local \
 Expected results go to `results/projects/screen01/`.
 If another session owns that project name, Nextflow warns and uses its session ID instead.
 Always use the output path printed at startup.
-Keep results and work folders outside the image input folder.
+With `--images`, keep results and work folders outside the image input folder.
 
 | Profile | Execution | Environment |
 |---|---|---|
@@ -90,11 +126,13 @@ Template only: replace `SESSION_ID` with the ID from `run.json`.
 
 ```bash
 nextflow run . -profile local \
-  --images images --configs cp-configs \
+  --input samplesheet.csv --configs cp-configs \
   --outdir results --project screen01 \
   --nf_work_dir work-screen01 \
   -resume SESSION_ID
 ```
+
+Do not change the samplesheet before a resume. A changed samplesheet runs PREPARE again, and then every task.
 
 Nextflow can reuse valid cached tasks when their inputs and settings still match.
 Missing work outputs or changed inputs can cause tasks to run again.

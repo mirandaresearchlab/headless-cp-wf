@@ -34,12 +34,14 @@ nextflow.enable.dsl = 2
 
 /*
  * PREPARE: runs once for the whole run.
- * In:   every TIFF path, the two .cppipe files, the helper scripts.
- * Does: extracts metadata from each filename with the pipeline's regex. Checks the channels and
- *       the TIFF layout. Groups files into image sets. Cuts each plate into batches. Writes
- *       working copies of the pipelines that read manifests instead of folders and that save masks.
- * Out:  the folder 'prepared' with plan.json, manifests/<plate>/*.csv and pipelines/.
- *       It is published to logs/run_inputs/.
+ * In:   every TIFF path, the samplesheet (--input; an empty list for --images), the two .cppipe
+ *       files, the helper scripts.
+ * Does: takes the metadata of each file from the samplesheet columns, or with --images from the
+ *       filename with the pipeline's regex. Checks the channels and the TIFF layout. Groups files
+ *       into image sets. Cuts each plate into batches. Writes working copies of the pipelines that
+ *       read manifests instead of folders and that save masks.
+ * Out:  the folder 'prepared' with samplesheet.csv, plan.json, manifests/<plate>/*.csv and
+ *       pipelines/. It is published to logs/run_inputs/.
  */
 process PREPARE {
     publishDir path: { "${destination}/logs" }, mode: 'copy', saveAs: { 'run_inputs' }
@@ -47,6 +49,7 @@ process PREPARE {
     input:
     val destination
     path images, stageAs: 'tracked??????/*'
+    path samplesheet, stageAs: 'input/samplesheet.csv'
     path configs, stageAs: 'config/*'
     path code, stageAs: 'code/*'
     path plugins, stageAs: 'plugins/*'
@@ -55,8 +58,10 @@ process PREPARE {
     path 'prepared'
 
     script:
+    // samplesheet is an empty list for a folder run.
+    def sheet = samplesheet ? "--samplesheet '${samplesheet}'" : ''
     """
-    python code/prepare.py --configs config --batch-size ${params.batch_size}
+    python code/prepare.py --configs config --batch-size ${params.batch_size} ${sheet}
     """
 }
 
@@ -252,8 +257,8 @@ workflow {
 
 
     // Check the parameters before any task starts.
-    if (!params.images || !params.configs) {
-        error('Supply two folders: --images images/ --configs cp-configs/')
+    if (!params.configs || (params.images ? 1 : 0) + (params.input ? 1 : 0) != 1) {
+        error('Supply --configs cp-configs/ and one image input: --input samplesheet.csv or --images images/')
     }
     if (!(params.batch_size.toString() ==~ /[1-9][0-9]*/)) {
         error('--batch_size must be a positive integer')
@@ -267,10 +272,15 @@ workflow {
     if ((params.task_memory as MemoryUnit).toBytes() <= 0) {
         error('--task_memory must be positive')
     }
-    def imageRoot = file(params.images).toRealPath()
+    def sheet = params.input ? file(params.input) : null
+    if (sheet && !sheet.isFile()) {
+        error("--input must be a samplesheet CSV file: ${params.input}")
+    }
+    sheet = sheet?.toRealPath()
+    def imageRoot = params.images ? file(params.images).toRealPath() : null
     def configRoot = file(params.configs).toRealPath()
-    if (!imageRoot.isDirectory() || !configRoot.isDirectory()) {
-        error('Both inputs must be folders')
+    if ((imageRoot && !imageRoot.isDirectory()) || !configRoot.isDirectory()) {
+        error('--images and --configs must be folders')
     }
     def configs = configRoot.listFiles().findAll { config -> config.name.endsWith('.cppipe') }.sort { config -> config.name }
     if (configs*.name != ['1_illumination.cppipe', '2_analysis.cppipe']) {
@@ -287,32 +297,54 @@ workflow {
     def output = outputFolder(true)
 
     // Resolve symlinks in the part of each path that exists, so a linked image folder is still detected.
-    if (realPath(output).startsWith(imageRoot) || realPath(workflow.workDir.toAbsolutePath().normalize()).startsWith(imageRoot)) {
+    // A folder run reads every TIFF below --images, so it must not find its own outputs there.
+    if (imageRoot && (realPath(output).startsWith(imageRoot) || realPath(workflow.workDir.toAbsolutePath().normalize()).startsWith(imageRoot))) {
         error('Output and work directories must be outside the image input folder')
     }
+    def source = sheet ? "--input '${sheet}'" : "--images '${imageRoot}'"
     if (!output.exists()) {
         output.mkdirs()
         output.resolve('run.json').text = groovy.json.JsonOutput.prettyPrint(
             groovy.json.JsonOutput.toJson(
-                [session_id: workflow.sessionId.toString(), project: output.name, images: imageRoot.toString(), configs: configRoot.toString(), nextflow: nextflow.version.toString(), command: workflow.commandLine]
+                [session_id: workflow.sessionId.toString(), project: output.name, images: imageRoot?.toString(), input: sheet?.toString(), configs: configRoot.toString(), nextflow: nextflow.version.toString(), command: workflow.commandLine]
             )
         )
     }
     output.resolve('logs').mkdirs()
-    log.info("Outputs: ${output}\nResume: nextflow run . --images '${imageRoot}' --configs '${configRoot}' --outdir '${output.parent.parent}' --project ${output.name} -resume ${workflow.sessionId}")
+    log.info("Outputs: ${output}\nResume: nextflow run . ${source} --configs '${configRoot}' --outdir '${output.parent.parent}' --project ${output.name} -resume ${workflow.sessionId}")
     def code = files("${projectDir}/bin/*.py")
     def plugins = files("${projectDir}/plugins/*.py")
 
     // Find every TIFF once. The sorted list goes to PREPARE as one item.
     // Nextflow tracks each file, so a changed image reruns the affected tasks on resume.
-    images = channel.fromPath("${imageRoot}/**", type: 'file', hidden: false)
-        .filter { image -> image.name.toLowerCase().endsWith('.tif') || image.name.toLowerCase().endsWith('.tiff') }
-        .map { path ->
-            if (imageRoot.relativize(path).nameCount != 2) {
-                error("Expected images/<plate>/<filename>.tiff: ${path}")
+    if (sheet) {
+        // The files of the samplesheet. A relative path is read from the folder of the samplesheet.
+        // PREPARE checks the rows in full; here only the paths are needed, to stage the files.
+        images = channel.fromPath(sheet)
+            .splitCsv(header: true, strip: true)
+            .map { row ->
+                if (!row.path) {
+                    error("Samplesheet ${sheet.name}: every row needs a value in the column 'path'")
+                }
+                def image = sheet.parent.resolve(row.path.toString())
+                if (!image.exists()) {
+                    error("Samplesheet ${sheet.name}: file not found: ${row.path}")
+                }
+                image
             }
-            path
-        }
+            .unique()
+    }
+    else {
+        images = channel.fromPath("${imageRoot}/**", type: 'file', hidden: false)
+            .filter { image -> image.name.toLowerCase().endsWith('.tif') || image.name.toLowerCase().endsWith('.tiff') }
+            .map { path ->
+                if (imageRoot.relativize(path).nameCount != 2) {
+                    error("Expected images/<plate>/<filename>.tiff: ${path}")
+                }
+                path
+            }
+    }
+    images = images
         .toSortedList()
         .map { paths ->
             if (!paths) {
@@ -320,7 +352,7 @@ workflow {
             }
             paths
         }
-    PREPARE(output.toString(), images, configs, code, plugins)
+    PREPARE(output.toString(), images, sheet ?: [], configs, code, plugins)
     prepared = PREPARE.out
 
     // Read plan.json into a list of plates. Each plate holds its manifest, its images and its batches.
