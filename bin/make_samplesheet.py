@@ -8,6 +8,7 @@ name. The other metadata comes from the filename, read with the regex in the Met
 the pipelines. Hidden files (names that start with a dot, such as macOS ._ files) are skipped.
 Check the result, delete the rows that you do not want, then run the workflow with --input.
 """
+
 import argparse
 import re
 from pathlib import Path
@@ -73,7 +74,6 @@ def images_from_filenames(paths, config):
     pattern = re.compile(config['regex'])
     image_sets = ImageSets(config)
     for source in sorted(paths):
-
         # Follow links to get the real plate folder.
         path = Path(source).resolve()
         plate = path.parent.name
@@ -89,7 +89,7 @@ def images_from_filenames(paths, config):
         # The image set name is the filename up to the end of the last metadata field that is
         # not the channel, e.g. A02_s1_x0_y0 from A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff.
         fields = [g for g in metadata if g != config['channel_field']]
-        name = path.name[:max(match.end(g) for g in fields)] if fields else ''
+        name = path.name[: max(match.end(g) for g in fields)] if fields else ''
 
         # Take the channel out of the metadata. What is left identifies the image set.
         channel = metadata.pop(config['channel_field'])

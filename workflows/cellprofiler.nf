@@ -30,9 +30,9 @@ workflow CELLPROFILER {
     take:
     destination // String: the output folder of this run
     samplesheet // Path: the samplesheet CSV file
-    configs     // List of Path: 1_illumination.cppipe and 2_analysis.cppipe
-    code        // List of Path: the helper scripts in bin/
-    plugins     // List of Path: the CellProfiler plugins in plugins/
+    configs // List of Path: 1_illumination.cppipe and 2_analysis.cppipe
+    code // List of Path: the helper scripts in bin/
+    plugins // List of Path: the CellProfiler plugins in plugins/
 
     main:
     // PREPARE gets every image file of the samplesheet as one sorted list. Nextflow tracks each
@@ -40,7 +40,7 @@ workflow CELLPROFILER {
     PREPARE(destination, samplesheetImages(samplesheet), samplesheet, configs, code, plugins)
     prepared = PREPARE.out
     // Batches per SEGMENT task. 0: 16 on a GPU, 1 on CPUs (see nextflow.config).
-    def groupSize = (params.segmentation_batches as int) ?: (params.segmentation == 'gpu' ? 16 : 1)
+    def groupSize = (params.segmentation_batches as Integer) ?: (params.segmentation == 'gpu' ? 16 : 1)
     plan = prepared.map { dir -> readPlan(dir, groupSize) }
     contract = prepared.map { dir -> dir.resolve('pipelines/contract.json') }
 
@@ -48,7 +48,7 @@ workflow CELLPROFILER {
     plates = plan.flatMap { items -> items.collect { p -> tuple(p.plate, p.manifest, p.images) } }
 
     // One item per batch: (plate, batch, batch manifest, batch images, true if SEGMENT makes its masks).
-    batches = plan.flatMap { items -> items.collectMany { p -> p.batches.collect { b -> tuple(p.plate, b.batch, b.manifest, b.images, p.groups as boolean) } } }
+    batches = plan.flatMap { items -> items.collectMany { p -> p.batches.collect { b -> tuple(p.plate, b.batch, b.manifest, b.images, p.groups as Boolean) } } }
 
     // One item per SEGMENT task: (plate, group, batch manifests, their images). None without RunCellpose.
     groups = plan.flatMap { items -> items.collectMany { p -> p.groups.collect { g -> tuple(p.plate, g.group, g.manifests, g.images) } } }
@@ -72,10 +72,12 @@ workflow CELLPROFILER {
     // The batches of a plate start as soon as the illumination of that plate is complete.
     // With RunCellpose, join() also pairs each batch with its own SEGMENT folder, by plate and batch.
     // It stops the run if a batch has no SEGMENT folder or two of them.
-    ready = batches.combine(ILLUMINATION.out.functions, by: 0).branch { item ->
-        segmented: item[4]
-        plain: true
-    }
+    ready = batches
+        .combine(ILLUMINATION.out.functions, by: 0)
+        .branch { item ->
+            segmented: item[4]
+            plain: true
+        }
     segmented = ready.segmented
         .map { plate, batch, manifest, images, _segmented, functions -> tuple(tuple(plate, batch), plate, batch, manifest, images, functions) }
         .join(masks, failOnMismatch: true, failOnDuplicate: true)
@@ -142,7 +144,7 @@ def samplesheetImages(sheet) {
  * analysis pipeline (contract.segmentation is empty), there are no groups.
  */
 def readPlan(dir, groupSize) {
-    def segmented = new groovy.json.JsonSlurper().parse(dir.resolve('pipelines/contract.json').toFile()).segmentation as boolean
+    def segmented = new groovy.json.JsonSlurper().parse(dir.resolve('pipelines/contract.json').toFile()).segmentation as Boolean
     return new groovy.json.JsonSlurper()
         .parse(dir.resolve('plan.json').toFile())
         .collect { p ->

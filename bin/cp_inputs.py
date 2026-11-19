@@ -19,6 +19,7 @@ column ``acquisition`` names the image set in mask files and in ``Metadata_Acqui
 it, the name is ``<well>_s<site>``. Rows with the same plate, well, site and other metadata form
 one image set.
 """
+
 import ast
 import csv
 import re
@@ -40,6 +41,7 @@ RESERVED = {'Plate', 'Well', 'Site', 'Acquisition', 'Batch', 'PlateImageNumber',
 # ---------------------------------------------------------------------------------------------
 # CSV files
 # ---------------------------------------------------------------------------------------------
+
 
 def read_csv(path):
     """Read a CSV file as a list of dicts, one dict per row.
@@ -81,6 +83,7 @@ def write_csv(path, rows, columns=None):
 # ---------------------------------------------------------------------------------------------
 # Pipeline rules
 # ---------------------------------------------------------------------------------------------
+
 
 def blocks(path):
     """Split a .cppipe file into one block of text per module.
@@ -231,6 +234,7 @@ def read_config(folder):
 # Image files and image sets
 # ---------------------------------------------------------------------------------------------
 
+
 def tiff_shape(path):
     """Read only the TIFF header and return the image shape.
 
@@ -339,12 +343,13 @@ class ImageSets:
         key = tuple(sorted(metadata.items()))
         cp_key = (plate,) + tuple(metadata[k] for k in self.config['keys'])
         if self.matches.setdefault(cp_key, key) != key:
-            raise ValueError(f'{where}: ambiguous image set for CellProfiler keys {self.config["keys"]}: '
-                             f'two image sets share {cp_key} but differ in other metadata')
+            raise ValueError(
+                f'{where}: ambiguous image set for CellProfiler keys {self.config["keys"]}: '
+                f'two image sets share {cp_key} but differ in other metadata'
+            )
         image_set = self.sets.setdefault(key, dict(metadata=metadata, images={}, name=name))
         if image_set['name'] != name:
-            raise ValueError(f'{where}: the files of one image set give different acquisition names: '
-                             f'{image_set["name"]} and {name}')
+            raise ValueError(f'{where}: the files of one image set give different acquisition names: {image_set["name"]} and {name}')
         if channel in image_set['images']:
             raise ValueError(f'{where}: duplicate channel {self.config["channels"][channel]} for {metadata}')
         self.shapes[plate].add(tiff_shape(path))
@@ -364,6 +369,7 @@ class ImageSets:
 # ---------------------------------------------------------------------------------------------
 # Samplesheet
 # ---------------------------------------------------------------------------------------------
+
 
 def metadata_name(column):
     """Return the CellProfiler metadata name of a samplesheet column.
@@ -437,8 +443,9 @@ def check_header(header, sheet, config):
         raise ValueError(f'Two samplesheet columns differ only in the case of the first letter: {columns}')
     absent = [k for k in config['keys'] if metadata_name(k) not in names]
     if absent:
-        raise ValueError(f'The pipelines match channels on {config["keys"]}; the samplesheet needs the columns '
-                         f'{[column_name(k) for k in absent]}')
+        raise ValueError(
+            f'The pipelines match channels on {config["keys"]}; the samplesheet needs the columns {[column_name(k) for k in absent]}'
+        )
     return columns
 
 
@@ -524,7 +531,9 @@ def write_samplesheet(path, image_sets, config):
     first = ['Plate', 'Well', 'Site']
     others = sorted({k for s in image_sets for k in s['metadata']} - set(first))
     columns = [column_name(k) for k in first + others] + ['acquisition', 'channel', 'path']
-    rows = [dict({column_name(k): v for k, v in s['metadata'].items()},
-                 acquisition=s['name'], channel=name, path=s['images'][channel])
-            for s in image_sets for channel, name in config['channels'].items()]
+    rows = [
+        dict({column_name(k): v for k, v in s['metadata'].items()}, acquisition=s['name'], channel=name, path=s['images'][channel])
+        for s in image_sets
+        for channel, name in config['channels'].items()
+    ]
     write_csv(path, rows, columns)

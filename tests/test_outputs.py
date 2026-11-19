@@ -2,6 +2,7 @@
 
 The tests write small fake CellProfiler outputs (CSVs, uint32 masks, mask_manifest.csv).
 """
+
 import sys
 from pathlib import Path
 
@@ -25,8 +26,12 @@ def mask(path, labels, obj):
         obj: the object type, e.g. "Cells".
     """
     import json
-    provenance = dict(object=obj, metadata=dict(Plate='P1', Batch='batch_0001', Acquisition='Site-1'),
-                      source_files={'DNA': dict(file='dna.tiff', folder='/raw')})
+
+    provenance = dict(
+        object=obj,
+        metadata=dict(Plate='P1', Batch='batch_0001', Acquisition='Site-1'),
+        source_files={'DNA': dict(file='dna.tiff', folder='/raw')},
+    )
     tifffile.imwrite(path, labels.astype(np.uint32), description=json.dumps(provenance), metadata=None)
 
 
@@ -48,8 +53,20 @@ def outputs(folder, count='2.0'):
     write_csv(folder / 'features/Cells.csv', [dict(row, ImageNumber='1', ObjectNumber=str(n)) for n in (1, 2)])
     (folder / 'masks').mkdir()
     mask(folder / 'masks/Cells.tiff', np.array([[0, 1], [2, 2]]), 'Cells')
-    write_csv(folder / 'mask_manifest.csv', [dict(Plate='P1', Batch='batch_0001', Acquisition='Site-1',
-              ImageNumber='1', ObjectType='Cells', MaskPath='masks/Cells.tiff', LabelCount='2')])
+    write_csv(
+        folder / 'mask_manifest.csv',
+        [
+            dict(
+                Plate='P1',
+                Batch='batch_0001',
+                Acquisition='Site-1',
+                ImageNumber='1',
+                ObjectType='Cells',
+                MaskPath='masks/Cells.tiff',
+                LabelCount='2',
+            )
+        ],
+    )
     return [loaded]
 
 
@@ -102,16 +119,39 @@ def shifted_outputs(folder):
     # Shifted columns: the values of objects 1, 3, 4 on rows 1, 2, 3. Zernike is aligned already.
     shifted = [area[1], area[3], area[4], 'nan']
     centers = [center[1], center[3], center[4], 'nan']
-    write_csv(folder / 'features/Cytoplasm.csv', [dict(
-        row, ImageNumber='1', ObjectNumber=str(n), AreaShape_Area=str(shifted[n - 1]),
-        AreaShape_Center_X=str(centers[n - 1]), AreaShape_MeanRadius=['1.5', '1.25', '1.0', '0.0'][n - 1],
-        Texture_Contrast_DNA_3_00_256=['0.1', '0.3', '0.4', 'nan'][n - 1],
-        AreaShape_Zernike_0_0=['0.9', '0.0', '0.7', '0.6'][n - 1],
-        Location_Center_X=str(center.get(n, 'nan'))) for n in (1, 2, 3, 4)])
+    write_csv(
+        folder / 'features/Cytoplasm.csv',
+        [
+            dict(
+                row,
+                ImageNumber='1',
+                ObjectNumber=str(n),
+                AreaShape_Area=str(shifted[n - 1]),
+                AreaShape_Center_X=str(centers[n - 1]),
+                AreaShape_MeanRadius=['1.5', '1.25', '1.0', '0.0'][n - 1],
+                Texture_Contrast_DNA_3_00_256=['0.1', '0.3', '0.4', 'nan'][n - 1],
+                AreaShape_Zernike_0_0=['0.9', '0.0', '0.7', '0.6'][n - 1],
+                Location_Center_X=str(center.get(n, 'nan')),
+            )
+            for n in (1, 2, 3, 4)
+        ],
+    )
     (folder / 'masks').mkdir()
     mask(folder / 'masks/Cytoplasm.tiff', labels, 'Cytoplasm')
-    write_csv(folder / 'mask_manifest.csv', [dict(Plate='P1', Batch='batch_0001', Acquisition='Site-1',
-              ImageNumber='1', ObjectType='Cytoplasm', MaskPath='masks/Cytoplasm.tiff', LabelCount='3')])
+    write_csv(
+        folder / 'mask_manifest.csv',
+        [
+            dict(
+                Plate='P1',
+                Batch='batch_0001',
+                Acquisition='Site-1',
+                ImageNumber='1',
+                ObjectType='Cytoplasm',
+                MaskPath='masks/Cytoplasm.tiff',
+                LabelCount='3',
+            )
+        ],
+    )
     return [loaded]
 
 
@@ -125,6 +165,7 @@ def test_shifted_measurements_fail_validation(tmp_path):
 def test_realign_restores_object_rows(tmp_path):
     """Realignment moves shifted values to their objects and leaves aligned columns unchanged."""
     import csv
+
     rows = shifted_outputs(tmp_path)
     corrections = realign(tmp_path, {'objects': ['Cytoplasm']})
 

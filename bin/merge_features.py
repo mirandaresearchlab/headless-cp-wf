@@ -22,6 +22,7 @@ Columns: Metadata_* once, then Image_*, Cells_*, Cytoplasm_*, Nuclei_*.
 Row order: plate image order (Metadata_PlateImageNumber), then cell number.
 The values are copied as text. Nothing is rounded or calculated again.
 """
+
 import argparse
 import contextlib
 import csv
@@ -274,12 +275,18 @@ def merge_plate(plate, manifest, batches, compartments, out):
         raise ValueError('Require uniquely named batch folders')
 
     # Exported table name -> the prefix of its columns in the per-cell table.
-    names = {'Image': 'Image', compartments['cells']: 'Cells', compartments['cytoplasm']: 'Cytoplasm',
-             compartments['nuclei']: 'Nuclei'}
+    names = {'Image': 'Image', compartments['cells']: 'Cells', compartments['cytoplasm']: 'Cytoplasm', compartments['nuclei']: 'Nuclei'}
     headers, columns, last, images = {}, None, (0, 0), []
-    report = dict(plate=plate, batches=[b.name for b in batches], image_sets=len(order), cells=0,
-                  cells_without_nucleus=0, cells_without_cytoplasm=0, nuclei_without_cell=0,
-                  objects=dict(Cells=0, Cytoplasm=0, Nuclei=0))
+    report = dict(
+        plate=plate,
+        batches=[b.name for b in batches],
+        image_sets=len(order),
+        cells=0,
+        cells_without_nucleus=0,
+        cells_without_cytoplasm=0,
+        nuclei_without_cell=0,
+        objects=dict(Cells=0, Cytoplasm=0, Nuclei=0),
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('wb') as raw, contextlib.ExitStack() as rows_member:
         writer = None
@@ -303,7 +310,6 @@ def merge_plate(plate, manifest, batches, compartments, out):
             for number, image_rows in sorted(by_image.items(), key=lambda item: index[item[1]['Image'][0]['Metadata_Acquisition']]):
                 image = image_rows['Image'][0]
                 for cell, part_cyto, part_nucleus in cells_of_image(image_rows, compartments, report):
-
                     # Batches are consecutive slices of the plate manifest, so the key must always
                     # increase. A repeated or smaller key means a duplicate or a wrong batch order.
                     key = (index[image['Metadata_Acquisition']], int(cell['ObjectNumber']))
@@ -312,8 +318,12 @@ def merge_plate(plate, manifest, batches, compartments, out):
                     last = key
 
                     # Metadata first, then Image_*, Cells_*, Cytoplasm_*, Nuclei_*. A missing part stays blank.
-                    parts = {'Image': image, compartments['cells']: cell, compartments['cytoplasm']: part_cyto,
-                             compartments['nuclei']: part_nucleus}
+                    parts = {
+                        'Image': image,
+                        compartments['cells']: cell,
+                        compartments['cytoplasm']: part_cyto,
+                        compartments['nuclei']: part_nucleus,
+                    }
                     row = [image[c] for c in metadata] + [key[0], number, cell['ObjectNumber']]
                     for table in names:
                         row += [parts[table][c] if parts[table] else '' for c in features(headers[table])]
@@ -328,9 +338,11 @@ def merge_plate(plate, manifest, batches, compartments, out):
     # Every object of the plate is in the table once, or is counted as not joined. So the row
     # count can only be the number of cells: no object is lost and no row is repeated.
     objects = report['objects']
-    if (report['cells'] != objects['Cells']
-            or report['cells'] - report['cells_without_nucleus'] + report['nuclei_without_cell'] != objects['Nuclei']
-            or report['cells'] - report['cells_without_cytoplasm'] != objects['Cytoplasm']):
+    if (
+        report['cells'] != objects['Cells']
+        or report['cells'] - report['cells_without_nucleus'] + report['nuclei_without_cell'] != objects['Nuclei']
+        or report['cells'] - report['cells_without_cytoplasm'] != objects['Cytoplasm']
+    ):
         raise ValueError(f'Object accounting failed for plate {plate}: {report}')
     report['columns'] = len(columns)
     return report
@@ -373,8 +385,10 @@ def concatenate(paths, out):
             elif columns != header:
                 missing = [c for c in header if c not in columns]
                 extra = [c for c in columns or [] if c not in header]
-                raise ValueError(f'{path.name}: columns differ from {paths[0].name}; missing {missing[:5]}, '
-                                 f'extra {extra[:5]}, same set but different order: {not missing and not extra}')
+                raise ValueError(
+                    f'{path.name}: columns differ from {paths[0].name}; missing {missing[:5]}, '
+                    f'extra {extra[:5]}, same set but different order: {not missing and not extra}'
+                )
 
             # Skip the compressed header part, then copy the compressed rows unchanged.
             member = header_member(columns)
@@ -403,8 +417,7 @@ def main():
     try:
         if args.command == 'plate':
             compartments = json.loads(args.contract.read_text())['compartments']
-            report = merge_plate(args.plate, args.manifest, [p for p in args.batches.iterdir() if p.is_dir()],
-                                 compartments, args.out)
+            report = merge_plate(args.plate, args.manifest, [p for p in args.batches.iterdir() if p.is_dir()], compartments, args.out)
         else:
             report = concatenate(args.tables, args.out)
     except (ValueError, FileNotFoundError, KeyError) as error:

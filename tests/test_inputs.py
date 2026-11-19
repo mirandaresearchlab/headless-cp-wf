@@ -11,6 +11,7 @@ The tests prove two things:
 
 They use the real cp-configs pipelines and small synthetic TIFFs.
 """
+
 import csv
 import sys
 from pathlib import Path
@@ -42,8 +43,11 @@ def tiff(path, shape=(16, 16)):
 
 def folder_plate(root, plate='P1', sites=(('A02', 1, 0, 0), ('A02', 2, 1, 0), ('B03', 1, 0, 0))):
     """A folder input with real filenames: <root>/<plate>/A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff."""
-    return [tiff(root / plate / f'{well}_s{site}_x{x}_y{y}_Fluorescence_{w}_nm_Ex.tiff')
-            for well, site, x, y in sites for w in WAVELENGTHS.values()]
+    return [
+        tiff(root / plate / f'{well}_s{site}_x{x}_y{y}_Fluorescence_{w}_nm_Ex.tiff')
+        for well, site, x, y in sites
+        for w in WAVELENGTHS.values()
+    ]
 
 
 def write_sheet(path, rows, header=None):
@@ -85,7 +89,6 @@ def make_images(tmp_path, channels=('405', '488', '561', '638', '730')):
     plate.mkdir()
     paths = []
     for channel in channels:
-
         # Same filename pattern as the real images, e.g. A02_s1_x0_y0_Fluorescence_405_nm_Ex.tiff.
         path = plate / f'A02_s1_x0_y0_Fluorescence_{channel}_nm_Ex.tiff'
         tifffile.imwrite(path, np.zeros((16, 16), dtype=np.uint16))
@@ -93,8 +96,8 @@ def make_images(tmp_path, channels=('405', '488', '561', '638', '730')):
     return paths
 
 
-
 # Folder helper: metadata from the filename regex of the pipelines.
+
 
 def test_configuration_uses_real_mapping(config):
     """The channel numbers in the filenames map to the CellProfiler image names of the pipelines."""
@@ -161,6 +164,7 @@ def test_cp_matching_ambiguity_rejected(tmp_path, config):
 def test_configuration_rejects_missing_and_extra_pipelines(tmp_path, config):
     """The config folder must hold exactly the two expected .cppipe files."""
     import shutil
+
     source = Path(__file__).resolve().parents[1] / 'cp-configs'
 
     # Only one pipeline: too few.
@@ -177,6 +181,7 @@ def test_configuration_rejects_missing_and_extra_pipelines(tmp_path, config):
 
 # Samplesheet.
 
+
 def test_samplesheet_gives_the_same_image_sets_as_the_folder(tmp_path, config):
     """Folder -> samplesheet -> image sets: the same metadata, files, names and order as the folder input."""
     paths = folder_plate(tmp_path / 'images') + folder_plate(tmp_path / 'images', 'P2')
@@ -188,8 +193,18 @@ def test_samplesheet_gives_the_same_image_sets_as_the_folder(tmp_path, config):
     # The written sheet has one row per file, and the CellProfiler channel names.
     rows = list(csv.DictReader(sheet.open()))
     assert len(rows) == len(paths)
-    assert rows[0] == dict(plate='P1', well='A02', site='1', column='02', row='A', x='0', y='0',
-                           acquisition='A02_s1_x0_y0', channel='DNA', path=str(paths[0].resolve()))
+    assert rows[0] == dict(
+        plate='P1',
+        well='A02',
+        site='1',
+        column='02',
+        row='A',
+        x='0',
+        y='0',
+        acquisition='A02_s1_x0_y0',
+        channel='DNA',
+        path=str(paths[0].resolve()),
+    )
 
 
 def test_minimal_samplesheet_with_any_filenames(tmp_path, config):
@@ -203,8 +218,7 @@ def test_minimal_samplesheet_with_any_filenames(tmp_path, config):
     assert first['name'] == 'A02_s1'
 
     # The files are keyed by the channel of the pipelines, as for the folder input.
-    assert first['images'] == {w: str((tmp_path / f'scan/P1/img_A02_1_{c.lower()}.tif').resolve())
-                               for c, w in WAVELENGTHS.items()}
+    assert first['images'] == {w: str((tmp_path / f'scan/P1/img_A02_1_{c.lower()}.tif').resolve()) for c, w in WAVELENGTHS.items()}
 
 
 def test_extra_columns_and_acquisition(tmp_path, config):
@@ -218,29 +232,48 @@ def test_extra_columns_and_acquisition(tmp_path, config):
 def test_excel_style_file_is_read(tmp_path, config):
     """A byte-order mark, spaces around values, and empty lines do not change the result."""
     rows = free_names(tmp_path)
-    lines = ['plate , well , site , channel , path'] + [
-        f' {r["plate"]} , {r["well"]} , {r["site"]} , {r["channel"]} , {r["path"]} ' for r in rows] + ['', ',,,,']
+    lines = (
+        ['plate , well , site , channel , path']
+        + [f' {r["plate"]} , {r["well"]} , {r["site"]} , {r["channel"]} , {r["path"]} ' for r in rows]
+        + ['', ',,,,']
+    )
     sheet = tmp_path / 's.csv'
     sheet.write_text('﻿' + '\n'.join(lines) + '\n', encoding='utf-8')
     [image_set] = read_samplesheet(sheet, config)
     assert image_set['metadata'] == dict(Plate='P1', Well='A02', Site='1')
 
 
-@pytest.mark.parametrize('change, message', [
-    (lambda rows: [{k: v for k, v in r.items() if k != 'site'} for r in rows], r"missing the columns \['site'\]"),
-    (lambda rows: [dict(r, channel='Actin') if r['channel'] == 'ER' else r for r in rows], "unknown channel 'Actin'.*DNA"),
-    (lambda rows: rows[:-1], r"missing channels \['730'\]"),
-    (lambda rows: rows + [dict(rows[0], path=rows[1]['path'])], 'already on line'),
-    (lambda rows: rows + [rows[0]], 'already on line'),
-    (lambda rows: [dict(r, path='scan/P1/none.tif') if r['channel'] == 'RNA' else r for r in rows], 'line 3: file not found'),
-    (lambda rows: [dict(r, well='') if r['channel'] == 'AGP' else r for r in rows], r"line 4: empty value in \['well'\]"),
-    (lambda rows: [dict(r, plate='../x') for r in rows], 'unsafe or reserved plate name'),
-    (lambda rows: [dict(r, batch='b1') for r in rows], "column 'batch' is reserved"),
-    (lambda rows: [dict(r, Batch='b1') for r in rows], "column 'Batch' is reserved"),
-    (lambda rows: [dict(r, x='1', X='1') for r in rows], 'differ only in the case'),
-    (lambda rows: [dict(r, acquisition=f'n{i}') for i, r in enumerate(rows)], 'different acquisition names'),
-], ids=['missing column', 'unknown channel', 'missing channel', 'file twice', 'row twice', 'missing file',
-        'empty value', 'unsafe plate', 'reserved column', 'reserved capital', 'case clash', 'two names'])
+@pytest.mark.parametrize(
+    'change, message',
+    [
+        (lambda rows: [{k: v for k, v in r.items() if k != 'site'} for r in rows], r"missing the columns \['site'\]"),
+        (lambda rows: [dict(r, channel='Actin') if r['channel'] == 'ER' else r for r in rows], "unknown channel 'Actin'.*DNA"),
+        (lambda rows: rows[:-1], r"missing channels \['730'\]"),
+        (lambda rows: rows + [dict(rows[0], path=rows[1]['path'])], 'already on line'),
+        (lambda rows: rows + [rows[0]], 'already on line'),
+        (lambda rows: [dict(r, path='scan/P1/none.tif') if r['channel'] == 'RNA' else r for r in rows], 'line 3: file not found'),
+        (lambda rows: [dict(r, well='') if r['channel'] == 'AGP' else r for r in rows], r"line 4: empty value in \['well'\]"),
+        (lambda rows: [dict(r, plate='../x') for r in rows], 'unsafe or reserved plate name'),
+        (lambda rows: [dict(r, batch='b1') for r in rows], "column 'batch' is reserved"),
+        (lambda rows: [dict(r, Batch='b1') for r in rows], "column 'Batch' is reserved"),
+        (lambda rows: [dict(r, x='1', X='1') for r in rows], 'differ only in the case'),
+        (lambda rows: [dict(r, acquisition=f'n{i}') for i, r in enumerate(rows)], 'different acquisition names'),
+    ],
+    ids=[
+        'missing column',
+        'unknown channel',
+        'missing channel',
+        'file twice',
+        'row twice',
+        'missing file',
+        'empty value',
+        'unsafe plate',
+        'reserved column',
+        'reserved capital',
+        'case clash',
+        'two names',
+    ],
+)
 def test_bad_samplesheet_stops_the_run(tmp_path, config, change, message):
     """Each kind of mistake stops the run before any CellProfiler task, and the message says where."""
     rows = change(free_names(tmp_path))
@@ -288,6 +321,7 @@ def test_prepare_stops_if_staged_files_differ_from_samplesheet(tmp_path):
     """PREPARE checks that Nextflow staged exactly the files of the samplesheet, so every file is tracked.
     The check runs before CellProfiler is loaded."""
     from prepare import prepare
+
     rows = free_names(tmp_path)
     sheet = write_sheet(tmp_path / 's.csv', rows)
     staged = [tmp_path / r['path'] for r in rows[:-1]] + [tiff(tmp_path / 'stray.tif')]

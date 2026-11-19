@@ -5,6 +5,7 @@ that decide correctness and order: how the image sets are cut between the worker
 masks of all workers are checked and sorted into one folder per batch. They need only NumPy,
 tifffile and pytest.
 """
+
 import json
 import sys
 from pathlib import Path
@@ -31,9 +32,15 @@ def test_split_keeps_every_row_once_in_order(rows, workers):
 
 def manifest_row(batch, acquisition):
     """One manifest row, as SEGMENT has it after the illumination files were added."""
-    return dict(Metadata_Plate='P1', Metadata_Batch=batch, Metadata_Acquisition=acquisition,
-                FileName_DNA=f'{acquisition}_dna.tiff', PathName_DNA='/raw/P1',
-                FileName_IllumDNA='IllumDNA.npy', PathName_IllumDNA='/illum/P1')
+    return dict(
+        Metadata_Plate='P1',
+        Metadata_Batch=batch,
+        Metadata_Acquisition=acquisition,
+        FileName_DNA=f'{acquisition}_dna.tiff',
+        PathName_DNA='/raw/P1',
+        FileName_IllumDNA='IllumDNA.npy',
+        PathName_IllumDNA='/illum/P1',
+    )
 
 
 # Three image sets in two batches. Worker 1 gets the first two, worker 2 the last one.
@@ -58,14 +65,26 @@ def worker_output(folder, rows, obj='Nuclei', change=None):
         labels = np.zeros((4, 4), np.uint32)
         count = ROWS.index(row) + 1
         labels.flat[:count] = np.arange(1, count + 1)
-        provenance = dict(object=obj, metadata={k[len('Metadata_'):]: v for k, v in row.items() if k.startswith('Metadata_')},
-                          source_files={n: dict(file=row['FileName_' + n], folder=row['PathName_' + n]) for n in ('DNA', 'IllumDNA')})
+        provenance = dict(
+            object=obj,
+            metadata={k[len('Metadata_') :]: v for k, v in row.items() if k.startswith('Metadata_')},
+            source_files={n: dict(file=row['FileName_' + n], folder=row['PathName_' + n]) for n in ('DNA', 'IllumDNA')},
+        )
         if change:
             change(row, provenance)
         name = f'{row["Metadata_Acquisition"]}_{obj}.tiff'
         tifffile.imwrite(folder / 'masks' / name, labels, description=json.dumps(provenance), metadata=None)
-        entries.append(dict(Plate='P1', Batch=row['Metadata_Batch'], Acquisition=row['Metadata_Acquisition'],
-                            ImageNumber=str(number), ObjectType=obj, MaskPath='masks/' + name, LabelCount=str(count)))
+        entries.append(
+            dict(
+                Plate='P1',
+                Batch=row['Metadata_Batch'],
+                Acquisition=row['Metadata_Acquisition'],
+                ImageNumber=str(number),
+                ObjectType=obj,
+                MaskPath='masks/' + name,
+                LabelCount=str(count),
+            )
+        )
     write_csv(folder / 'mask_manifest.csv', entries, list(entries[0]))
 
 
@@ -81,7 +100,12 @@ def test_masks_go_to_their_own_batch(tmp_path):
     labels = tifffile.imread(tmp_path / 'out/batch_0002/masks/A02_s1_Nuclei.tiff')
     assert labels.max() == 3 and labels.dtype == np.uint32
     validation = json.loads((tmp_path / 'out/batch_0002/validation.json').read_text())
-    assert (validation['plate'], validation['batch'], validation['segment'], validation['image_sets']) == ('P1', 'batch_0002', 'segment_0001', 1)
+    assert (validation['plate'], validation['batch'], validation['segment'], validation['image_sets']) == (
+        'P1',
+        'batch_0002',
+        'segment_0001',
+        1,
+    )
     assert summary['masks'] == 3
 
 
@@ -100,12 +124,15 @@ def test_mask_saved_twice_stops_segment(tmp_path):
         collect_masks([tmp_path / 'w1', tmp_path / 'w2'], ROWS, ['Nuclei'], tmp_path / 'out', 'P1', 'segment_0001')
 
 
-@pytest.mark.parametrize('change', [
-    lambda row, p: p['metadata'].update(Acquisition='A09_s9'),
-    lambda row, p: p['source_files']['DNA'].update(file='other.tiff'),
-    lambda row, p: p['source_files']['IllumDNA'].update(folder='/illum/P2'),
-    lambda row, p: p.update(object='Cells'),
-])
+@pytest.mark.parametrize(
+    'change',
+    [
+        lambda row, p: p['metadata'].update(Acquisition='A09_s9'),
+        lambda row, p: p['source_files']['DNA'].update(file='other.tiff'),
+        lambda row, p: p['source_files']['IllumDNA'].update(folder='/illum/P2'),
+        lambda row, p: p.update(object='Cells'),
+    ],
+)
 def test_mask_of_other_files_stops_segment(tmp_path, change):
     """A mask must name its image set and exactly the raw images and illumination files of that image set."""
     worker_output(tmp_path / 'w1', ROWS, change=lambda row, p: change(row, p) if row is ROWS[1] else None)

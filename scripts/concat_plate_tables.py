@@ -39,6 +39,7 @@ The plate tables stay where they are. Next to the output, the script writes <nam
 
 Run it as a Slurm job, not on the login node: scripts/berzelius-concat-parquet.sbatch.
 """
+
 import argparse
 import csv
 import gzip
@@ -55,8 +56,14 @@ TABLE = Path('cp_features') / 'all_plates.csv.gz'
 # nan and inf come from CellProfiler. An empty field is a Cytoplasm column of a cell without a cytoplasm.
 NULL_TOKENS = ['', 'nan', 'NaN', '-nan', 'inf', '-inf', 'Inf', '-Inf', 'Infinity', '-Infinity']
 TEXT_PREFIXES = ('Metadata_', 'Image_FileName_', 'Image_PathName_', 'Image_URL_', 'Image_MD5Digest_')
-INTEGER_METADATA = {'Metadata_Site', 'Metadata_X', 'Metadata_Y', 'Metadata_PlateImageNumber',
-                    'Metadata_ImageNumber', 'Metadata_ObjectNumber'}
+INTEGER_METADATA = {
+    'Metadata_Site',
+    'Metadata_X',
+    'Metadata_Y',
+    'Metadata_PlateImageNumber',
+    'Metadata_ImageNumber',
+    'Metadata_ObjectNumber',
+}
 
 # Rows per Parquet row group. About 4,000 columns x 10,000 rows x 8 bytes = 320 MB for each writer.
 ROW_GROUP_SIZE = 10_000
@@ -171,8 +178,7 @@ def read_csv_sql(sources, schema):
     columns = '{' + ', '.join(f'{sql_text(name)}: {sql_text(dtype)}' for name, dtype in schema.items()) + '}'
     files = '[' + ', '.join(sql_text(str(path)) for path in sources) + ']'
     nulls = '[' + ', '.join(sql_text(token) for token in NULL_TOKENS) + ']'
-    return (f"read_csv({files}, compression = 'gzip', header = true, auto_detect = false, "
-            f"columns = {columns}, nullstr = {nulls})")
+    return f"read_csv({files}, compression = 'gzip', header = true, auto_detect = false, columns = {columns}, nullstr = {nulls})"
 
 
 def convert(con, sources, target, schema):
@@ -200,32 +206,44 @@ def convert(con, sources, target, schema):
 # Cytoplasm_Parent_Cells may be 0: CellProfiler gives 0 when the cytoplasm has no parent.
 IDENTITY = [
     # (what is wrong, columns needed, SQL condition that is true for a wrong row)
-    ('Cells_ObjectNumber differs from the cell number', ('Cells_ObjectNumber',),
-     'Cells_ObjectNumber IS DISTINCT FROM Metadata_ObjectNumber'),
-    ('Cells_Number_Object_Number differs from the cell number', ('Cells_Number_Object_Number',),
-     'Cells_Number_Object_Number IS DISTINCT FROM Metadata_ObjectNumber'),
-    ('Cytoplasm_ObjectNumber differs from the cell number', ('Cytoplasm_ObjectNumber',),
-     'Cytoplasm_ObjectNumber <> Metadata_ObjectNumber'),
-    ('Cytoplasm_Parent_Cells is another cell', ('Cytoplasm_Parent_Cells',),
-     'Cytoplasm_Parent_Cells NOT IN (Metadata_ObjectNumber, 0)'),
-    ('Nuclei_Parent_Cells is another cell', ('Nuclei_Parent_Cells',),
-     'Nuclei_Parent_Cells <> Metadata_ObjectNumber'),
-    ('Cells_Children_Nuclei_Count disagrees with the nucleus columns', ('Cells_Children_Nuclei_Count', 'Nuclei_ObjectNumber'),
-     'Cells_Children_Nuclei_Count <> (Nuclei_ObjectNumber IS NOT NULL)::INTEGER'),
+    (
+        'Cells_ObjectNumber differs from the cell number',
+        ('Cells_ObjectNumber',),
+        'Cells_ObjectNumber IS DISTINCT FROM Metadata_ObjectNumber',
+    ),
+    (
+        'Cells_Number_Object_Number differs from the cell number',
+        ('Cells_Number_Object_Number',),
+        'Cells_Number_Object_Number IS DISTINCT FROM Metadata_ObjectNumber',
+    ),
+    ('Cytoplasm_ObjectNumber differs from the cell number', ('Cytoplasm_ObjectNumber',), 'Cytoplasm_ObjectNumber <> Metadata_ObjectNumber'),
+    ('Cytoplasm_Parent_Cells is another cell', ('Cytoplasm_Parent_Cells',), 'Cytoplasm_Parent_Cells NOT IN (Metadata_ObjectNumber, 0)'),
+    ('Nuclei_Parent_Cells is another cell', ('Nuclei_Parent_Cells',), 'Nuclei_Parent_Cells <> Metadata_ObjectNumber'),
+    (
+        'Cells_Children_Nuclei_Count disagrees with the nucleus columns',
+        ('Cells_Children_Nuclei_Count', 'Nuclei_ObjectNumber'),
+        'Cells_Children_Nuclei_Count <> (Nuclei_ObjectNumber IS NOT NULL)::INTEGER',
+    ),
 ]
 
 # Position checks. They do not stop the conversion, because a correct segmentation can break
 # them in rare cases. The report gives their counts. On the test plate all counts were 0.
 _BOX = 'Cells_AreaShape_BoundingBox{}_{}'
 GEOMETRY = [
-    ('nucleus centre outside the cell bounding box',
-     ('Nuclei_Location_Center_X', 'Nuclei_Location_Center_Y') + tuple(_BOX.format(m, a) for m in ('Minimum', 'Maximum') for a in 'XY'),
-     ' OR '.join(f'Nuclei_Location_Center_{a} {op} {_BOX.format(m, a)}'
-                 for a in 'XY' for op, m in (('<', 'Minimum'), ('>', 'Maximum')))),
-    ('cytoplasm bounding box outside the cell bounding box',
-     tuple(f'{o}_AreaShape_BoundingBox{m}_{a}' for o in ('Cells', 'Cytoplasm') for m in ('Minimum', 'Maximum') for a in 'XY'),
-     ' OR '.join(f'Cytoplasm_AreaShape_BoundingBox{m}_{a} {op} {_BOX.format(m, a)}'
-                 for a in 'XY' for op, m in (('<', 'Minimum'), ('>', 'Maximum')))),
+    (
+        'nucleus centre outside the cell bounding box',
+        ('Nuclei_Location_Center_X', 'Nuclei_Location_Center_Y') + tuple(_BOX.format(m, a) for m in ('Minimum', 'Maximum') for a in 'XY'),
+        ' OR '.join(f'Nuclei_Location_Center_{a} {op} {_BOX.format(m, a)}' for a in 'XY' for op, m in (('<', 'Minimum'), ('>', 'Maximum'))),
+    ),
+    (
+        'cytoplasm bounding box outside the cell bounding box',
+        tuple(f'{o}_AreaShape_BoundingBox{m}_{a}' for o in ('Cells', 'Cytoplasm') for m in ('Minimum', 'Maximum') for a in 'XY'),
+        ' OR '.join(
+            f'Cytoplasm_AreaShape_BoundingBox{m}_{a} {op} {_BOX.format(m, a)}'
+            for a in 'XY'
+            for op, m in (('<', 'Minimum'), ('>', 'Maximum'))
+        ),
+    ),
 ]
 
 
@@ -266,8 +284,9 @@ def check_order(con, path, plates):
         ORDER BY r LIMIT 1
     """).fetchone()
     if bad:
-        raise ValueError(f'{path.name}: row {bad[0]} (plate position, image, cell) = {bad[1:4]} '
-                         f'does not come after the row before it, {bad[4:7]}')
+        raise ValueError(
+            f'{path.name}: row {bad[0]} (plate position, image, cell) = {bad[1:4]} does not come after the row before it, {bad[4:7]}'
+        )
 
 
 def check_content(con, path, plates, schema):
@@ -295,10 +314,10 @@ def check_content(con, path, plates, schema):
         If a plate differs.
     """
     query = 'SELECT Metadata_Plate, count(*), sum(hash(t)) FROM {} t GROUP BY Metadata_Plate'
-    expected = dict((p, (n, h)) for p, n, h in
-                    con.execute(query.format(read_csv_sql([table for _, table, _ in plates], schema))).fetchall())
-    found = dict((p, (n, h)) for p, n, h in
-                 con.execute(query.format(f'read_parquet({sql_text(str(path))})')).fetchall())
+    expected = dict(
+        (p, (n, h)) for p, n, h in con.execute(query.format(read_csv_sql([table for _, table, _ in plates], schema))).fetchall()
+    )
+    found = dict((p, (n, h)) for p, n, h in con.execute(query.format(f'read_parquet({sql_text(str(path))})')).fetchall())
     differ = sorted(p for p in expected.keys() | found.keys() if expected.get(p) != found.get(p))
     if differ:
         raise ValueError(f'{path.name}: row values differ from the CSV for plate(s) {differ}')
@@ -391,7 +410,7 @@ def check(con, path, plates, header, schema):
     # The null tokens turned NaN and inf into nulls. A full scan proves that none is left.
     doubles = [name for name, dtype in schema.items() if dtype == 'DOUBLE']
     for start in range(0, len(doubles), 500):
-        batch = doubles[start:start + 500]
+        batch = doubles[start : start + 500]
         select = ', '.join(f'count(*) FILTER (WHERE isnan("{c}") OR isinf("{c}"))' for c in batch)
         bad = {c: n for c, n in zip(batch, con.execute(f'SELECT {select} FROM {source}').fetchone()) if n}
         if bad:
@@ -407,9 +426,11 @@ def main():
     """Parse the arguments, convert the plate tables, and write the reports. Exit with a message on an error."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('results', type=Path, help='the OUT folder of the plate-by-plate run')
-    parser.add_argument('--out', type=Path,
-                        help='output file (default: <results>/all_plates.parquet), or folder with --per-plate '
-                             '(default: <results>/parquet)')
+    parser.add_argument(
+        '--out',
+        type=Path,
+        help='output file (default: <results>/all_plates.parquet), or folder with --per-plate (default: <results>/parquet)',
+    )
     parser.add_argument('--per-plate', action='store_true', help='write one Parquet file per plate into a folder')
     parser.add_argument('--threads', type=int, default=4, help='DuckDB threads (default: 4)')
     parser.add_argument('--memory', default='16GB', help='DuckDB memory limit; data above it spills to disk (default: 16GB)')
@@ -428,8 +449,10 @@ def main():
                 raise ValueError(f'{plate}: columns differ from {tables[0][0]}')
         schema = {name: column_type(name) for name in header}
         size = sum(table.stat().st_size for _, table, _ in tables)
-        print(f'{len(tables)} plates, {sum(c for *_, c in tables):,} cells, {len(header)} columns, '
-              f'{size / 2**30:.1f} GiB of CSV. The Parquet output needs about 60% of that space.')
+        print(
+            f'{len(tables)} plates, {sum(c for *_, c in tables):,} cells, {len(header)} columns, '
+            f'{size / 2**30:.1f} GiB of CSV. The Parquet output needs about 60% of that space.'
+        )
 
         # One target per output file: (final path, plates in it).
         if args.per_plate:
@@ -461,9 +484,13 @@ def main():
                         writer.writerow(['column', 'n_null'])
                         writer.writerows(sorted(nulls.items(), key=lambda item: -item[1]))
                     report['files'][str(target)] = {
-                        'cells': {plate: cells for plate, _, cells in plates}, 'columns': len(header),
-                        'columns_with_nulls': sum(n > 0 for n in nulls.values()), 'bytes': target.stat().st_size,
-                        'order_and_values_match_csv': True, 'rows_breaking_cell_checks': cell_checks}
+                        'cells': {plate: cells for plate, _, cells in plates},
+                        'columns': len(header),
+                        'columns_with_nulls': sum(n > 0 for n in nulls.values()),
+                        'bytes': target.stat().st_size,
+                        'order_and_values_match_csv': True,
+                        'rows_breaking_cell_checks': cell_checks,
+                    }
                     print(f'  {target.name}: {target.stat().st_size / 2**30:.1f} GiB, checks passed', flush=True)
                     for name, n in cell_checks.items():
                         if n:

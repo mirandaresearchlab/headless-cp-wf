@@ -1,0 +1,25 @@
+# Ruff settings for the Python code: bin/, plugins/, scripts/, tests/ and docs/.hooks/.
+# The pre-commit hooks run `ruff check --fix` and `ruff format` on changed files.
+# Run both by hand with: uvx ruff@0.17.4 check --fix . && uvx ruff@0.17.4 format .
+
+# The cp-headless environment has Python 3.9. Rules that need newer Python stay off.
+target-version = "py39"
+
+# The vendored RunCellpose plugin keeps the upstream style, so its diff to upstream stays small.
+extend-exclude = [".claude", "plugins/runcellpose.py"]
+
+# The longest lines of the code were about 140 characters before the formatter was added.
+line-length = 140
+
+[format]
+# Keep the quotes of each file (single quotes in bin/, double quotes in the plugins).
+quote-style = "preserve"
+
+[lint]
+# Errors only: syntax errors, undefined or unused names (pyflakes), statements that pycodestyle
+# reports as errors, and likely bugs (flake8-bugbear). No style or formatting rules.
+select = ["E4", "E7", "E9", "F", "B"]
+
+[lint.per-file-ignores]
+# The tests start CellProfiler without a screen before they import modules that load it.
+"tests/*" = ["E402"]

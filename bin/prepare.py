@@ -18,6 +18,7 @@ Data out: the folder 'prepared'. Nextflow publishes it to logs/run_inputs/. It h
 
 The original .cppipe files do not change.
 """
+
 import argparse
 import hashlib
 import importlib.metadata
@@ -106,8 +107,10 @@ def check_illumination(modules):
     calculated = {m.illumination_image_name.value: m.image_name.value for m in calculations}
     if len(calculated) != len(calculations):
         raise ValueError('Duplicate illumination function names')
-    if any(m.each_or_all.value != 'All: Across cycles' or m.show_window or m.save_average_image.value
-           or m.save_dilated_image.value for m in calculations):
+    if any(
+        m.each_or_all.value != 'All: Across cycles' or m.show_window or m.save_average_image.value or m.save_dilated_image.value
+        for m in calculations
+    ):
         raise ValueError('Illumination must accumulate across cycles without intermediate calculation/display')
     for module in saves:
         if module.when_to_save.value != 'Last cycle' or module.file_format.value != 'npy':
@@ -173,9 +176,11 @@ def check_analysis(modules):
     tertiary = [m for m in modules if m.module_name == 'IdentifyTertiaryObjects']
     if len(tertiary) != 1:
         raise ValueError('A per-cell feature table requires exactly one IdentifyTertiaryObjects module')
-    compartments = dict(cells=tertiary[0].secondary_objects_name.value,
-                        nuclei=tertiary[0].primary_objects_name.value,
-                        cytoplasm=tertiary[0].subregion_objects_name.value)
+    compartments = dict(
+        cells=tertiary[0].secondary_objects_name.value,
+        nuclei=tertiary[0].primary_objects_name.value,
+        cytoplasm=tertiary[0].subregion_objects_name.value,
+    )
     return corrections, compartments
 
 
@@ -200,15 +205,15 @@ def check_cellpose(module):
     """
     name = module.y_name.value
     if module.cellpose_version.value != 'v4':
-        raise ValueError(f'RunCellpose {name}: select Cellpose version v4 (Cellpose-SAM); '
-                         f'the environment has cellpose {CELLPOSE_VERSION}')
+        raise ValueError(f'RunCellpose {name}: select Cellpose version v4 (Cellpose-SAM); the environment has cellpose {CELLPOSE_VERSION}')
     if module.do_3D.value:
         raise ValueError(f'RunCellpose {name}: 3D is not supported; the workflow reads 2D images')
 
     # Only the objects go from SEGMENT to ANALYSIS, so no later module may use other outputs.
     if module.save_probabilities.value:
-        raise ValueError(f'RunCellpose {name}: set "Save probability image?" to No; '
-                         'the probability image is not passed from SEGMENT to ANALYSIS')
+        raise ValueError(
+            f'RunCellpose {name}: set "Save probability image?" to No; the probability image is not passed from SEGMENT to ANALYSIS'
+        )
     if module.mode_v4.value != 'custom':
         return None
 
@@ -271,8 +276,9 @@ def split_segmentation(modules):
             continue
         module, inputs = made_by[name]
         if module.module_name != CELLPOSE and names(module.visible_settings(), (LabelName,)):
-            raise ValueError(f'RunCellpose input {name} depends on objects of {module.module_name}; '
-                             'SEGMENT runs only RunCellpose and image modules')
+            raise ValueError(
+                f'RunCellpose input {name} depends on objects of {module.module_name}; SEGMENT runs only RunCellpose and image modules'
+            )
         needed.add(id(module))
         todo += inputs
 
@@ -374,9 +380,14 @@ def counted_objects(pipeline):
     """
     from cellprofiler_core.constants.measurement import IMAGE
 
-    objects = sorted({feature[len('Count_'):] for module in pipeline.modules()[1:]
-                      for obj, feature, *_ in module.get_measurement_columns(pipeline)
-                      if obj == IMAGE and feature.startswith('Count_')})
+    objects = sorted(
+        {
+            feature[len('Count_') :]
+            for module in pipeline.modules()[1:]
+            for obj, feature, *_ in module.get_measurement_columns(pipeline)
+            if obj == IMAGE and feature.startswith('Count_')
+        }
+    )
     if not objects:
         raise ValueError('No object counts defined by analysis pipeline')
     if any(not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', name) for name in objects):
@@ -420,13 +431,18 @@ def adapt(config_dir, output):
     set_plugin_directory(str(Path('plugins').resolve()))
     sys.path.insert(0, str(Path('plugins').resolve()))
 
-    report = dict(objects=[], changes=[
-        'Replace input modules with generated LoadData manifests',
-        'Keep across-cycle illumination and last-cycle NPY exports',
-        'Export all object tables and uint32 label masks; use batch-local destinations',
-        'Realign CP 4.2.8.1 AreaShape/Texture rows shifted by objects without pixels',
-    ], versions={p: importlib.metadata.version(p)
-                 for p in ('cellprofiler', 'cellprofiler-core', 'numpy', 'scipy', 'scikit-image', 'tifffile')})
+    report = dict(
+        objects=[],
+        changes=[
+            'Replace input modules with generated LoadData manifests',
+            'Keep across-cycle illumination and last-cycle NPY exports',
+            'Export all object tables and uint32 label masks; use batch-local destinations',
+            'Realign CP 4.2.8.1 AreaShape/Texture rows shifted by objects without pixels',
+        ],
+        versions={
+            p: importlib.metadata.version(p) for p in ('cellprofiler', 'cellprofiler-core', 'numpy', 'scipy', 'scikit-image', 'tifffile')
+        },
+    )
     copies = {}
     modules = load_pipeline(config_dir / '1_illumination.cppipe').modules()
     report['calculated'] = check_illumination(modules)
@@ -450,8 +466,10 @@ def adapt(config_dir, output):
     cells = report['compartments']['cells']
     for part in ('nuclei', 'cytoplasm'):
         if (report['compartments'][part], f'Parent_{cells}') not in columns:
-            raise ValueError(f'{report["compartments"][part]} has no Parent_{cells} measurement; '
-                             f'relate it to {cells} (RelateObjects) so that MERGE can join it')
+            raise ValueError(
+                f'{report["compartments"][part]} has no Parent_{cells} measurement; '
+                f'relate it to {cells} (RelateObjects) so that MERGE can join it'
+            )
 
     # Write each copy, then load it again to prove that CellProfiler accepts it.
     for kind, pipeline in copies.items():
@@ -522,12 +540,25 @@ def plan_batches(image_sets, config, batch_size, destination):
         batches = []
         for start in range(0, len(rows), batch_size):
             batch = f'batch_{start // batch_size + 1:04d}'
-            selected = rows[start:start + batch_size]
+            selected = rows[start : start + batch_size]
             write_csv(folder / f'{batch}.csv', [dict(row, Metadata_Batch=batch) for row, _ in selected])
-            batches.append(dict(batch=batch, manifest=str((folder / f'{batch}.csv').relative_to(destination)),
-                                images=[p for _, paths in selected for p in paths], sets=len(selected)))
-        plan.append(dict(plate=plate, manifest=str((folder / 'illumination.csv').relative_to(destination)),
-                         images=[p for _, paths in rows for p in paths], batches=batches, sets=len(rows)))
+            batches.append(
+                dict(
+                    batch=batch,
+                    manifest=str((folder / f'{batch}.csv').relative_to(destination)),
+                    images=[p for _, paths in selected for p in paths],
+                    sets=len(selected),
+                )
+            )
+        plan.append(
+            dict(
+                plate=plate,
+                manifest=str((folder / 'illumination.csv').relative_to(destination)),
+                images=[p for _, paths in rows for p in paths],
+                batches=batches,
+                sets=len(rows),
+            )
+        )
     return plan
 
 
@@ -560,8 +591,10 @@ def prepare(config_dir, samplesheet, staged, batch_size, destination):
     if staged:
         staged = {Path(p).resolve() for p in staged}
         if staged != listed:
-            raise ValueError(f'Staged files differ from the samplesheet: {len(staged - listed)} extra, '
-                             f'{len(listed - staged)} missing, for example {sorted(staged ^ listed)[:3]}')
+            raise ValueError(
+                f'Staged files differ from the samplesheet: {len(staged - listed)} extra, '
+                f'{len(listed - staged)} missing, for example {sorted(staged ^ listed)[:3]}'
+            )
     (destination / 'pipelines').mkdir(parents=True, exist_ok=True)
     write_samplesheet(destination / 'samplesheet.csv', image_sets, config)
     plan = plan_batches(image_sets, config, batch_size, destination)
@@ -570,10 +603,8 @@ def prepare(config_dir, samplesheet, staged, batch_size, destination):
     contract = adapt(config_dir, destination / 'pipelines')
     contract.update(config)
     contract['image_sets'] = len(image_sets)
-    contract['input_fingerprints'] = {str(p): {'size': p.stat().st_size, 'mtime_ns': p.stat().st_mtime_ns}
-                                      for p in sorted(listed)}
-    contract['pipeline_sha256'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                   for p in sorted(config_dir.glob('*.cppipe'))}
+    contract['input_fingerprints'] = {str(p): {'size': p.stat().st_size, 'mtime_ns': p.stat().st_mtime_ns} for p in sorted(listed)}
+    contract['pipeline_sha256'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(config_dir.glob('*.cppipe'))}
     (destination / 'plan.json').write_text(json.dumps(plan, indent=2))
     (destination / 'pipelines' / 'contract.json').write_text(json.dumps(contract, indent=2))
     print(f'Validated {len(image_sets)} image sets, {len(plan)} plates, {sum(len(p["batches"]) for p in plan)} batches')

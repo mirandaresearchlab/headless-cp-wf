@@ -24,6 +24,7 @@ What happens inside one analysis task:
      compare_masks() also checks that the loaded objects are the SEGMENT masks, label for label.
   6. Compress the tables and move the masks next to the batch folder.
 """
+
 import argparse
 import csv
 import gzip
@@ -47,13 +48,42 @@ from cp_inputs import read_csv, write_csv
 # values by position, not by object number. So an object without pixels, such as a cytoplasm
 # that its nucleus covers fully, moves the values of every later object one row up.
 # Zernike, Feret and all other measurements use the object number and stay correct.
-SHIFTED = {'AreaShape_' + f for f in (
-    'Area', 'Perimeter', 'MajorAxisLength', 'MinorAxisLength', 'Eccentricity', 'Orientation', 'Center_X',
-    'Center_Y', 'BoundingBoxArea', 'BoundingBoxMinimum_X', 'BoundingBoxMaximum_X', 'BoundingBoxMinimum_Y',
-    'BoundingBoxMaximum_Y', 'FormFactor', 'Extent', 'Solidity', 'Compactness', 'EulerNumber',
-    'MaximumRadius', 'MeanRadius', 'MedianRadius', 'ConvexArea', 'EquivalentDiameter')}
-SHIFTED_PREFIXES = ('Texture_', 'AreaShape_SpatialMoment_', 'AreaShape_CentralMoment_', 'AreaShape_NormalizedMoment_',
-                    'AreaShape_HuMoment_', 'AreaShape_InertiaTensor')
+SHIFTED = {
+    'AreaShape_' + f
+    for f in (
+        'Area',
+        'Perimeter',
+        'MajorAxisLength',
+        'MinorAxisLength',
+        'Eccentricity',
+        'Orientation',
+        'Center_X',
+        'Center_Y',
+        'BoundingBoxArea',
+        'BoundingBoxMinimum_X',
+        'BoundingBoxMaximum_X',
+        'BoundingBoxMinimum_Y',
+        'BoundingBoxMaximum_Y',
+        'FormFactor',
+        'Extent',
+        'Solidity',
+        'Compactness',
+        'EulerNumber',
+        'MaximumRadius',
+        'MeanRadius',
+        'MedianRadius',
+        'ConvexArea',
+        'EquivalentDiameter',
+    )
+}
+SHIFTED_PREFIXES = (
+    'Texture_',
+    'AreaShape_SpatialMoment_',
+    'AreaShape_CentralMoment_',
+    'AreaShape_NormalizedMoment_',
+    'AreaShape_HuMoment_',
+    'AreaShape_InertiaTensor',
+)
 
 # CellProfiler fills the radius arrays with zeros first, so their unused end is 0.0, not nan.
 ZERO_PADDED = {'AreaShape_MaximumRadius', 'AreaShape_MeanRadius', 'AreaShape_MedianRadius'}
@@ -119,10 +149,8 @@ def realign(output, contract):
         if not shifted:
             continue
         for mask in (m for m in masks if m['ObjectType'] == obj):
-
             # The rows of this image, sorted by object number. The numbers must run 1, 2, ..., N.
-            image = sorted((r for r in table if r[col['ImageNumber']] == mask['ImageNumber']),
-                           key=lambda r: int(r[col['ObjectNumber']]))
+            image = sorted((r for r in table if r[col['ImageNumber']] == mask['ImageNumber']), key=lambda r: int(r[col['ObjectNumber']]))
             if [int(r[col['ObjectNumber']]) for r in image] != list(range(1, len(image) + 1)):
                 raise ValueError(f'{obj}: object numbers are not 1..N in image {mask["ImageNumber"]}')
 
@@ -134,20 +162,26 @@ def realign(output, contract):
             if len(present) == len(image):
                 continue
             for i in shifted:
-
                 # Known pattern: one empty value at the end for each empty object.
                 pad = '0.0' if header[i] in ZERO_PADDED else 'nan'
-                if {r[i] for r in image[len(present):]} != {pad}:
+                if {r[i] for r in image[len(present) :]} != {pad}:
                     raise ValueError(f'{obj}: {header[i]} does not show the known CP 4.2.8.1 shift; review before use')
 
                 # Give the first values to the objects with pixels, in order. Empty objects get nan.
-                values = [r[i] for r in image[:len(present)]]
+                values = [r[i] for r in image[: len(present)]]
                 for r in image:
                     r[i] = 'nan'
                 for j, value in zip(present, values):
                     image[j][i] = value
-            corrections.append(dict(object=obj, image_number=mask['ImageNumber'], acquisition=mask['Acquisition'],
-                                    empty_objects=[int(j) + 1 for j in np.flatnonzero(pixels == 0)], columns=len(shifted)))
+            corrections.append(
+                dict(
+                    object=obj,
+                    image_number=mask['ImageNumber'],
+                    acquisition=mask['Acquisition'],
+                    empty_objects=[int(j) + 1 for j in np.flatnonzero(pixels == 0)],
+                    columns=len(shifted),
+                )
+            )
 
         # Write the table again only if a value moved. The row order stays the same.
         if any(c['object'] == obj for c in corrections):
@@ -190,8 +224,12 @@ def read_mask(path, entry, loaded):
     # The mask must name its own image set and exactly the files this batch loaded for it.
     named = {k: provenance['metadata'][k] for k in ('Plate', 'Batch', 'Acquisition')}
     files = provenance['source_files']
-    if provenance['object'] != entry['ObjectType'] or named != {k: entry[k] for k in named} \
-            or not files or any((loaded['FileName_' + n], loaded['PathName_' + n]) != (f['file'], f['folder']) for n, f in files.items()):
+    if (
+        provenance['object'] != entry['ObjectType']
+        or named != {k: entry[k] for k in named}
+        or not files
+        or any((loaded['FileName_' + n], loaded['PathName_' + n]) != (f['file'], f['folder']) for n, f in files.items())
+    ):
         raise ValueError(f'Mask provenance does not match its image set: {path}')
     return labels
 
@@ -268,8 +306,11 @@ def validate_analysis(output, rows, contract):
             n = int(r['ObjectNumber'])
             if 'AreaShape_Area' in r and not (float(r['AreaShape_Area']) == pixels[n] if pixels[n] else r['AreaShape_Area'] == 'nan'):
                 raise ValueError(f'{obj}: AreaShape_Area does not match mask pixels for object {n}, image {number}')
-            if 'AreaShape_Center_X' in r and 'Location_Center_X' in r and not np.isclose(
-                    float(r['AreaShape_Center_X']), float(r['Location_Center_X']), rtol=0, atol=1e-6, equal_nan=True):
+            if (
+                'AreaShape_Center_X' in r
+                and 'Location_Center_X' in r
+                and not np.isclose(float(r['AreaShape_Center_X']), float(r['Location_Center_X']), rtol=0, atol=1e-6, equal_nan=True)
+            ):
                 raise ValueError(f'{obj}: AreaShape_Center_X disagrees with Location_Center_X for object {n}, image {number}')
     return {'image_sets': len(images), 'masks': len(masks), 'objects': contract['objects'], 'empty_objects': empty}
 
@@ -342,10 +383,25 @@ def cellprofiler(pipeline, data_file, output, temp, plugins, log, env=None):
     """
     for folder in (output, temp):
         folder.mkdir(parents=True, exist_ok=True)
-    command = ['cellprofiler', '-c', '-r', '-p', str(pipeline.resolve()),
-               '--data-file', str(data_file.resolve()), '-i', str(Path.cwd()),
-               '-o', str(output.resolve()), '-t', str(temp.resolve()),
-               '--plugins-directory', str(plugins.resolve()), '--log-level', 'INFO']
+    command = [
+        'cellprofiler',
+        '-c',
+        '-r',
+        '-p',
+        str(pipeline.resolve()),
+        '--data-file',
+        str(data_file.resolve()),
+        '-i',
+        str(Path.cwd()),
+        '-o',
+        str(output.resolve()),
+        '-t',
+        str(temp.resolve()),
+        '--plugins-directory',
+        str(plugins.resolve()),
+        '--log-level',
+        'INFO',
+    ]
     with log.open('w') as stream:
         return subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, env=env)
 
@@ -402,9 +458,16 @@ def run_cellprofiler(args, rows, output, logs):
     start = time.monotonic()
     code = cellprofiler(args.pipeline, Path('load_data.csv'), output, Path('tmp'), args.plugins, log).wait()
     elapsed = time.monotonic() - start
-    metrics = dict(plate=args.plate, batch=args.batch, kind=args.kind, elapsed_seconds=elapsed,
-                   peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss, image_sets=len(rows),
-                   sets_per_minute=60 * len(rows) / elapsed, exit_code=code)
+    metrics = dict(
+        plate=args.plate,
+        batch=args.batch,
+        kind=args.kind,
+        elapsed_seconds=elapsed,
+        peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+        image_sets=len(rows),
+        sets_per_minute=60 * len(rows) / elapsed,
+        exit_code=code,
+    )
     (logs / f'{args.batch}.metrics.json').write_text(json.dumps(metrics, indent=2))
     check_log(code, log)
     return metrics
@@ -413,6 +476,7 @@ def run_cellprofiler(args, rows, output, logs):
 # ---------------------------------------------------------------------------------------------
 # SEGMENT: RunCellpose on a GPU or a CPU, several CellProfiler workers per task
 # ---------------------------------------------------------------------------------------------
+
 
 def split(rows, workers):
     """Cut the rows into consecutive parts, one per worker.
@@ -452,7 +516,8 @@ def segmentation_pipeline(source, target, device, workers, plugins):
     source : Path
         pipelines/segmentation.cppipe from PREPARE (GPU off).
     target : Path
-        The pipeline file to write.
+        The pipeline file to write, in the task folder. It must not be ``source`` or a link to it:
+        Nextflow stages ``source`` as a link into the PREPARE folder, which other tasks read.
     device : {'cpu', 'gpu'}
         Where Cellpose runs.
     workers : int
@@ -466,11 +531,14 @@ def segmentation_pipeline(source, target, device, workers, plugins):
         True if a RunCellpose module uses the built-in cpsam model.
     """
     from cellprofiler_core.preferences import set_headless, set_plugin_directory
+
     set_headless()
     set_plugin_directory(str(plugins.resolve()))
     sys.path.insert(0, str(plugins.resolve()))
     from prepare import load_pipeline
 
+    if target.resolve() == source.resolve():
+        raise ValueError(f'The SEGMENT pipeline copy would overwrite its input: {source}')
     pipeline = load_pipeline(source)
     cellpose = [m for m in pipeline.modules() if m.module_name == 'RunCellpose']
     for module in cellpose:
@@ -494,8 +562,13 @@ def gpu_monitor(log):
     subprocess.Popen
         The nvidia-smi process.
     """
-    command = ['nvidia-smi', '--query-gpu=timestamp,name,utilization.gpu,memory.used,memory.total',
-               '--format=csv,noheader,nounits', '-l', '1']
+    command = [
+        'nvidia-smi',
+        '--query-gpu=timestamp,name,utilization.gpu,memory.used,memory.total',
+        '--format=csv,noheader,nounits',
+        '-l',
+        '1',
+    ]
     if os.environ.get('CUDA_VISIBLE_DEVICES'):
         command += ['-i', os.environ['CUDA_VISIBLE_DEVICES']]
     with log.open('w') as stream:
@@ -518,9 +591,13 @@ def gpu_summary(log):
     samples = [line.split(', ') for line in log.read_text().splitlines() if line.count(', ') == 4]
     if not samples:
         return {}
-    return dict(gpu=samples[0][1], gpu_samples=len(samples),
-                gpu_utilization_mean=round(sum(float(s[2]) for s in samples) / len(samples), 1),
-                gpu_memory_peak_mib=max(float(s[3]) for s in samples), gpu_memory_total_mib=float(samples[0][4]))
+    return dict(
+        gpu=samples[0][1],
+        gpu_samples=len(samples),
+        gpu_utilization_mean=round(sum(float(s[2]) for s in samples) / len(samples), 1),
+        gpu_memory_peak_mib=max(float(s[3]) for s in samples),
+        gpu_memory_total_mib=float(samples[0][4]),
+    )
 
 
 def run_segmentation(args, rows, logs):
@@ -553,12 +630,16 @@ def run_segmentation(args, rows, logs):
     # Without a GPU, Cellpose would use the CPU without an error, and take many times longer.
     if args.device == 'gpu':
         import torch
+
         if not torch.cuda.is_available():
             raise ValueError('--segmentation gpu, but this task sees no GPU. Request a GPU for SEGMENT, or use --segmentation cpu')
-    pipeline = Path('segmentation.cppipe')
+    # The copy goes to workers/, not to segmentation.cppipe: that name is the staged PREPARE file.
+    pipeline = Path('workers/segmentation.cppipe')
+    pipeline.parent.mkdir(parents=True, exist_ok=True)
     if segmentation_pipeline(args.pipeline, pipeline, args.device, args.workers, args.plugins):
         # Get the model once, before the workers start, so that they do not download it at the same time.
         from cellpose.models import cache_CPSAM_model_path
+
         cache_CPSAM_model_path()
 
     parts = split(rows, args.workers)
@@ -579,10 +660,19 @@ def run_segmentation(args, rows, logs):
         monitor.terminate()
         monitor.wait()
 
-    metrics = dict(plate=args.plate, batch=args.batch, kind=args.kind, device=args.device, workers=len(parts),
-                   threads_per_worker=int(threads), elapsed_seconds=elapsed, image_sets=len(rows),
-                   sets_per_minute=60 * len(rows) / elapsed, exit_codes=codes,
-                   peak_rss_kib_largest_worker=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+    metrics = dict(
+        plate=args.plate,
+        batch=args.batch,
+        kind=args.kind,
+        device=args.device,
+        workers=len(parts),
+        threads_per_worker=int(threads),
+        elapsed_seconds=elapsed,
+        image_sets=len(rows),
+        sets_per_minute=60 * len(rows) / elapsed,
+        exit_codes=codes,
+        peak_rss_kib_largest_worker=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+    )
     if monitor:
         metrics.update(gpu_summary(logs / f'{args.batch}.gpu.csv'))
     (logs / f'{args.batch}.metrics.json').write_text(json.dumps(metrics, indent=2))
@@ -632,8 +722,10 @@ def collect_masks(outputs, rows, objects, destination, plate, segment):
                 raise ValueError(f'SEGMENT mask saved twice (duplicate) or for another plate: {entry}')
             found[key] = (out, entry)
     if set(found) != expected:
-        raise ValueError(f'SEGMENT masks are missing or unexpected: missing={sorted(expected - set(found))[:5]}, '
-                         f'extra={sorted(set(found) - expected)[:5]}')
+        raise ValueError(
+            f'SEGMENT masks are missing or unexpected: missing={sorted(expected - set(found))[:5]}, '
+            f'extra={sorted(set(found) - expected)[:5]}'
+        )
 
     # Go through the image sets in manifest order, so each batch keeps its order.
     batches = {}
@@ -646,13 +738,27 @@ def collect_masks(outputs, rows, objects, destination, plate, segment):
             target = destination / batch / 'masks' / Path(entry['MaskPath']).name
             target.parent.mkdir(parents=True, exist_ok=True)
             (out / entry['MaskPath']).rename(target)
-            batches.setdefault(batch, []).append(dict(Plate=plate, Batch=batch, Acquisition=acquisition, ObjectType=obj,
-                                                      MaskPath='masks/' + target.name, LabelCount=entry['LabelCount']))
+            batches.setdefault(batch, []).append(
+                dict(
+                    Plate=plate,
+                    Batch=batch,
+                    Acquisition=acquisition,
+                    ObjectType=obj,
+                    MaskPath='masks/' + target.name,
+                    LabelCount=entry['LabelCount'],
+                )
+            )
     for batch, entries in batches.items():
         write_csv(destination / batch / 'mask_manifest.csv', entries, list(entries[0]))
-        summary = dict(plate=plate, batch=batch, segment=segment, image_sets=len({e['Acquisition'] for e in entries}),
-                       masks=len(entries), objects=objects,
-                       labels={obj: sum(int(e['LabelCount']) for e in entries if e['ObjectType'] == obj) for obj in objects})
+        summary = dict(
+            plate=plate,
+            batch=batch,
+            segment=segment,
+            image_sets=len({e['Acquisition'] for e in entries}),
+            masks=len(entries),
+            objects=objects,
+            labels={obj: sum(int(e['LabelCount']) for e in entries if e['ObjectType'] == obj) for obj in objects},
+        )
         (destination / batch / 'validation.json').write_text(json.dumps(summary, indent=2))
     return dict(segment=segment, batches=list(batches), masks=sum(map(len, batches.values())))
 
@@ -719,8 +825,9 @@ def compare_masks(output, segmentation, objects):
         if entry['ObjectType'] not in objects:
             continue
         final = saved.get((entry['Acquisition'], entry['ObjectType']))
-        if final is None or not np.array_equal(tifffile.imread(segmentation / entry['MaskPath']),
-                                               tifffile.imread(output / final['MaskPath'])):
+        if final is None or not np.array_equal(
+            tifffile.imread(segmentation / entry['MaskPath']), tifffile.imread(output / final['MaskPath'])
+        ):
             raise ValueError(f'Mask of {entry["ObjectType"]} in {entry["Acquisition"]} differs between SEGMENT and ANALYSIS')
         compared += 1
     return compared

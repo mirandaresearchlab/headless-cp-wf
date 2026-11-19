@@ -40,10 +40,7 @@ def check_provenance(provenance, name, measurements):
     ValueError
         If the mask is for another object, another image set, or other files.
     """
-    current = {
-        key: str(measurements.get_current_image_measurement("Metadata_" + key))
-        for key in ("Plate", "Batch", "Acquisition")
-    }
+    current = {key: str(measurements.get_current_image_measurement("Metadata_" + key)) for key in ("Plate", "Batch", "Acquisition")}
     named = {key: provenance["metadata"].get(key) for key in current}
     if provenance["object"] != name or named != current:
         raise ValueError(f"Mask is for {provenance['object']} {named}, not {name} {current}")
@@ -71,9 +68,7 @@ class LoadLabelMasks(ImageSegmentation):
     def create_settings(self):
         """Make the settings: the input images and the object name of RunCellpose, and the folder."""
         super().create_settings()
-        self.nuclei_image = ImageSubscriber(
-            "Select the nuclei image", can_be_blank=True, blank_text="None"
-        )
+        self.nuclei_image = ImageSubscriber("Select the nuclei image", can_be_blank=True, blank_text="None")
         self.folder = Text("Mask folder in the Default Input Folder", "segmentation/masks")
 
     def settings(self):

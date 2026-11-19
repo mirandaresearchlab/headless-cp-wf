@@ -4,6 +4,7 @@ They load real pipelines with CellProfiler, so they need the conda environment w
 The last test also runs Cellpose-SAM on the CPU. It needs the cpsam model file and is skipped
 without it (set CELLPOSE_LOCAL_MODELS_PATH to the folder of the file).
 """
+
 import json
 import os
 import shutil
@@ -63,8 +64,7 @@ def module_names(path):
 def test_cellpose_runs_in_its_own_pipeline(tmp_path):
     """SEGMENT gets RunCellpose and only the modules that make its input image, then saves the masks."""
     contract, out = prepared(tmp_path)
-    assert module_names(out / 'segmentation.cppipe') == [
-        'LoadData', 'CorrectIlluminationApply', 'RunCellpose', 'SaveLabelMasks']
+    assert module_names(out / 'segmentation.cppipe') == ['LoadData', 'CorrectIlluminationApply', 'RunCellpose', 'SaveLabelMasks']
     assert contract['segmentation'] == ['NucleiPaired']
 
     # The working copy runs Cellpose in this Python environment and keeps the model loaded.
@@ -99,12 +99,15 @@ def test_pipeline_without_cellpose_has_no_segmentation_step(tmp_path):
     assert 'LoadLabelMasks' not in module_names(out / 'analysis.cppipe')
 
 
-@pytest.mark.parametrize('change, message', [
-    (lambda m: setattr(m.cellpose_version, 'value', 'v3'), 'Cellpose-SAM'),
-    (lambda m: setattr(m.do_3D, 'value', True), '3D'),
-    (lambda m: setattr(m.save_probabilities, 'value', True), 'probability'),
-    (lambda m: (setattr(m.mode_v4, 'value', 'custom'), setattr(m.model_directory, 'value', 'Default Input Folder|')), 'absolute'),
-])
+@pytest.mark.parametrize(
+    'change, message',
+    [
+        (lambda m: setattr(m.cellpose_version, 'value', 'v3'), 'Cellpose-SAM'),
+        (lambda m: setattr(m.do_3D, 'value', True), '3D'),
+        (lambda m: setattr(m.save_probabilities, 'value', True), 'probability'),
+        (lambda m: (setattr(m.mode_v4, 'value', 'custom'), setattr(m.model_directory, 'value', 'Default Input Folder|')), 'absolute'),
+    ],
+)
 def test_unsupported_cellpose_settings_stop_prepare(tmp_path, change, message):
     """Settings that SEGMENT cannot run, or cannot pass to ANALYSIS, stop the run before any task."""
     with pytest.raises(ValueError, match=message):
@@ -113,12 +116,52 @@ def test_unsupported_cellpose_settings_stop_prepare(tmp_path, change, message):
 
 def test_custom_model_must_exist(tmp_path):
     """A custom model is read from an absolute folder. A missing file stops PREPARE."""
+
     def custom(module):
         module.mode_v4.value = 'custom'
         module.model_directory.value = f'Elsewhere...|{tmp_path}'
         module.model_file_name.value = 'missing_model'
+
     with pytest.raises(ValueError, match='missing_model'):
         prepared(tmp_path, custom)
+
+
+def test_segment_task_does_not_change_the_prepare_pipeline(tmp_path, monkeypatch):
+    """SEGMENT writes its GPU copy beside the input, never through the staged link into PREPARE's folder.
+
+    Regression: Nextflow stages pipelines/segmentation.cppipe as a link with the same name. Writing
+    the task copy to that name changed the PREPARE file, and SEGMENT tasks that started at the same
+    time read a half-written file ("Invalid format for setting").
+    """
+    from run_task import run_segmentation
+    import argparse
+
+    _, out = prepared(tmp_path)
+    source = out / 'segmentation.cppipe'
+    before = source.read_bytes()
+    task = tmp_path / 'task'
+    task.mkdir()
+    (task / 'segmentation.cppipe').symlink_to(source)
+    monkeypatch.chdir(task)
+
+    # Stop right after the pipeline copy: no workers and no Cellpose model are needed for this check.
+    import run_task
+
+    monkeypatch.setattr(run_task, 'split', lambda rows, workers: (_ for _ in ()).throw(RuntimeError('stop')))
+    args = argparse.Namespace(
+        pipeline=Path('segmentation.cppipe'),
+        device='cpu',
+        workers=2,
+        cpus=2,
+        plugins=ROOT / 'plugins',
+        plate='P1',
+        batch='segment_0001',
+        kind='segmentation',
+    )
+    monkeypatch.setattr('cellpose.models.cache_CPSAM_model_path', lambda: None)
+    with pytest.raises(RuntimeError, match='stop'):
+        run_segmentation(args, [], task)
+    assert source.read_bytes() == before
 
 
 def test_nuclei_need_a_parent_cell_measurement(tmp_path):
@@ -137,6 +180,7 @@ def test_nuclei_need_a_parent_cell_measurement(tmp_path):
 # ---------------------------------------------------------------------------------------------
 # LoadLabelMasks
 # ---------------------------------------------------------------------------------------------
+
 
 def workspace(folder, metadata, files, image, pipeline=None):
     """Make a real CellProfiler workspace for one image set.
@@ -177,14 +221,14 @@ def segmentation_mask(folder, labels, metadata=METADATA, files=FILES, obj='Nucle
     """Write a mask as SaveLabelMasks does in SEGMENT: <folder>/segmentation/masks/<acquisition>_<object>.tiff."""
     path = folder / 'segmentation' / 'masks' / f'{METADATA["Acquisition"]}_{obj}.tiff'
     path.parent.mkdir(parents=True, exist_ok=True)
-    provenance = dict(object=obj, metadata=metadata,
-                      source_files={k: dict(file=f, folder=d) for k, (f, d) in files.items()})
+    provenance = dict(object=obj, metadata=metadata, source_files={k: dict(file=f, folder=d) for k, (f, d) in files.items()})
     tifffile.imwrite(path, labels.astype(np.uint32), description=json.dumps(provenance), metadata=None)
 
 
 def loader():
     """Make a LoadLabelMasks module for NucleiPaired on CorrDNA."""
     from loadlabelmasks import LoadLabelMasks
+
     module = LoadLabelMasks()
     module.x_name.value, module.y_name.value = 'CorrDNA', 'NucleiPaired'
     module.set_module_num(1)
@@ -208,12 +252,15 @@ def test_loader_adds_the_objects_and_measurements_of_the_mask(tmp_path):
     np.testing.assert_array_equal(m.get_current_measurement('NucleiPaired', 'Number_Object_Number'), [1, 2])
 
 
-@pytest.mark.parametrize('metadata, files, message', [
-    (dict(METADATA, Acquisition='A01_s2'), FILES, 'not NucleiPaired'),
-    (dict(METADATA, Batch='batch_0002'), FILES, 'not NucleiPaired'),
-    (METADATA, dict(FILES, DNA=('other.tiff', '/raw/P1')), 'was made from DNA'),
-    (METADATA, dict(FILES, IllumDNA=('IllumDNA.npy', '/illum/P2')), 'was made from IllumDNA'),
-])
+@pytest.mark.parametrize(
+    'metadata, files, message',
+    [
+        (dict(METADATA, Acquisition='A01_s2'), FILES, 'not NucleiPaired'),
+        (dict(METADATA, Batch='batch_0002'), FILES, 'not NucleiPaired'),
+        (METADATA, dict(FILES, DNA=('other.tiff', '/raw/P1')), 'was made from DNA'),
+        (METADATA, dict(FILES, IllumDNA=('IllumDNA.npy', '/illum/P2')), 'was made from IllumDNA'),
+    ],
+)
 def test_loader_refuses_a_mask_of_another_image_set(tmp_path, metadata, files, message):
     """A mask is used only for the image set and the exact files that made it."""
     segmentation_mask(tmp_path, np.ones((4, 4)), metadata=metadata, files=files)
@@ -232,6 +279,7 @@ def test_loader_refuses_a_mask_of_another_size(tmp_path):
 # ---------------------------------------------------------------------------------------------
 # RunCellpose -> SaveLabelMasks -> LoadLabelMasks gives the same objects as RunCellpose
 # ---------------------------------------------------------------------------------------------
+
 
 def model_available():
     """True if the cpsam model file is on this computer (Cellpose would otherwise download 1.2 GB)."""
@@ -266,6 +314,7 @@ def test_loaded_objects_equal_cellpose_objects(tmp_path):
     assert found.max() == 3
 
     from cellprofiler_core.preferences import set_default_output_directory
+
     (tmp_path / 'segmentation').mkdir()
     set_default_output_directory(str(tmp_path / 'segmentation'))
     saver = SaveLabelMasks()
@@ -277,5 +326,7 @@ def test_loaded_objects_equal_cellpose_objects(tmp_path):
     loader().run(again)
     np.testing.assert_array_equal(again.object_set.get_objects('NucleiPaired').segmented, found)
     for feature in ('Location_Center_X', 'Location_Center_Y', 'Number_Object_Number'):
-        np.testing.assert_array_equal(again.measurements.get_current_measurement('NucleiPaired', feature),
-                                      work.measurements.get_current_measurement('NucleiPaired', feature))
+        np.testing.assert_array_equal(
+            again.measurements.get_current_measurement('NucleiPaired', feature),
+            work.measurements.get_current_measurement('NucleiPaired', feature),
+        )

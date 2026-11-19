@@ -1,14 +1,35 @@
 # Checks that run before each commit. Install once with: uvx pre-commit install
 # Run all of them by hand with: uvx pre-commit run --all-files
 # Each check runs only when a file that matches its "files" pattern changed.
+# Ruff and nextflow lint fix what they can. If a hook changed files, the commit stops:
+# check the changes, `git add` them, and commit again.
 exclude: ^(\.claude|\.agent)/
 
 minimum_pre_commit_version: "4.0.0"
 default_install_hook_types: [pre-commit]
 
 repos:
+  # Python: fix lint errors that ruff can fix safely, then format. Settings in ruff.toml.
+  # Ruff installs itself. ruff-check must run before ruff-format.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
   - repo: local
     hooks:
+
+      # Nextflow lint: formats the workflow, modules and configs that have no errors (the standard
+      # Nextflow style), then reports syntax and strict-syntax errors.
+      # Needs `nextflow` (25.10 or later) on PATH, for example in the activated cp-headless environment.
+      - id: nextflow-lint
+        name: nextflow lint and format
+        entry: nextflow lint -format -o concise main.nf workflows modules conf nextflow.config
+        language: system
+        pass_filenames: false
+        files: ^(main\.nf|nextflow\.config|workflows/.*|modules/.*|conf/.*)$
 
       # The full test suite in the cp-headless conda environment (CellProfiler, Java, Python 3.9).
       # GitHub only runs the tests that need no CellProfiler, so this is where the plugin tests run.
@@ -17,7 +38,7 @@ repos:
         entry: bash scripts/test-cellprofiler.sh
         language: system
         pass_filenames: false
-        files: ^(bin/.*\.py|plugins/.*\.py|tests/.*\.py|cp-configs/.*|environment\.yml|scripts/test-cellprofiler\.sh)$
+        files: ^(bin/.*\.py|plugins/.*\.py|tests/.*\.py|cp-configs/.*|cp-configs-cellpose/.*|environment\.yml|scripts/test-cellprofiler\.sh)$
 
       # The documentation site: --strict stops on broken links and missing pages (see docs/about/contributing.md).
       # uv installs the pinned docs tools from requirements-docs.txt the first time.
@@ -26,4 +47,4 @@ repos:
         entry: uv run --no-project --with-requirements requirements-docs.txt mkdocs build --strict --quiet
         language: system
         pass_filenames: false
-        files: ^(docs/.*|mkdocs\.yml|requirements-docs\.txt|README\.md|nextflow\.config|conf/.*|main\.nf|workflows/.*|modules/.*|cp-configs/.*|bin/.*\.py)$
+        files: ^(docs/.*|mkdocs\.yml|requirements-docs\.txt|README\.md|nextflow\.config|conf/.*|main\.nf|workflows/.*|modules/.*|cp-configs/.*|cp-configs-cellpose/.*|bin/.*\.py)$
