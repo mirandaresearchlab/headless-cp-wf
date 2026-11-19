@@ -2,10 +2,13 @@
  * ANALYSIS: runs once per batch. Batches of all plates run in parallel within the CPU budget.
  *
  * In:   (plate, batch, batch manifest, the batch's images, the folder with this plate's .npy
- *       files), the working copy of 2_analysis.cppipe, contract.json, the scripts and plugins.
+ *       files, the SEGMENT folder of the batch or [] without RunCellpose), the working copy of
+ *       2_analysis.cppipe, contract.json, the scripts and plugins.
  * Does: checks the .npy checksums against the plate's provenance.json. Runs CellProfiler:
- *       apply illumination, segment, measure, save masks, export CSVs. Then moves shifted
- *       CellProfiler 4.2.8.1 values back to their objects and checks every table and mask.
+ *       apply illumination, segment (or load the SEGMENT masks in place of RunCellpose), measure,
+ *       save masks, export CSVs. Then moves shifted CellProfiler 4.2.8.1 values back to their
+ *       objects and checks every table and mask. With RunCellpose, it also checks that the saved
+ *       masks of the Cellpose objects equal the SEGMENT masks.
  * Out:  (plate, batch folder with features/*.csv.gz) for MERGE. This folder stays in work/.
  *       Label masks, published to masks/<plate>/. Task logs, published to logs/<plate>/.
  */
@@ -16,7 +19,7 @@ process ANALYSIS {
 
     input:
     val destination
-    tuple val(plate), val(batch), path(manifest), path(images, stageAs: 'tracked??????/*'), path(illumination)
+    tuple val(plate), val(batch), path(manifest), path(images, stageAs: 'tracked??????/*'), path(illumination), path(segmentation, stageAs: 'segmentation')
     path pipeline
     path contract
     path code, stageAs: 'code/*'
@@ -28,9 +31,10 @@ process ANALYSIS {
     path 'result/logs/*', emit: logs
 
     script:
+    def masks = segmentation ? "--segmentation '${segmentation}'" : ''
     """
     python code/run_task.py analysis --plate '${plate}' --batch '${batch}' \\
         --manifest '${manifest}' --pipeline '${pipeline}' --contract '${contract}' \\
-        --illumination '${illumination}'
+        --illumination '${illumination}' ${masks}
     """
 }

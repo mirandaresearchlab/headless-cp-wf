@@ -195,15 +195,20 @@ def cells_of_image(image_rows, compartments, report):
     acquisition = image['Metadata_Acquisition']
 
     # Each object table must have exactly Count_<Object> rows, with unique numbers.
-    for table in (cells, cytoplasm, nuclei):
+    for part, table in (('Cells', cells), ('Cytoplasm', cytoplasm), ('Nuclei', nuclei)):
         rows = image_rows.get(table, [])
         if any(r['Metadata_Acquisition'] != acquisition for r in rows):
             raise ValueError(f'{table}: ImageNumber {image["ImageNumber"]} does not match Image.csv')
         if len(rows) != float(image[f'Count_{table}']) or len({r['ObjectNumber'] for r in rows}) != len(rows):
             raise ValueError(f'{table}: rows for {acquisition} disagree with Count_{table}')
+        report['objects'][part] += len(rows)
 
     # IdentifyTertiaryObjects gives a cytoplasm the number of the cell it was cut from.
+    # Every cytoplasm and every nucleus must find its cell, or the table would lose its row.
+    numbers = {r['ObjectNumber'] for r in image_rows.get(cells, [])}
     cyto = {r['ObjectNumber']: r for r in image_rows.get(cytoplasm, [])}
+    if set(cyto) - numbers:
+        raise ValueError(f'Cytoplasm {sorted(set(cyto) - numbers)} in {acquisition} has no cell with the same number')
 
     # RelateObjects gives a nucleus the number of its cell in Parent_<Cells>. 0 means no cell.
     nucleus = {}
@@ -211,6 +216,8 @@ def cells_of_image(image_rows, compartments, report):
         parent = str(int(float(r[f'Parent_{cells}'])))
         if parent == '0':
             report['nuclei_without_cell'] += 1
+        elif parent not in numbers:
+            raise ValueError(f'Nucleus {r["ObjectNumber"]} in {acquisition} names cell {parent}, but there is no cell {parent}')
         elif parent in nucleus:
             raise ValueError(f'Cell {parent} in {acquisition} has several nuclei; one row per cell is ambiguous')
         else:
@@ -271,7 +278,8 @@ def merge_plate(plate, manifest, batches, compartments, out):
              compartments['nuclei']: 'Nuclei'}
     headers, columns, last, images = {}, None, (0, 0), []
     report = dict(plate=plate, batches=[b.name for b in batches], image_sets=len(order), cells=0,
-                  cells_without_nucleus=0, cells_without_cytoplasm=0, nuclei_without_cell=0)
+                  cells_without_nucleus=0, cells_without_cytoplasm=0, nuclei_without_cell=0,
+                  objects=dict(Cells=0, Cytoplasm=0, Nuclei=0))
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('wb') as raw, contextlib.ExitStack() as rows_member:
         writer = None
@@ -316,6 +324,14 @@ def merge_plate(plate, manifest, batches, compartments, out):
     # Every image set of the plate must appear exactly once.
     if sorted(images) != sorted(order):
         raise ValueError(f'Per-cell table must cover every plate image set exactly once: {plate}')
+
+    # Every object of the plate is in the table once, or is counted as not joined. So the row
+    # count can only be the number of cells: no object is lost and no row is repeated.
+    objects = report['objects']
+    if (report['cells'] != objects['Cells']
+            or report['cells'] - report['cells_without_nucleus'] + report['nuclei_without_cell'] != objects['Nuclei']
+            or report['cells'] - report['cells_without_cytoplasm'] != objects['Cytoplasm']):
+        raise ValueError(f'Object accounting failed for plate {plate}: {report}')
     report['columns'] = len(columns)
     return report
 

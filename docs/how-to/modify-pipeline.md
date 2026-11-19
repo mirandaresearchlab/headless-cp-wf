@@ -15,7 +15,10 @@ It was reviewed against PREPARE checks but not executed with a new pipeline duri
 
 Do not enable grouping, tracking, or modules that need information from other batches.
 Illumination must accumulate across cycles and save NPY functions on the last cycle.
-Analysis must apply those same functions before traditional nuclei and watershed cell segmentation.
+Analysis must apply those same functions before segmentation.
+Segmentation is either traditional nuclei and watershed or propagation cells, or RunCellpose with Cellpose-SAM (v4) for any of the objects.
+For RunCellpose, start from `cp-configs-cellpose/2_analysis.cppipe`. The rules are in [segmentation choices](../explanation/segmentation.md#settings-that-the-workflow-changes-or-rejects).
+The nuclei and the cytoplasm need a `Parent_<cells>` measurement (RelateObjects), and each cell may have at most one nucleus.
 It must define one tertiary-object module for the cell compartments and one spreadsheet exporter.
 Absolute output destinations are rejected to prevent jobs writing to the same files.
 

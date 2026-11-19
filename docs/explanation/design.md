@@ -10,7 +10,8 @@ The source pipeline files stay unchanged.
 Illumination uses a whole plate because correction functions accumulate across image sets.
 Analysis can split into batches only when modules do not depend on other batches.
 PREPARE rejects grouping, tracking, aggregation, and other unsupported settings that could violate that condition.
-Cellpose is not supported by this workflow.
+Cellpose-SAM (RunCellpose, Cellpose 4) runs in its own SEGMENT step, on a GPU or CPUs, and ANALYSIS loads its masks.
+See [segmentation choices](segmentation.md#cellpose-sam) for the checks and the rejected settings.
 
 The per-cell merge expects one set of cell, nucleus, and cytoplasm compartments.
 It rejects several nuclei assigned to one cell because that would make one row per cell ambiguous.

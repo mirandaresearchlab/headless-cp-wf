@@ -2,6 +2,20 @@
 
 This page records the scope of the documentation update.
 
+## Cellpose-SAM
+
+- `2_analysis.cppipe` can use RunCellpose with Cellpose-SAM (Cellpose 4). A new SEGMENT step runs it on a GPU or on CPUs
+  (`--segmentation gpu` or `cpu`). ANALYSIS loads the masks with the new LoadLabelMasks module and measures on CPUs.
+  See [segmentation choices](../explanation/segmentation.md#cellpose-sam).
+- New parameters: `--segmentation`, `--segmentation_batches`, `--segmentation_workers`, `--cellpose_models`, and for Berzelius `--gpu_partition`, `--gpu_cpus` and `--max_gpus`.
+- `cp-configs-cellpose/` is an example configuration with Cellpose-SAM nuclei.
+- `plugins/runcellpose.py` is a copy of the RunCellpose plugin with three corrections for Cellpose 4 (listed at its top).
+- `environment.yml` installs cellpose 4.0.6 and PyTorch 2.5.1 (CUDA 12.1) with pip.
+- MERGE now stops if a nucleus or a cytoplasm names a cell that does not exist. Before, MERGE left such an object out of the table without a message.
+  `merge.json` has the new field `objects`: the number of cells, cytoplasms and nuclei that CellProfiler counted.
+- PREPARE stops if the nuclei or the cytoplasm have no `Parent_<cells>` measurement. Before, MERGE failed at the end of the run.
+- The classic pipeline (`cp-configs/`) gives the same per-cell table and masks as before.
+
 ## Code tidy-up
 
 - The workflow takes only a samplesheet (`--input`). The `--images` folder input is gone.

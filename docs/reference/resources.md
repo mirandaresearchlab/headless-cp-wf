@@ -15,6 +15,11 @@ The approximate limit is the smaller of available CPUs divided by task CPUs,
 and available memory divided by task memory. A task also needs ready inputs.
 `max_forks` can further limit each process type.
 
+SEGMENT (only with RunCellpose) requests `segmentation_workers` CPUs and `segmentation_workers × task_memory`.
+With `--segmentation gpu` on the local profile, one SEGMENT task runs at a time, and all its workers share the GPU.
+On the Berzelius profile, a GPU SEGMENT task requests one GPU and `gpu_cpus` cores, and Slurm gives it the memory of that GPU.
+See [Segment with Cellpose-SAM on a GPU](../how-to/run-on-hpc.md#segment-with-cellpose-sam-on-a-gpu) for measured speeds.
+
 The Berzelius profile submits up to eight tasks. Slurm decides when they start.
 It does not use the local resource pool. However, the workflow still checks
 that `task_memory` does not exceed `total_memory` on this profile.

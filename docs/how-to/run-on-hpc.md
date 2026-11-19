@@ -267,6 +267,50 @@ If the free space is too small, [run one plate at a time](#run-one-plate-at-a-ti
 
 All settings are in [parameters](../reference/parameters.md).
 
+### Segment with Cellpose-SAM on a GPU
+
+Use this if `2_analysis.cppipe` has RunCellpose modules, for example `cp-configs-cellpose/`.
+With `--segmentation gpu`, only the SEGMENT tasks go to the GPU partition, with one GPU each.
+They segment and stop, so they hold a GPU only while it has work. ANALYSIS stays on `berzelius-cpu`.
+
+```bash
+CONFIGS=$PWD/cp-configs-cellpose sbatch -A <account> scripts/berzelius-run.sbatch \
+    /proj/<project>/users/$USER/samplesheet.csv screen01 9 --segmentation gpu
+```
+
+`CONFIGS` is the folder with your two pipeline files. The default is `cp-configs`.
+The first SEGMENT task downloads the Cellpose-SAM model (1.2 GB) to `~/.cellpose/models`.
+To use a copy that you already have, add `--cellpose_models <folder>`.
+
+Measured on one A100 (40 GB), with 96 image sets of 2500 × 2500 pixels from a dense plate:
+
+| `--segmentation_workers` | Image sets per minute | Mean GPU use | GPU memory |
+|---|---|---|---|
+| 1 | 10.9 | 37% | 3.8 GB |
+| 2 | 15.7 | 61% | 7.5 GB |
+| 4 (default) | 19.0 | 80% | 15 GB |
+| 8 | 20.7 | 89% | 30 GB |
+
+One CellProfiler process leaves the GPU idle while it loads images and finds the objects on the CPU.
+More workers fill these gaps. Use 8 on an A100. Each worker needs about 3.8 GB of GPU memory.
+Most of the remaining idle time is the start of the workers (about 45 seconds for each task).
+So the default group is 16 batches (`--segmentation_batches 0`). Larger groups waste less time at the start, but ANALYSIS of the group starts later.
+
+At 19 image sets per minute, a plate of 3,400 image sets needs about 3 GPU hours, or 3 allocation hours.
+ANALYSIS of the same plate needs about 310 core-hours (about 19 allocation hours). It does not change.
+`--max_gpus` (default 4) is the most SEGMENT tasks that run at the same time.
+
+!!! warning "Do not keep a GPU without work"
+    NSC stops Berzelius jobs that use a GPU too little for more than one hour.
+    So do not run the `local` profile in a GPU job for a whole screen: its CPU tasks then keep the GPU idle.
+    Use the `berzelius` profile. It gives the GPU only to SEGMENT.
+
+Cellpose-SAM also runs on the CPU nodes (`--segmentation cpu`). It is much slower.
+On a `berzelius-cpu` node, one 1024 × 1024 image took 124 seconds on one core and 30 seconds on eight cores.
+An image of 2500 × 2500 pixels has six times as many pixels, so expect about 12 minutes on one core.
+This estimate was not measured. It would about triple the core-hours of a plate.
+Do not use `--segmentation cpu` on the GPU nodes: their processors make Cellpose-SAM many times slower again.
+
 ## Run one plate at a time when disk space is short
 
 A normal batch job keeps the work files of all plates until the run is complete.

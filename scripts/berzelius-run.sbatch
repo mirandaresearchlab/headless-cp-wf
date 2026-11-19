@@ -10,7 +10,9 @@
 #              To make one from a folder of plate folders: python bin/make_samplesheet.py --help
 # project     output name under $PROJ/runs/projects/
 # batch_size  image sets per CellProfiler task (default 9)
-# PROJ and CP_ENV can be set in the environment to override the defaults below.
+# PROJ, CP_ENV and CONFIGS (the folder with the two .cppipe files, default cp-configs) can be set
+# in the environment to override the defaults below. For Cellpose-SAM on a GPU, for example:
+#   CONFIGS=$PWD/cp-configs-cellpose sbatch -A <account> scripts/berzelius-run.sbatch <samplesheet.csv> <project> 9 --segmentation gpu
 # The head job stops after 72 hours. Submit the same command again to continue (-resume).
 #SBATCH -p berzelius-cpu
 #SBATCH -n 1
@@ -58,7 +60,7 @@ echo "Job $SLURM_JOB_ID: account $SLURM_JOB_ACCOUNT, samplesheet $samplesheet, b
 
 nextflow run "$repo" -profile berzelius -resume \
     --input "$samplesheet" \
-    --configs "$repo/cp-configs" \
+    --configs "${CONFIGS:-$repo/cp-configs}" \
     --outdir "$PROJ/runs" --project "$project" \
     --nf_work_dir "$PROJ/runs/$project-work" \
     --slurm_account "$SLURM_JOB_ACCOUNT" \

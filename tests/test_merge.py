@@ -257,6 +257,57 @@ def test_cell_with_two_nuclei_fails(tmp_path):
         merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
 
 
+def rewrite(path, change):
+    """Change the rows of one gzip table in place.
+
+    Args:
+        path: the .csv.gz table.
+        change: a function that gets the list of row dicts and changes it in place.
+    """
+    rows = read(path)
+    change(rows)
+    text = io.StringIO()
+    writer = csv.DictWriter(text, fieldnames=list(rows[0]))
+    writer.writeheader()
+    writer.writerows(rows)
+    write_text(path, text.getvalue())
+
+
+@pytest.mark.parametrize("table, column", [("Nuclei", "Parent_Cells"), ("Cytoplasm", "ObjectNumber")])
+def test_object_of_a_missing_cell_fails(tmp_path, table, column):
+    """A nucleus or cytoplasm that names a cell number with no cell row stops the merge.
+
+    Without this check the merge would leave the object out of the table, and the number of
+    objects in the table would be smaller than Count_<Object> in Image.csv.
+    """
+    manifest, batches = plate(tmp_path)
+
+    # Site-1 has cells 1 and 2. Point the first object to cell 3, which does not exist.
+    def to_cell_three(rows):
+        rows[0][column] = "3"
+        if table == "Cytoplasm":
+            rows[0]["Parent_Cells"] = "3"
+    rewrite(batches[1] / f"features/{table}.csv.gz", to_cell_three)
+    with pytest.raises(ValueError, match="no cell"):
+        merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
+
+
+def test_report_accounts_for_every_object(tmp_path):
+    """The report gives the objects of each table, and each one is either joined or counted as unjoined."""
+    manifest, batches = plate(tmp_path)
+
+    # Site-1: the first nucleus has no cell (Parent_Cells 0), so cell 2 has no nucleus.
+    rewrite(batches[1] / "features/Nuclei.csv.gz", lambda rows: rows[0].update(Parent_Cells="0"))
+    rewrite(batches[1] / "features/Cells.csv.gz", lambda rows: rows[0].update(Children_Nuclei_Count="0"))
+    report = merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
+
+    # Count_<Object> of the three images: 2 + 0 + 1 for every table.
+    assert report["objects"] == {"Cells": 3, "Cytoplasm": 3, "Nuclei": 3}
+    assert report["cells"] == 3 == len(read(tmp_path / "P1.csv.gz"))
+    assert report["nuclei_without_cell"] == 1 and report["cells_without_nucleus"] == 1
+    assert report["cells"] - report["cells_without_nucleus"] + report["nuclei_without_cell"] == report["objects"]["Nuclei"]
+
+
 def test_interleaved_batches_fail(tmp_path):
     """Batches that are not consecutive slices of the plate stop the merge."""
     manifest = tmp_path / "plate.csv"

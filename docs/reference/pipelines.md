@@ -11,6 +11,10 @@ LoadData manifests contain `Metadata_*`, `FileName_<channel>`, and `PathName_<ch
 Analysis adds `FileName_Illum<channel>` and `PathName_Illum<channel>` fields.
 See [file formats](file-formats.md) and [outputs](../output.md).
 
+`cp-configs-cellpose/` is the same configuration with Cellpose-SAM for the nuclei.
+Its `1_illumination.cppipe` is a link to `cp-configs/1_illumination.cppipe`.
+Its `2_analysis.cppipe` has RunCellpose in place of IdentifyPrimaryObjects (module 8). The other modules are the same.
+
 ## 1_illumination.cppipe
 
 | Module number | Module |
@@ -42,6 +46,36 @@ See [file formats](file-formats.md) and [outputs](../output.md).
 | 6 | MeasureImageQuality |
 | 7 | ImageMath |
 | 8 | IdentifyPrimaryObjects |
+| 9 | IdentifySecondaryObjects |
+| 10 | FilterObjects |
+| 11 | MaskObjects |
+| 12 | RelateObjects |
+| 13 | IdentifyTertiaryObjects |
+| 14 | MeasureObjectSizeShape |
+| 15 | MeasureObjectIntensity |
+| 16 | MeasureImageIntensity |
+| 17 | MeasureColocalization |
+| 18 | MeasureGranularity |
+| 19 | MeasureTexture |
+| 20 | MeasureObjectIntensityDistribution |
+| 21 | MeasureObjectNeighbors |
+| 22 | MeasureObjectNeighbors |
+| 23 | OverlayOutlines |
+| 24 | SaveImages |
+| 25 | ExportToSpreadsheet |
+
+## cp-configs-cellpose/2_analysis.cppipe
+
+| Module number | Module |
+|---|---|
+| 1 | Images |
+| 2 | Metadata |
+| 3 | NamesAndTypes |
+| 4 | Groups |
+| 5 | CorrectIlluminationApply |
+| 6 | MeasureImageQuality |
+| 7 | ImageMath |
+| 8 | RunCellpose |
 | 9 | IdentifySecondaryObjects |
 | 10 | FilterObjects |
 | 11 | MaskObjects |

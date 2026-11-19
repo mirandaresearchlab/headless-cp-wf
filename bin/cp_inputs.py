@@ -130,7 +130,7 @@ def read_config(folder):
     """Read the filename rule and the channel names from both pipelines.
 
     Both pipelines must use the same rules. The function stops on settings that this workflow
-    cannot reproduce: spreadsheet metadata, 3D images, grouping, or Cellpose.
+    cannot reproduce: spreadsheet metadata, 3D images or grouping.
 
     Parameters
     ----------
@@ -158,8 +158,6 @@ def read_config(folder):
     configs = []
     for path in files:
         modules = blocks(path)
-        if any('cellpose' in b.splitlines()[0].lower() for b in modules):
-            raise ValueError(f'{path}: Cellpose is not supported. Use watershed segmentation.')
 
         # Metadata module: one regex for the filename, and the plate from the folder name.
         metadata = next(b for b in modules if b.startswith('Metadata:'))
