@@ -7,10 +7,10 @@
 # Start a session first (on the login node), for example 18 cores for 1 hour:
 #   interactive -A <account> -p berzelius-cpu -n 1 -c 18 -t 01:00:00
 # Then, inside the session, from the repository folder:
-#   bash scripts/berzelius-interactive.sh <samplesheet.csv or images> <project> [batch_size] [extra Nextflow options]
+#   bash scripts/berzelius-interactive.sh <samplesheet.csv> <project> [batch_size] [extra Nextflow options]
 #
-# images      a samplesheet CSV (one row per image file, see docs/reference/file-formats.md),
-#             or a folder with one sub-folder per plate
+# samplesheet  CSV file with one row per image file (see docs/reference/file-formats.md).
+#              To make one from a folder of plate folders: python bin/make_samplesheet.py --help
 # project     output name under $PROJ/runs/projects/
 # batch_size  image sets per CellProfiler task (default 1: every image set gets its own core)
 # PROJ and CP_ENV can be set in the environment to override the defaults below.
@@ -23,19 +23,15 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
     exit 1
 fi
 if [[ $# -lt 2 ]]; then
-    echo "Usage: bash scripts/berzelius-interactive.sh <samplesheet.csv or images> <project> [batch_size] [options]" >&2
+    echo "Usage: bash scripts/berzelius-interactive.sh <samplesheet.csv> <project> [batch_size] [options]" >&2
     exit 1
 fi
 
-images="$(realpath "$1")"
-if [[ -f "$images" ]]; then
-    source_opt=(--input "$images")
-elif [[ -d "$images" ]]; then
-    source_opt=(--images "$images")
-else
-    echo "Not a samplesheet or a folder: $1" >&2
+if [[ ! -f "$1" ]]; then
+    echo "Not a samplesheet file: $1" >&2
     exit 1
 fi
+samplesheet="$(realpath "$1")"
 project="$2"
 batch_size="${3:-1}"
 PROJ="${PROJ:-/proj/berzelius-2025-380/users/$USER}"
@@ -57,10 +53,10 @@ launch="$PROJ/runs/$project-launch"
 mkdir -p "$launch"
 cd "$launch"
 
-echo "Job $SLURM_JOB_ID: $cores cores, $total_memory, images $images, batch_size $batch_size, project $project"
+echo "Job $SLURM_JOB_ID: $cores cores, $total_memory, samplesheet $samplesheet, batch_size $batch_size, project $project"
 
 nextflow run "$repo" -profile local -resume \
-    "${source_opt[@]}" \
+    --input "$samplesheet" \
     --configs "$repo/cp-configs" \
     --outdir "$PROJ/runs" --project "$project" \
     --nf_work_dir "$PROJ/runs/$project-work" \

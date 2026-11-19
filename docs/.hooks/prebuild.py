@@ -5,11 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DESCRIPTIONS = {
-    'input': 'Samplesheet CSV with one row per image file. Give --input or --images, not both. See file formats.',
-    'images': 'Image root containing one folder per plate. Give --images or --input, not both.',
+    'input': 'Required samplesheet CSV with one row per image file. See file formats.',
     'configs': 'Required folder containing the two named pipeline files.',
     'project': 'Output project name. Defaults to the session ID. Existing names owned by another session fall back to that ID.',
-    'outdir': 'Parent of projects/. Must keep the resolved output outside the image root.',
+    'outdir': 'Parent of projects/.',
     'batch_size': 'Positive number of complete image sets per analysis task.',
     'task_cpus': 'CPU request for each task. Library threads remain limited to one.',
     'task_memory': 'Memory request for each task. Must be positive and no larger than total_memory, on either profile.',
@@ -18,9 +17,8 @@ DESCRIPTIONS = {
     'total_memory': 'Shared memory budget for local execution. Also bounds task_memory during validation on both profiles.',
     'max_forks': 'Local per-process concurrency limit. Zero adds no limit beyond executor resources.',
     'max_jobs': 'Maximum submitted/active tasks managed by the Slurm executor.',
-    'nf_work_dir': 'Work directory override. Local fallback: launchDir/work. Berzelius fallback: shared_dir/nextflow-work.',
-    'conda_cache': 'Conda cache path. Local fallback: launchDir/.nextflow/conda. Berzelius fallback: shared_dir/conda-cache. No tasks currently declare a Conda environment.',
-    'shared_dir': 'Berzelius root for default work and Conda cache paths. Supply it or both explicit paths.',
+    'nf_work_dir': 'Work folder. Local default: launchDir/work. Berzelius default: shared_dir/nextflow-work.',
+    'shared_dir': 'Berzelius root for the default work folder. Supply it or --nf_work_dir.',
     'slurm_partition': 'Slurm partition. Confirm access and the partition name with your cluster.',
     'slurm_account': 'Optional Slurm allocation account passed with --account.',
     'max_retries': 'Retry limit for task exit statuses 137 or 143. Resources do not increase on retry.',
@@ -28,11 +26,9 @@ DESCRIPTIONS = {
 
 
 def params(path):
-    text = path.read_text()
-    block = re.search(r'^params\s*\{(.*?)^\}', text, re.M | re.S)
-    if not block:
-        raise ValueError(f'No params block in {path}')
-    return dict(re.findall(r'^\s*(\w+)\s*=\s*([^\n]+)', block.group(1), re.M))
+    """Return the parameter defaults of a config file, or an empty dict if it has no params block."""
+    block = re.search(r'^params\s*\{(.*?)^\}', path.read_text(), re.M | re.S)
+    return dict(re.findall(r'^\s*(\w+)\s*=\s*([^\n]+)', block.group(1), re.M)) if block else {}
 
 
 def save(name, lines):
@@ -44,8 +40,8 @@ def save(name, lines):
 
 def generate():
     base = params(ROOT / 'nextflow.config')
-    local = {**base, **params(ROOT / 'nf-config/local.config')}
-    cluster = {**base, **params(ROOT / 'nf-config/berzelius.config')}
+    local = {**base, **params(ROOT / 'conf/local.config')}
+    cluster = {**base, **params(ROOT / 'conf/berzelius.config')}
     if set(base) != set(DESCRIPTIONS):
         raise ValueError('Update documentation descriptions to match nextflow.config parameters')
     lines = ['# Workflow parameters', '',
@@ -66,14 +62,14 @@ def generate():
              'Nextflow creates the working folders, stages inputs, and publishes outputs for these helpers.',
              'Direct execution requires the expected task layout and active dependencies.', '',
              'The workflow entry point is `nextflow run .`. See [usage](../usage.md).', '']
-    for name in ['prepare', 'run_task', 'merge_features', 'convert_watershed']:
+    for name in ['make_samplesheet', 'prepare', 'run_task', 'merge_features']:
         path = ROOT / 'bin' / f'{name}.py'
         tree = ast.parse(path.read_text())
         lines += [f'## {name}.py', '',
-                  {'prepare': 'PREPARE validates images and adapts pipelines.',
+                  {'make_samplesheet': 'Writes a samplesheet for a folder of plate folders. Run it by hand before a run.',
+                   'prepare': 'PREPARE validates images and adapts pipelines.',
                    'run_task': 'Runs illumination or analysis, then validates its outputs.',
-                   'merge_features': 'Use the `plate` subcommand to merge batches, or `all` to concatenate plate tables.',
-                   'convert_watershed': 'A one-time conversion utility. The workflow does not call it.'}[name], '',
+                   'merge_features': 'Use the `plate` subcommand to merge batches, or `all` to concatenate plate tables.'}[name], '',
                   '| Parser in source | Argument | Required, default, choices, or type |', '|---|---|---|']
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'add_argument':
@@ -81,11 +77,9 @@ def generate():
                 options = ', '.join(f'{k.arg}={ast.unparse(k.value)}' for k in node.keywords if k.arg != 'help') or 'Positional argument'
                 lines.append(f'| `{ast.unparse(node.func.value)}` | `{args}` | `{options}` |')
         if name == 'merge_features':
-            lines += ['', '`one` defines `plate` arguments. `every` defines `all` arguments.', '`command` adds `--out` and `--report` to both subcommands.']
+            lines += ['', '`plate` defines the MERGE arguments. `every` defines the CONCAT (`all`) arguments.', '`command` adds `--out` and `--report` to both subcommands.']
         lines += ['']
-    lines += ['## cp_inputs.py', '',
-              'Writes a samplesheet for a folder of images. PREPARE also imports its checks.', '',
-              '```bash', 'python bin/cp_inputs.py --images <images> --configs cp-configs --out samplesheet.csv', '```', '',
+    lines += ['`cp_inputs.py` is a library: the samplesheet and pipeline checks that the scripts above use.', '',
               'Argument parsing errors return status 2. Successful helpers return status 0.',
               'Uncaught validation errors return a nonzero status. Nextflow treats them as task failures.']
     save('reference/cli.md', lines)
@@ -110,16 +104,17 @@ def generate():
     save('reference/file-formats.md', ['# Input file formats', '',
         'Use this reference to check image names and channel assignments.', '',
         'The filename expression below comes directly from the illumination pipeline.',
-        'PREPARE requires compatible metadata and channel rules in the analysis pipeline.', '',
+        '`bin/make_samplesheet.py` uses it to read the metadata from file names. The workflow itself does not.',
+        'PREPARE requires the same channel rules in both pipelines.', '',
         '```text', regex, '```', '',
         '| Filename channel | CellProfiler image name |', '|---|---|',
         '| 405 | DNA |', '| 488 | RNA |', '| 561 | AGP |', '| 638 | Mito |', '| 730 | ER |', '',
         'Images must be unsigned 8-bit or 16-bit grayscale TIFFs with one series and one page.',
         'The image axes must be YX. Every image within a plate must have the same dimensions.',
-        'With `--images`, the plate name comes from the parent folder after resolving file links.', '',
+        'For `bin/make_samplesheet.py`, the plate name is the parent folder, after resolving file links.', '',
         '## Samplesheet', '',
-        'With `--input`, the samplesheet gives the metadata and the path of each image file.',
-        'The filename expression above is then not used, so the files can have any names and be in any folder.',
+        'The samplesheet (`--input`) gives the metadata and the path of each image file.',
+        'The files can have any names and be in any folder.',
         'The samplesheet is a CSV file with one row per image file:', '',
         '```text', 'plate,well,site,channel,path',
         'plate1,A02,1,DNA,/data/plate1/A02_s1_w1.tiff', 'plate1,A02,1,RNA,/data/plate1/A02_s1_w2.tiff', '```', '',
@@ -136,7 +131,7 @@ def generate():
         'Do not use the columns `batch`, `plateImageNumber`, `imageNumber`, and `objectNumber`. The workflow writes them itself.',
         'PREPARE checks every row and every file before the first CellProfiler task starts.', '',
         'Each run writes its samplesheet to `logs/run_inputs/samplesheet.csv`.',
-        'To make a samplesheet from a folder of images, use `bin/cp_inputs.py` (see [helper scripts](cli.md)).',
+        'To make a samplesheet from a folder of images, use `bin/make_samplesheet.py` (see [helper scripts](cli.md)).',
         'Check the result, delete rows that you do not want, then give it with `--input`.', '',
         '## Manifests', '',
         'Generated manifests use one CSV row per image set, with metadata and a path/filename pair for each channel.',

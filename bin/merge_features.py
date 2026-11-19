@@ -31,10 +31,14 @@ import json
 import shutil
 from pathlib import Path
 
+from cp_inputs import read_csv
+
 INDEX = 'Metadata_PlateImageNumber'
 
 # Fastest gzip level. On these tables it compresses as well as level 6 (2.1x) and runs 4x faster.
 LEVEL = 1
+
+# Columns that every exported table needs to place its rows. Object tables also need ObjectNumber.
 KEYS = ('ImageNumber', 'Metadata_Plate', 'Metadata_Batch', 'Metadata_Acquisition')
 
 
@@ -44,11 +48,15 @@ def header_member(columns):
     The result is the same bytes every time for the same columns. CONCAT uses this to find
     where the header ends and the rows start.
 
-    Args:
-        columns: the column names.
+    Parameters
+    ----------
+    columns : list of str
+        The column names.
 
-    Returns:
-        The compressed header line as bytes.
+    Returns
+    -------
+    bytes
+        The compressed header line.
     """
     text = io.StringIO()
     csv.writer(text).writerow(columns)
@@ -58,14 +66,22 @@ def header_member(columns):
 def read_table(path):
     """Read one compressed CellProfiler table.
 
-    Args:
-        path: a .csv.gz file from a batch folder, e.g. features/Cells.csv.gz.
+    Parameters
+    ----------
+    path : Path
+        A ``.csv.gz`` file from a batch folder, e.g. ``features/Cells.csv.gz``.
 
-    Returns:
-        (header, rows): the column names, and a list of dicts with one dict per row.
+    Returns
+    -------
+    header : list of str
+        The column names.
+    rows : list of dict
+        One dict per row.
 
-    Raises:
-        ValueError: if the file has no header or a row has the wrong number of values.
+    Raises
+    ------
+    ValueError
+        If the file has no header or a row has the wrong number of values.
     """
     with gzip.open(path, 'rt', newline='', encoding='utf-8') as stream:
         reader = csv.reader(stream)
@@ -81,79 +97,190 @@ def read_table(path):
 def features(header):
     """Return the columns of a table that go into the per-cell row.
 
-    Metadata_* columns are written once at the start of the row, so they are left out here.
-    ImageNumber is left out too. It is written once as Metadata_ImageNumber.
+    Metadata_* columns are written once at the start of the row, and ImageNumber once as
+    Metadata_ImageNumber, so both are left out here.
+
+    Parameters
+    ----------
+    header : list of str
+        The columns of one exported table.
+
+    Returns
+    -------
+    list of str
+        The feature columns.
     """
     return [c for c in header if c != 'ImageNumber' and not c.startswith('Metadata_')]
+
+
+def read_batch(folder, tables, headers, plate, index):
+    """Read and check the tables of one batch, grouped by image.
+
+    Parameters
+    ----------
+    folder : Path
+        The batch folder, with ``features/<table>.csv.gz`` and ``validation.json``.
+    tables : list of str
+        The table names: ``Image`` and the three cell compartments.
+    headers : dict
+        Table name -> columns, from the first batch. Filled in by the first call.
+    plate : str
+        The plate of this MERGE task.
+    index : dict
+        Acquisition -> position in the plate manifest (1, 2, ...).
+
+    Returns
+    -------
+    dict
+        ImageNumber -> {table name: list of rows}. ImageNumber is unique only inside one batch.
+
+    Raises
+    ------
+    ValueError
+        If the batch did not pass its checks, a key column is missing, the columns differ from
+        the first batch, a row belongs to another plate or batch, or an image has not exactly
+        one Image row.
+    """
+    # Only use a batch that passed its checks in run_task.py.
+    if not (folder / 'validation.json').exists():
+        raise ValueError(f'Batch did not pass validation: {folder.name}')
+    by_image = {}
+    for table in tables:
+        header, rows = read_table(folder / 'features' / f'{table}.csv.gz')
+        if table not in headers:
+            missing = [k for k in KEYS + (() if table == 'Image' else ('ObjectNumber',)) if k not in header]
+            if missing:
+                raise ValueError(f'{table}: missing key columns {missing}')
+            headers[table] = header
+        elif header != headers[table]:
+            raise ValueError(f'{table}: columns differ in {folder.name}')
+        for row in rows:
+            if row['Metadata_Plate'] != plate or row['Metadata_Batch'] != folder.name:
+                raise ValueError(f'{table}: row from another plate or batch in {folder.name}: {row["Metadata_Acquisition"]}')
+            if row['Metadata_Acquisition'] not in index:
+                raise ValueError(f'{table}: acquisition not in plate manifest: {row["Metadata_Acquisition"]}')
+            by_image.setdefault(row['ImageNumber'], {}).setdefault(table, []).append(row)
+    for number, image_rows in by_image.items():
+        if len(image_rows.get('Image', [])) != 1:
+            raise ValueError(f'ImageNumber {number} in {folder.name} has no single Image.csv row')
+    return by_image
+
+
+def cells_of_image(image_rows, compartments, report):
+    """Join the cytoplasm and the nucleus of each cell in one image.
+
+    Parameters
+    ----------
+    image_rows : dict
+        Table name -> rows of one image, from ``read_batch()``.
+    compartments : dict
+        The object names from contract.json: ``cells``, ``cytoplasm`` and ``nuclei``.
+    report : dict
+        The MERGE summary. The counts of cells without a part are added here.
+
+    Yields
+    ------
+    tuple
+        (cell row, cytoplasm row or None, nucleus row or None), in cell number order.
+
+    Raises
+    ------
+    ValueError
+        If an object table disagrees with ``Count_<Object>`` in the Image row, a cell has
+        several nuclei, a cytoplasm belongs to another cell, or the nucleus count of a cell
+        disagrees with ``Children_<Nuclei>_Count``.
+    """
+    cells, cytoplasm, nuclei = compartments['cells'], compartments['cytoplasm'], compartments['nuclei']
+    image = image_rows['Image'][0]
+    acquisition = image['Metadata_Acquisition']
+
+    # Each object table must have exactly Count_<Object> rows, with unique numbers.
+    for table in (cells, cytoplasm, nuclei):
+        rows = image_rows.get(table, [])
+        if any(r['Metadata_Acquisition'] != acquisition for r in rows):
+            raise ValueError(f'{table}: ImageNumber {image["ImageNumber"]} does not match Image.csv')
+        if len(rows) != float(image[f'Count_{table}']) or len({r['ObjectNumber'] for r in rows}) != len(rows):
+            raise ValueError(f'{table}: rows for {acquisition} disagree with Count_{table}')
+
+    # IdentifyTertiaryObjects gives a cytoplasm the number of the cell it was cut from.
+    cyto = {r['ObjectNumber']: r for r in image_rows.get(cytoplasm, [])}
+
+    # RelateObjects gives a nucleus the number of its cell in Parent_<Cells>. 0 means no cell.
+    nucleus = {}
+    for r in image_rows.get(nuclei, []):
+        parent = str(int(float(r[f'Parent_{cells}'])))
+        if parent == '0':
+            report['nuclei_without_cell'] += 1
+        elif parent in nucleus:
+            raise ValueError(f'Cell {parent} in {acquisition} has several nuclei; one row per cell is ambiguous')
+        else:
+            nucleus[parent] = r
+
+    for cell in sorted(image_rows.get(cells, []), key=lambda r: int(r['ObjectNumber'])):
+        number = cell['ObjectNumber']
+        part_cyto, part_nucleus = cyto.get(number), nucleus.get(number)
+        if part_cyto and int(float(part_cyto[f'Parent_{cells}'])) not in (int(number), 0):
+            raise ValueError(f'Cytoplasm {number} in {acquisition} belongs to another cell')
+        if f'Children_{nuclei}_Count' in cell and float(cell[f'Children_{nuclei}_Count']) != int(part_nucleus is not None):
+            raise ValueError(f'Cell {number} in {acquisition}: nucleus count disagrees with Children_{nuclei}_Count')
+        report['cells_without_cytoplasm'] += part_cyto is None
+        report['cells_without_nucleus'] += part_nucleus is None
+        yield cell, part_cyto, part_nucleus
 
 
 def merge_plate(plate, manifest, batches, compartments, out):
     """Join the batch tables of one plate into one table with one row per cell.
 
-    The function reads one batch at a time, so memory use depends on the batch size only.
+    The function reads one batch at a time, so its memory use depends on the batch size only.
 
-    Args:
-        plate: the plate name.
-        manifest: the plate manifest with all image sets in plate order.
-        batches: the batch folders of the plate.
-        compartments: the object names from contract.json, e.g. {"cells": "Cells", ...}.
-        out: the .csv.gz file to write.
+    Parameters
+    ----------
+    plate : str
+        The plate name.
+    manifest : Path
+        The plate manifest with all image sets in plate order.
+    batches : list of Path
+        The batch folders of the plate.
+    compartments : dict
+        The object names from contract.json, e.g. ``{"cells": "Cells", ...}``.
+    out : Path
+        The ``.csv.gz`` file to write.
 
-    Returns:
-        A summary for merge.json: number of cells, cells without a nucleus or cytoplasm, and so on.
+    Returns
+    -------
+    dict
+        A summary for merge.json: number of cells, cells without a nucleus or cytoplasm, etc.
 
-    Raises:
-        ValueError: if a batch is missing or failed, the columns differ between batches, or the
-            rows do not match the counts in Image.csv.
+    Raises
+    ------
+    ValueError
+        If a batch is missing or failed, the columns differ between batches, the rows disagree
+        with the counts in Image.csv, or the image sets are not each in the table exactly once.
     """
-
-    # The plate manifest gives the order of the image sets. Position 1 is the first image set.
-    with Path(manifest).open(newline='') as stream:
-        order = [row['Metadata_Acquisition'] for row in csv.DictReader(stream)]
-
-    # Position in the plate manifest equals ImageNumber in a single-batch run.
+    # Position in the plate manifest gives the plate image order. Position 1 is the first image set.
+    order = [row['Metadata_Acquisition'] for row in read_csv(manifest)]
     index = {acquisition: i for i, acquisition in enumerate(order, 1)}
     if not order or len(index) != len(order):
         raise ValueError(f'Plate manifest is empty or has duplicate acquisitions: {manifest}')
     batches = sorted(batches, key=lambda p: p.name)
     if not batches or len({b.name for b in batches}) != len(batches):
         raise ValueError('Require uniquely named batch folders')
-    cells, cytoplasm, nuclei = compartments['cells'], compartments['cytoplasm'], compartments['nuclei']
-    names = {'Image': 'Image', cells: 'Cells', cytoplasm: 'Cytoplasm', nuclei: 'Nuclei'}
-    headers, columns, seen, last, images = {}, None, set(), (0, 0), []
+
+    # Exported table name -> the prefix of its columns in the per-cell table.
+    names = {'Image': 'Image', compartments['cells']: 'Cells', compartments['cytoplasm']: 'Cytoplasm',
+             compartments['nuclei']: 'Nuclei'}
+    headers, columns, last, images = {}, None, (0, 0), []
     report = dict(plate=plate, batches=[b.name for b in batches], image_sets=len(order), cells=0,
                   cells_without_nucleus=0, cells_without_cytoplasm=0, nuclei_without_cell=0)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open('wb') as raw, contextlib.ExitStack() as rows_member:
         writer = None
         for folder in batches:
+            by_image = read_batch(folder, list(names), headers, plate, index)
 
-            # Only use a batch that passed its checks in run_task.py.
-            if not (folder / 'validation.json').exists():
-                raise ValueError(f'Batch did not pass validation: {folder.name}')
-
-            # Read the four tables of this batch. Their columns must be the same in every batch.
-            tables = {}
-            for table in names:
-                header, rows = read_table(folder / 'features' / f'{table}.csv.gz')
-                if table not in headers:
-                    missing = [k for k in KEYS + (() if table == 'Image' else ('ObjectNumber',)) if k not in header]
-                    if missing:
-                        raise ValueError(f'{table}: missing key columns {missing}')
-                    headers[table] = header
-                elif header != headers[table]:
-                    raise ValueError(f'{table}: columns differ in {folder.name}')
-                for row in rows:
-                    if row['Metadata_Plate'] != plate or row['Metadata_Batch'] != folder.name:
-                        raise ValueError(f'{table}: row from another plate or batch in {folder.name}: {row["Metadata_Acquisition"]}')
-                    if row['Metadata_Acquisition'] not in index:
-                        raise ValueError(f'{table}: acquisition not in plate manifest: {row["Metadata_Acquisition"]}')
-                tables[table] = rows
-
-            # With the first batch, build the output columns and start the file with the header.
+            # With the first batch, build the output columns and write the header as its own gzip part.
             if columns is None:
-                image_header = headers['Image']
-                metadata = [c for c in image_header if c.startswith('Metadata_')]
+                metadata = [c for c in headers['Image'] if c.startswith('Metadata_')]
                 columns = metadata + [INDEX, 'Metadata_ImageNumber', 'Metadata_ObjectNumber']
                 columns += [f'{names[t]}_{c}' for t in names for c in features(headers[t])]
                 if len(set(columns)) != len(columns):
@@ -164,65 +291,24 @@ def merge_plate(plate, manifest, batches, compartments, out):
                 rows_gzip = rows_member.enter_context(gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=LEVEL, mtime=0))
                 writer = csv.writer(rows_member.enter_context(io.TextIOWrapper(rows_gzip, encoding='utf-8', newline='')))
 
-            # Group the batch rows by ImageNumber. ImageNumber is unique only inside one batch.
-            by_image = {}
-            for table, rows in tables.items():
-                for row in rows:
-                    by_image.setdefault(row['ImageNumber'], {}).setdefault(table, []).append(row)
-            for number, image_rows in by_image.items():
-                if len(image_rows.get('Image', [])) != 1:
-                    raise ValueError(f'ImageNumber {number} in {folder.name} has no single Image.csv row')
-
-            # Go through the images in plate order.
+            # Go through the images in plate order, then the cells in cell number order.
             for number, image_rows in sorted(by_image.items(), key=lambda item: index[item[1]['Image'][0]['Metadata_Acquisition']]):
                 image = image_rows['Image'][0]
-                acquisition = image['Metadata_Acquisition']
+                for cell, part_cyto, part_nucleus in cells_of_image(image_rows, compartments, report):
 
-                # Each object table must have exactly Count_<Object> rows for this image.
-                for table in (cells, cytoplasm, nuclei):
-                    rows = image_rows.get(table, [])
-                    if any(r['Metadata_Acquisition'] != acquisition for r in rows):
-                        raise ValueError(f'{table}: ImageNumber {number} in {folder.name} does not match Image.csv')
-                    if len(rows) != float(image[f'Count_{table}']) or len({r['ObjectNumber'] for r in rows}) != len(rows):
-                        raise ValueError(f'{table}: rows for {acquisition} disagree with Count_{table}')
-
-                # Tertiary objects carry the number of the cell they were cut from.
-                cyto = {r['ObjectNumber']: r for r in image_rows.get(cytoplasm, [])}
-
-                # Find the nucleus of each cell through Parent_Cells. A cell may have at most one.
-                nucleus = {}
-                for r in image_rows.get(nuclei, []):
-                    parent = str(int(float(r[f'Parent_{cells}'])))
-                    if parent == '0':
-                        report['nuclei_without_cell'] += 1
-                    elif parent in nucleus:
-                        raise ValueError(f'Cell {parent} in {acquisition} has several nuclei; one row per cell is ambiguous')
-                    else:
-                        nucleus[parent] = r
-
-                # Write one row per cell, in cell number order.
-                for cell in sorted(image_rows.get(cells, []), key=lambda r: int(r['ObjectNumber'])):
-                    key = (index[acquisition], int(cell['ObjectNumber']))
-
-                    # Batches are contiguous slices of the plate manifest. Anything else breaks the order.
-                    if key in seen or key < last:
+                    # Batches are consecutive slices of the plate manifest, so the key must always
+                    # increase. A repeated or smaller key means a duplicate or a wrong batch order.
+                    key = (index[image['Metadata_Acquisition']], int(cell['ObjectNumber']))
+                    if key <= last:
                         raise ValueError(f'Duplicate or out-of-order cell {key} in {folder.name}')
-                    seen.add(key)
                     last = key
-                    parts = {'Image': image, cells: cell, cytoplasm: cyto.get(cell['ObjectNumber']),
-                             nuclei: nucleus.get(cell['ObjectNumber'])}
-                    if parts[cytoplasm] and int(float(parts[cytoplasm][f'Parent_{cells}'])) not in (key[1], 0):
-                        raise ValueError(f'Cytoplasm {cell["ObjectNumber"]} in {acquisition} belongs to another cell')
-                    report['cells_without_cytoplasm'] += parts[cytoplasm] is None
-                    report['cells_without_nucleus'] += parts[nuclei] is None
-                    if f'Children_{nuclei}_Count' in cell and float(cell[f'Children_{nuclei}_Count']) != int(parts[nuclei] is not None):
-                        raise ValueError(f'Cell {cell["ObjectNumber"]} in {acquisition}: nucleus count disagrees with Children_{nuclei}_Count')
 
                     # Metadata first, then Image_*, Cells_*, Cytoplasm_*, Nuclei_*. A missing part stays blank.
+                    parts = {'Image': image, compartments['cells']: cell, compartments['cytoplasm']: part_cyto,
+                             compartments['nuclei']: part_nucleus}
                     row = [image[c] for c in metadata] + [key[0], number, cell['ObjectNumber']]
                     for table in names:
-                        part = parts[table]
-                        row += [part[c] if part else '' for c in features(headers[table])]
+                        row += [parts[table][c] if parts[table] else '' for c in features(headers[table])]
                     writer.writerow(row)
                     report['cells'] += 1
             images += [rows['Image'][0]['Metadata_Acquisition'] for rows in by_image.values()]
@@ -240,15 +326,22 @@ def concatenate(paths, out):
     MERGE already checked every row. This function checks that all headers are the same,
     writes the header once, then copies the compressed rows of each plate as they are.
 
-    Args:
-        paths: the <plate>.csv.gz files from MERGE.
-        out: the all_plates.csv.gz file to write.
+    Parameters
+    ----------
+    paths : list of Path
+        The ``<plate>.csv.gz`` files from MERGE.
+    out : Path
+        The ``all_plates.csv.gz`` file to write.
 
-    Returns:
+    Returns
+    -------
+    dict
         A summary for all_plates.merge.json: the plates, the number of columns, the file size.
 
-    Raises:
-        ValueError: if a table has different columns, or was not written by MERGE.
+    Raises
+    ------
+    ValueError
+        If a table has different columns, or was not written by MERGE.
     """
     paths = sorted(paths, key=lambda p: p.name)
     if not paths or len({p.name for p in paths}) != len(paths):
@@ -256,8 +349,6 @@ def concatenate(paths, out):
     header = None
     with out.open('wb') as target:
         for path in paths:
-
-            # Read only the first line of the table: its header.
             with gzip.open(path, 'rt', newline='', encoding='utf-8') as source:
                 columns = next(csv.reader(source), None)
             if header is None:
@@ -278,22 +369,21 @@ def concatenate(paths, out):
     return dict(plates=[p.name.split('.')[0] for p in paths], columns=len(header), bytes=out.stat().st_size)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+def main():
+    """Parse the arguments and run MERGE (``plate``) or CONCAT (``all``). Exit with code 2 on an error."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
-    one = commands.add_parser('plate', help='Join one plate\'s batches into one row per cell')
-    one.add_argument('--plate', required=True)
-    one.add_argument('--manifest', type=Path, required=True)
-    one.add_argument('--batches', type=Path, required=True)
-    one.add_argument('--contract', type=Path, required=True)
+    plate = commands.add_parser('plate', help="Join one plate's batches into one row per cell")
+    plate.add_argument('--plate', required=True)
+    plate.add_argument('--manifest', type=Path, required=True)
+    plate.add_argument('--batches', type=Path, required=True)
+    plate.add_argument('--contract', type=Path, required=True)
     every = commands.add_parser('all', help='Concatenate plate tables with identical columns')
     every.add_argument('tables', type=Path, nargs='+')
-    for command in (one, every):
+    for command in (plate, every):
         command.add_argument('--out', type=Path, required=True)
         command.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
-
-    # Exit code 2 with one clear line tells Nextflow and the user what went wrong.
     try:
         if args.command == 'plate':
             compartments = json.loads(args.contract.read_text())['compartments']
@@ -306,3 +396,7 @@ if __name__ == '__main__':
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2))
     print(json.dumps(report))
+
+
+if __name__ == '__main__':
+    main()

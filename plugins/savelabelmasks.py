@@ -36,12 +36,17 @@ INPUTS = (ImageSubscriber, LabelSubscriber, ImageListSubscriber, LabelListSubscr
 def names(settings, kinds):
     """Collect the image or object names from the settings of the given kinds.
 
-    Args:
-        settings: CellProfiler settings of one module.
-        kinds: the setting classes to look at, e.g. OUTPUTS or INPUTS.
+    Parameters
+    ----------
+    settings : list
+        CellProfiler settings of one module.
+    kinds : tuple of type
+        The setting classes to look at, e.g. ``OUTPUTS`` or ``INPUTS``.
 
-    Returns:
-        A list of names. Empty values and "None" are skipped.
+    Returns
+    -------
+    list of str
+        The names. Empty values and "None" are skipped.
     """
     found = []
     for setting in settings:
@@ -62,11 +67,15 @@ def producers(modules):
     from DNA and IllumDNA, and CorrRNA from RNA and IllumRNA. An output in a group depends only
     on the inputs of its own group, so CorrDNA does not get RNA as an input.
 
-    Args:
-        modules: the pipeline modules that run before this one.
+    Parameters
+    ----------
+    modules : iterable
+        The pipeline modules that run before this one.
 
-    Returns:
-        A dict: name -> (module, list of input names).
+    Returns
+    -------
+    dict
+        Name -> (module, list of input names).
     """
     result = {}
     for module in modules:
@@ -103,15 +112,23 @@ def lineage(name, made_by, measurements, steps, sources):
     The function follows the inputs of each module, step by step, until it reaches an image
     that LoadData loaded. Loaded images have a FileName_<name> measurement.
 
-    Args:
-        name: the image or object to trace, e.g. "Nuclei".
-        made_by: the result of producers().
-        measurements: the CellProfiler measurements of the current image set.
-        steps: a list that collects the modules on the way. Filled in place.
-        sources: a dict that collects the loaded files. Filled in place.
+    Parameters
+    ----------
+    name : str
+        The image or object to trace, e.g. "Nuclei".
+    made_by : dict
+        The result of ``producers()``.
+    measurements : cellprofiler_core.measurement.Measurements
+        The measurements of the current image set.
+    steps : list of dict
+        Collects the modules on the way. Filled in place.
+    sources : dict
+        Collects the loaded files. Filled in place.
 
-    Raises:
-        ValueError: if no module made the name and it was not loaded either.
+    Raises
+    ------
+    ValueError
+        If no module made the name and it was not loaded either.
     """
 
     # Each name is traced only once, even if several steps use it.
@@ -143,7 +160,7 @@ def lineage(name, made_by, measurements, steps, sources):
 
 
 class SaveLabelMasks(Module):
-    """Pipeline module that prepare.adapt() adds after segmentation. It has no settings.
+    """Pipeline module that ``prepare.working_copy()`` adds before the export. It has no settings.
 
     For each image set it writes masks/<acquisition>_<Object>.tiff and adds a row
     to mask_manifest.csv. run_task.py reads that manifest to check the masks.
@@ -164,13 +181,16 @@ class SaveLabelMasks(Module):
     def run(self, workspace):
         """Save one mask per object type for the current image set.
 
-        Args:
-            workspace: the CellProfiler workspace. It holds the objects, the measurements
-                and the pipeline.
+        Parameters
+        ----------
+        workspace : cellprofiler_core.workspace.Workspace
+            Holds the objects, the measurements and the pipeline.
 
-        Raises:
-            ValueError: if a mask is not 2D, has labels that do not fit in uint32, or would
-                overwrite another mask.
+        Raises
+        ------
+        ValueError
+            If a mask is not 2D, has labels that do not fit in uint32, or would overwrite
+            another mask.
         """
         output = Path(get_default_output_directory())
         masks = output / "masks"

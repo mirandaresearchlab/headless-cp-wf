@@ -10,7 +10,8 @@ See [provide your own pipelines](docs/usage.md#provide-your-own-pipelines).
 ## Quick start
 
 First install Nextflow and prepare the images using the [installation guide](docs/getting-started/installation.md).
-Run these commands from the repository folder. Replace `<images>` with your image folder, with one folder per plate.
+Run these commands from the repository folder. Replace `<samplesheet.csv>` with your samplesheet: one row per image file.
+To make it from a folder of plate folders, see [Prepare the inputs](docs/usage.md#prepare-the-inputs).
 Replace `<configs>` with the folder that holds your two pipeline files.
 The full workflow example was not rerun during this documentation update.
 

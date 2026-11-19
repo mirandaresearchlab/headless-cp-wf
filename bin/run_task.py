@@ -9,7 +9,7 @@ analysis (one task per batch)
   Out: result/analysis/<batch>/features/*.csv.gz, validation.json, and result/masks/*.tiff.
 Both write result/logs/<batch>.log, <batch>.metrics.json and <batch>.load_data.csv.
 
-What happens to the data inside one analysis task:
+What happens inside one analysis task:
   1. Check each .npy file against the checksum in provenance.json of the same plate.
   2. Add the .npy file names to every manifest row. Write load_data.csv.
   3. Run CellProfiler headless on load_data.csv.
@@ -22,37 +22,22 @@ import csv
 import gzip
 import hashlib
 import json
-import os
-from pathlib import Path
 import resource
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 import numpy as np
 import tifffile
 
-from prepare import write_csv
+from cp_inputs import read_csv, write_csv
 
-
-def read_csv(path):
-    """Read a CSV file as a list of dicts, one dict per row."""
-    with Path(path).open(newline='') as stream:
-        return list(csv.DictReader(stream))
-
-
-def checksum(path):
-    """Return the SHA-256 checksum of a file as text.
-
-    The workflow uses it to prove that a batch read the correction files of its own plate.
-    """
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-# CP 4.2.8.1 MeasureObjectSizeShape (regionprops) and MeasureTexture (numpy.unique) compute these
-# for labels that have pixels, then store them by position. An object without pixels, such as a
-# cytoplasm fully covered by its nucleus, shifts every later object's values by one row.
-# Zernike, Feret and all other modules index by object number and stay aligned.
+# CellProfiler 4.2.8.1 computes these measurements only for labels that have pixels
+# (MeasureObjectSizeShape uses regionprops, MeasureTexture uses numpy.unique), then stores the
+# values by position, not by object number. So an object without pixels, such as a cytoplasm
+# that its nucleus covers fully, moves the values of every later object one row up.
+# Zernike, Feret and all other measurements use the object number and stay correct.
 SHIFTED = {'AreaShape_' + f for f in (
     'Area', 'Perimeter', 'MajorAxisLength', 'MinorAxisLength', 'Eccentricity', 'Orientation', 'Center_X',
     'Center_Y', 'BoundingBoxArea', 'BoundingBoxMinimum_X', 'BoundingBoxMaximum_X', 'BoundingBoxMinimum_Y',
@@ -61,27 +46,50 @@ SHIFTED = {'AreaShape_' + f for f in (
 SHIFTED_PREFIXES = ('Texture_', 'AreaShape_SpatialMoment_', 'AreaShape_CentralMoment_', 'AreaShape_NormalizedMoment_',
                     'AreaShape_HuMoment_', 'AreaShape_InertiaTensor')
 
-# Radii are preallocated with zeros, so their unused tail is 0.0 instead of nan.
+# CellProfiler fills the radius arrays with zeros first, so their unused end is 0.0, not nan.
 ZERO_PADDED = {'AreaShape_MaximumRadius', 'AreaShape_MeanRadius', 'AreaShape_MedianRadius'}
+
+
+def checksum(path):
+    """Return the SHA-256 checksum of a file as hexadecimal text.
+
+    Parameters
+    ----------
+    path : str or Path
+        The file.
+
+    Returns
+    -------
+    str
+        The checksum.
+    """
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def realign(output, contract):
     """Move shifted CellProfiler values back to the objects they belong to.
 
-    CellProfiler 4.2.8.1 writes some shape and texture values one row too early after an
-    object that has no pixels (see SHIFTED above). This function moves them back. Objects
-    without pixels get nan. A table is rewritten only if one of its images needs a correction.
+    For each image and object type, the mask gives the pixel count of every object. If all
+    objects have pixels, nothing moved. Otherwise the first values of each shifted column belong
+    to the objects with pixels, in order, and the objects without pixels get nan.
 
-    Args:
-        output: the batch folder with features/ and mask_manifest.csv.
-        contract: the contract from PREPARE. It lists the object types.
+    Parameters
+    ----------
+    output : Path
+        The batch folder with ``features/`` and ``mask_manifest.csv``.
+    contract : dict
+        The contract from PREPARE. Its ``objects`` are the object types to check.
 
-    Returns:
-        A list of corrections, one per image and object type, for validation.json.
+    Returns
+    -------
+    list of dict
+        One correction per image and object type, for validation.json.
 
-    Raises:
-        ValueError: if the values do not show the known shift pattern. Then the cause is
-            something else, and the data must not be changed.
+    Raises
+    ------
+    ValueError
+        If the values do not show the known shift pattern. Then the cause is something else,
+        and the data must not be changed.
     """
     masks = read_csv(output / 'mask_manifest.csv')
     corrections = []
@@ -92,8 +100,6 @@ def realign(output, contract):
             header = next(reader)
             table = list(reader)
         col = {name: i for i, name in enumerate(header)}
-
-        # Only the shifted columns move. All other columns are already correct.
         shifted = [i for name, i in col.items() if name in SHIFTED or name.startswith(SHIFTED_PREFIXES)]
         if not shifted:
             continue
@@ -105,7 +111,7 @@ def realign(output, contract):
             if [int(r[col['ObjectNumber']]) for r in image] != list(range(1, len(image) + 1)):
                 raise ValueError(f'{obj}: object numbers are not 1..N in image {mask["ImageNumber"]}')
 
-            # Count the pixels of each object in the mask. An object with 0 pixels is empty.
+            # Pixel count of each object (labels 1..N). An object with 0 pixels is empty.
             pixels = np.bincount(tifffile.imread(output / mask['MaskPath']).ravel(), minlength=len(image) + 1)[1:]
             if len(pixels) != len(image):
                 raise ValueError(f'{obj}: mask labels exceed measurement rows in image {mask["ImageNumber"]}')
@@ -114,12 +120,12 @@ def realign(output, contract):
                 continue
             for i in shifted:
 
-                # Known pattern: the last rows hold no value (nan, or 0.0 for the radii).
+                # Known pattern: one empty value at the end for each empty object.
                 pad = '0.0' if header[i] in ZERO_PADDED else 'nan'
                 if {r[i] for r in image[len(present):]} != {pad}:
                     raise ValueError(f'{obj}: {header[i]} does not show the known CP 4.2.8.1 shift; review before use')
 
-                # The first values belong to the objects that have pixels, in order.
+                # Give the first values to the objects with pixels, in order. Empty objects get nan.
                 values = [r[i] for r in image[:len(present)]]
                 for r in image:
                     r[i] = 'nan'
@@ -128,7 +134,7 @@ def realign(output, contract):
             corrections.append(dict(object=obj, image_number=mask['ImageNumber'], acquisition=mask['Acquisition'],
                                     empty_objects=[int(j) + 1 for j in np.flatnonzero(pixels == 0)], columns=len(shifted)))
 
-        # Write the table back only if something moved. The row order stays the same.
+        # Write the table again only if a value moved. The row order stays the same.
         if any(c['object'] == obj for c in corrections):
             with path.open('w', newline='') as stream:
                 writer = csv.writer(stream)
@@ -141,30 +147,36 @@ def validate_analysis(output, rows, contract):
     """Check the tables and masks of one batch against its manifest.
 
     Checks:
-      - Image.csv has exactly the image sets of the manifest.
-      - Each image set has one mask per object type. The mask names its image set and
-        exactly the files that this batch loaded for it.
-      - Object numbers run 1..N, and N equals Count_<Object> in Image.csv.
-      - Each mask label has a row. A row can have no pixels (an empty object).
-      - AreaShape_Area equals the pixel count of the object in its mask.
-        AreaShape_Center_X equals Location_Center_X. Together these prove that every row
-        belongs to the right object.
 
-    Args:
-        output: the batch folder with features/, masks/ and mask_manifest.csv.
-        rows: the manifest rows of this batch, including the illumination file names.
-        contract: the contract from PREPARE.
+    - Image.csv has exactly the image sets of the manifest, and no module error.
+    - Each image set has one mask per object type. The mask names its image set and exactly
+      the files that this batch loaded for it.
+    - Object numbers run 1..N, and N equals ``Count_<Object>`` in Image.csv.
+    - ``AreaShape_Area`` equals the pixel count of the object in its mask, and
+      ``AreaShape_Center_X`` equals ``Location_Center_X``. Together these prove that every row
+      belongs to the right object.
 
-    Returns:
+    Parameters
+    ----------
+    output : Path
+        The batch folder with ``features/``, ``masks/`` and ``mask_manifest.csv``.
+    rows : list of dict
+        The manifest rows of this batch, with the illumination file names.
+    contract : dict
+        The contract from PREPARE.
+
+    Returns
+    -------
+    dict
         A summary for validation.json: image sets, masks, object types, empty objects.
 
-    Raises:
-        ValueError: on the first check that fails.
+    Raises
+    ------
+    ValueError
+        On the first check that fails.
     """
-
-    # The exported image sets must be exactly the ones in the manifest.
     images = read_csv(output / 'features' / 'Image.csv')
-    key = lambda r: tuple(r['Metadata_' + k] for k in ('Plate', 'Batch', 'Acquisition'))
+    key = lambda r: tuple(r['Metadata_' + k] for k in ('Plate', 'Batch', 'Acquisition'))  # noqa: E731
     expected = {key(r) for r in rows}
     if len(images) != len(rows) or {key(r) for r in images} != expected:
         raise ValueError('Exported image sets do not match the assigned manifest exactly')
@@ -178,14 +190,13 @@ def validate_analysis(output, rows, contract):
     if actual != expected_masks or len(actual) != len(masks):
         raise ValueError(f'Missing, duplicate or unexpected masks: missing={expected_masks - actual}, extra={actual - expected_masks}')
     image_by_number = {r['ImageNumber']: r for r in images}
-    by_acquisition = {r['Metadata_Acquisition']: r for r in rows}
-    tables, empty = {}, {}
-    for obj in contract['objects']:
-        tables[obj] = read_csv(output / 'features' / f'{obj}.csv')
+    loaded_by_acquisition = {r['Metadata_Acquisition']: r for r in rows}
+    tables = {obj: read_csv(output / 'features' / f'{obj}.csv') for obj in contract['objects']}
+    empty = {}
     for row in masks:
         obj, number = row['ObjectType'], row['ImageNumber']
-        im = image_by_number[number]
-        if (row['Plate'], row['Batch'], row['Acquisition']) != key(im):
+        image = image_by_number[number]
+        if (row['Plate'], row['Batch'], row['Acquisition']) != key(image):
             raise ValueError(f'Mask/image acquisition mismatch: {row}')
         with tifffile.TiffFile(output / row['MaskPath']) as tiff:
             labels = tiff.asarray()
@@ -194,28 +205,26 @@ def validate_analysis(output, rows, contract):
             raise ValueError(f'Mask is not a uint32 label image: {row}')
 
         # The mask must name its own image set and exactly the files this batch loaded for it.
-        loaded = by_acquisition[row['Acquisition']]
-        if provenance['object'] != obj or {k: provenance['metadata'][k] for k in ('Plate', 'Batch', 'Acquisition')} != \
-                dict(Plate=row['Plate'], Batch=row['Batch'], Acquisition=row['Acquisition']) or not provenance['source_files'] or \
-                any((loaded['FileName_' + n], loaded['PathName_' + n]) != (f['file'], f['folder']) for n, f in provenance['source_files'].items()):
+        loaded = loaded_by_acquisition[row['Acquisition']]
+        named = {k: provenance['metadata'][k] for k in ('Plate', 'Batch', 'Acquisition')}
+        files = provenance['source_files']
+        if provenance['object'] != obj or named != dict(Plate=row['Plate'], Batch=row['Batch'], Acquisition=row['Acquisition']) \
+                or not files or any((loaded['FileName_' + n], loaded['PathName_' + n]) != (f['file'], f['folder']) for n, f in files.items()):
             raise ValueError(f'Mask provenance does not match its image set: {row["MaskPath"]}')
 
-        # Compare the rows of this image with the labels in its mask.
+        # Compare the rows of this image with the labels in its mask. Objects without pixels keep
+        # their rows and numbers (e.g. a cytoplasm that its nucleus covers fully).
         objects = [r for r in tables[obj] if r['ImageNumber'] == number]
         ids = [int(r['ObjectNumber']) for r in objects]
         pixels = np.bincount(labels.ravel(), minlength=len(ids) + 1)
         present = set(np.flatnonzero(pixels)) - {0}
-
-        # Objects without pixels keep their rows and numbers (e.g. cytoplasm covered by its nucleus).
-        if sorted(ids) != list(range(1, len(ids) + 1)) or not present <= set(ids) or len(ids) != float(im['Count_' + obj]):
+        if sorted(ids) != list(range(1, len(ids) + 1)) or not present <= set(ids) or len(ids) != float(image['Count_' + obj]):
             raise ValueError(f'Mask labels, measurement rows and count disagree: {obj}, image {number}')
         if len(present) != int(row['LabelCount']):
             raise ValueError(f'Mask manifest label count disagrees: {row}')
         empty[obj] = empty.get(obj, 0) + len(ids) - len(present)
         for r in objects:
             n = int(r['ObjectNumber'])
-
-            # Independent proof that every object's shape row belongs to its label.
             if 'AreaShape_Area' in r and not (float(r['AreaShape_Area']) == pixels[n] if pixels[n] else r['AreaShape_Area'] == 'nan'):
                 raise ValueError(f'{obj}: AreaShape_Area does not match mask pixels for object {n}, image {number}')
             if 'AreaShape_Center_X' in r and 'Location_Center_X' in r and not np.isclose(
@@ -224,17 +233,188 @@ def validate_analysis(output, rows, contract):
     return {'image_sets': len(images), 'masks': len(masks), 'objects': contract['objects'], 'empty_objects': empty}
 
 
-def run(args):
-    """Run one illumination or analysis task and write its outputs under result/.
+def add_illumination(rows, folder, plate, contract):
+    """Check the correction files of the plate, and add them to every manifest row.
 
-    Args:
-        args: the command-line arguments (see the bottom of this file).
+    Parameters
+    ----------
+    rows : list of dict
+        The manifest rows of the batch. Changed in place.
+    folder : Path
+        The ILLUMINATION output folder of the plate.
+    plate : str
+        The plate of this batch.
+    contract : dict
+        The contract from PREPARE. Its ``corrections`` name the functions.
 
-    Raises:
-        ValueError: if an input is wrong, CellProfiler fails, or a check fails.
+    Returns
+    -------
+    dict
+        Function name -> plate and checksum, for validation.json.
+
+    Raises
+    ------
+    ValueError
+        If the folder belongs to another plate, or a file does not have its recorded checksum.
     """
+    saved = json.loads((folder / 'provenance.json').read_text())
+    if saved['plate'] != plate:
+        raise ValueError('Illumination plate does not match analysis plate')
+    provenance = {}
+    for name in contract['corrections']:
+        function = (folder / (name + '.npy')).resolve()
+        if checksum(function) != saved['sha256'][name]:
+            raise ValueError(f'Illumination checksum mismatch: {function}')
+        provenance[name] = {'plate': plate, 'sha256': saved['sha256'][name]}
 
-    # The manifest must hold only this task's plate.
+        # LoadData reads a correction file like an image: it needs a file name and a folder.
+        for row in rows:
+            row['FileName_' + name] = function.name
+            row['PathName_' + name] = str(function.parent)
+    return provenance
+
+
+def run_cellprofiler(args, rows, output, logs):
+    """Run CellProfiler headless on the manifest rows, and record time and peak memory.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        The command-line arguments.
+    rows : list of dict
+        The LoadData rows. They are written to ``load_data.csv``.
+    output : Path
+        The CellProfiler output folder.
+    logs : Path
+        The folder for the log and ``<batch>.metrics.json``.
+
+    Returns
+    -------
+    dict
+        The metrics: time, peak memory, image sets per minute, exit code.
+
+    Raises
+    ------
+    ValueError
+        If CellProfiler exits with an error, or logs a Python exception.
+    """
+    write_csv('load_data.csv', rows)
+    temp = Path('tmp')
+    temp.mkdir(exist_ok=True)
+    log = logs / f'{args.batch}.log'
+    command = ['cellprofiler', '-c', '-r', '-p', str(args.pipeline.resolve()),
+               '--data-file', str(Path('load_data.csv').resolve()), '-i', str(Path.cwd()),
+               '-o', str(output.resolve()), '-t', str(temp.resolve()),
+               '--plugins-directory', str(args.plugins.resolve()), '--log-level', 'INFO']
+    start = time.monotonic()
+    with log.open('w') as stream:
+        result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT)
+    elapsed = time.monotonic() - start
+    metrics = dict(plate=args.plate, batch=args.batch, kind=args.kind, elapsed_seconds=elapsed,
+                   peak_rss_kib=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss, image_sets=len(rows),
+                   sets_per_minute=60 * len(rows) / elapsed, exit_code=result.returncode)
+    (logs / f'{args.batch}.metrics.json').write_text(json.dumps(metrics, indent=2))
+    if result.returncode:
+        print(log.read_text()[-8000:])
+        raise ValueError(f'CellProfiler failed with exit code {result.returncode}: {log}')
+
+    # CellProfiler can log a Python error and still exit with 0. Treat that as a failure.
+    if 'Traceback (most recent call last)' in log.read_text():
+        raise ValueError(f'CellProfiler logged an exception: {log}')
+    return metrics
+
+
+def check_illumination(output, rows, plate, contract):
+    """Check the correction functions, and write provenance.json with their checksums.
+
+    Each function must be one of the expected files, have the shape of the images, and hold only
+    finite values above 0. The analysis batches check the checksums before they use the files.
+
+    Parameters
+    ----------
+    output : Path
+        The ILLUMINATION output folder.
+    rows : list of dict
+        The manifest rows of the plate.
+    plate : str
+        The plate.
+    contract : dict
+        The contract from PREPARE. Its ``calculated`` names the functions and their images.
+
+    Raises
+    ------
+    ValueError
+        If a file is missing or extra, or a function has a wrong shape or value.
+    """
+    if {p.name for p in output.glob('*.npy')} != {name + '.npy' for name in contract['calculated']}:
+        raise ValueError('Illumination output functions differ from the pipeline contract')
+    sums = {}
+    for name, image in contract['calculated'].items():
+        path = output / (name + '.npy')
+        function = np.load(path, allow_pickle=False)
+        with tifffile.TiffFile(Path(rows[0]['PathName_' + image]) / rows[0]['FileName_' + image]) as tiff:
+            shape = tiff.series[0].shape
+        if function.shape != shape or not np.isfinite(function).all() or np.min(function) <= 0:
+            raise ValueError(f'Invalid plate correction function: {path}')
+        sums[name] = checksum(path)
+    (output / 'provenance.json').write_text(json.dumps(dict(plate=plate, image_sets=len(rows), sha256=sums), indent=2))
+
+
+def finish_analysis(output, rows, contract, provenance, logs, batch):
+    """Correct and check the outputs of one batch, then put them where MERGE and Nextflow read them.
+
+    Parameters
+    ----------
+    output : Path
+        The batch folder.
+    rows : list of dict
+        The manifest rows of the batch, with the illumination file names.
+    contract : dict
+        The contract from PREPARE.
+    provenance : dict
+        The checked correction files, from ``add_illumination()``.
+    logs : Path
+        The folder for ``<batch>.validation.json``.
+    batch : str
+        The batch name.
+
+    Raises
+    ------
+    ValueError
+        If a check of ``realign()`` or ``validate_analysis()`` fails.
+    """
+    corrections = realign(output, contract)
+    qc = validate_analysis(output, rows, contract)
+    qc['illumination'] = provenance
+    qc['realigned'] = corrections
+
+    # Compress the checked tables. MERGE reads them as .csv.gz. This halves the space in work/.
+    for table in (output / 'features').glob('*.csv'):
+        with table.open('rb') as source, gzip.open(table.with_suffix('.csv.gz'), 'wb', compresslevel=1) as target:
+            shutil.copyfileobj(source, target)
+        table.unlink()
+
+    # MERGE uses a batch only if it has validation.json, so write that file last.
+    for path in (output / 'validation.json', logs / f'{batch}.validation.json'):
+        path.write_text(json.dumps(qc, indent=2))
+
+    # Nextflow does not publish files inside another output folder, so the masks move beside it.
+    (output / 'masks').rename(Path('result/masks'))
+
+
+def run(args):
+    """Run one illumination or analysis task and write its outputs under ``result/``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        The command-line arguments (see ``main()``).
+
+    Raises
+    ------
+    ValueError
+        If an input is wrong, CellProfiler fails, or a check fails.
+    """
     rows = read_csv(args.manifest)
     if not rows or {r['Metadata_Plate'] for r in rows} != {args.plate}:
         raise ValueError('Task manifest must contain exactly its assigned plate')
@@ -247,92 +427,20 @@ def run(args):
     if args.kind == 'analysis':
         if {r['Metadata_Batch'] for r in rows} != {args.batch}:
             raise ValueError('Task manifest has the wrong batch')
+        provenance = add_illumination(rows, args.illumination, args.plate, contract)
 
-        # Use only correction files that belong to this plate and have the recorded checksum.
-        saved = json.loads((args.illumination / 'provenance.json').read_text())
-        if saved['plate'] != args.plate:
-            raise ValueError('Illumination plate does not match analysis plate')
-        for name in contract['corrections']:
-            function = (args.illumination / (name + '.npy')).resolve()
-            if checksum(function) != saved['sha256'][name]:
-                raise ValueError(f'Illumination checksum mismatch: {function}')
-            provenance[name] = {'plate': args.plate, 'sha256': saved['sha256'][name]}
-
-            # LoadData reads the correction file like an image: it needs a file name and a folder.
-            for row in rows:
-                row['FileName_' + name] = function.name
-                row['PathName_' + name] = str(function.parent)
-
-    # Run CellProfiler headless on this task's manifest. Its log goes to result/logs/.
-    write_csv(Path('load_data.csv'), rows)
-    temp = Path('tmp')
-    temp.mkdir(exist_ok=True)
-    log = logs / f'{args.batch}.log'
-    command = ['cellprofiler', '-c', '-r', '-p', str(args.pipeline.resolve()),
-               '--data-file', str(Path('load_data.csv').resolve()), '-i', str(Path.cwd()),
-               '-o', str(output.resolve()), '-t', str(temp.resolve()),
-               '--plugins-directory', str(args.plugins.resolve()), '--log-level', 'INFO']
-    start = time.monotonic()
-    with log.open('w') as stream:
-        result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT)
-
-    # Record time and peak memory. The README speed advice comes from these numbers.
-    elapsed = time.monotonic() - start
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    metrics = dict(plate=args.plate, batch=args.batch, kind=args.kind, elapsed_seconds=elapsed,
-                   peak_rss_kib=usage.ru_maxrss, image_sets=len(rows),
-                   sets_per_minute=60 * len(rows) / elapsed, exit_code=result.returncode)
-    (logs / f'{args.batch}.metrics.json').write_text(json.dumps(metrics, indent=2))
-    if result.returncode:
-        print(log.read_text()[-8000:])
-        raise ValueError(f'CellProfiler failed with exit code {result.returncode}: {log}')
-
-    # CellProfiler can log a Python error and still exit with 0. Treat that as a failure.
-    if 'Traceback (most recent call last)' in log.read_text():
-        raise ValueError(f'CellProfiler logged an exception: {log}')
+    metrics = run_cellprofiler(args, rows, output, logs)
     if args.kind == 'illumination':
-
-        # Exactly the expected .npy files, each the size of the images, finite and above 0.
-        expected_files = {name + '.npy' for name in contract['calculated']}
-        if {p.name for p in output.glob('*.npy')} != expected_files:
-            raise ValueError('Illumination output functions differ from the pipeline contract')
-        sums = {}
-        for name, image in contract['calculated'].items():
-            path = output / (name + '.npy')
-            function = np.load(path, allow_pickle=False)
-            source = Path(rows[0]['PathName_' + image]) / rows[0]['FileName_' + image]
-            with tifffile.TiffFile(source) as tiff:
-                shape = tiff.series[0].shape
-            if function.shape != shape or not np.isfinite(function).all() or np.min(function) <= 0:
-                raise ValueError(f'Invalid plate correction function: {path}')
-            sums[name] = checksum(path)
-
-        # The analysis batches check these checksums before they use the files.
-        (output / 'provenance.json').write_text(json.dumps(dict(plate=args.plate, image_sets=len(rows), sha256=sums), indent=2))
+        check_illumination(output, rows, args.plate, contract)
     else:
-        corrections = realign(output, contract)
-        qc = validate_analysis(output, rows, contract)
-        qc['illumination'] = provenance
-        qc['realigned'] = corrections
-
-        # Compress the checked tables. MERGE reads them as .csv.gz. This halves the space in work/.
-        for table in (output / 'features').glob('*.csv'):
-            with table.open('rb') as source, gzip.open(table.with_suffix('.csv.gz'), 'wb', compresslevel=1) as target:
-                shutil.copyfileobj(source, target)
-            table.unlink()
-
-        # MERGE only uses a batch that has validation.json, so write it last.
-        for path in (output / 'validation.json', logs / f'{args.batch}.validation.json'):
-            path.write_text(json.dumps(qc, indent=2))
-
-        # Nextflow does not publish files nested inside another output folder, so masks sit beside it.
-        (output / 'masks').rename(Path('result/masks'))
+        finish_analysis(output, rows, contract, provenance, logs, args.batch)
     write_csv(logs / f'{args.batch}.load_data.csv', rows)
     print(json.dumps(metrics))
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+def main():
+    """Parse the arguments and run the task. Exit with code 2 and one line on a failed check."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('kind', choices=['illumination', 'analysis'])
     parser.add_argument('--plate', required=True)
     parser.add_argument('--batch', default='illumination')
@@ -342,9 +450,11 @@ if __name__ == '__main__':
     parser.add_argument('--plugins', type=Path, default=Path('plugins'))
     parser.add_argument('--illumination', type=Path)
     args = parser.parse_args()
-
-    # Exit code 2 with one clear line tells Nextflow and the user what went wrong.
     try:
         run(args)
     except (ValueError, FileNotFoundError, KeyError) as error:
         parser.exit(2, f'Task validation failed: {error}\n')
+
+
+if __name__ == '__main__':
+    main()

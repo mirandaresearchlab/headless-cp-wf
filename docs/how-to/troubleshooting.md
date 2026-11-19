@@ -22,11 +22,11 @@ Do not delete work files while investigating a failure.
 | Java version or startup error | Nextflow sees an incompatible Java | Check the launcher's Java. Set `NXF_JAVA_HOME` to a supported installation if needed. |
 | `Require cellprofiler=4.2.8.1` | Different CellProfiler version | Recreate the environment from `environment.yml`. Check both CellProfiler package versions. |
 | Conda cannot solve the environment | Package availability, platform, channel, or network problem | Save the complete solver error. Check the supported platform and channels. Do not silently relax pinned versions. |
-| Missing input folder | Incorrect path or broken data link | Check `--input` or `--images`, `--configs`, and any symlink targets. |
+| Missing input file or folder | Incorrect path or broken data link | Check `--input`, `--configs`, and any symlink targets. |
 | `Samplesheet line N: ...` | A wrong row in the samplesheet | Fix the line given in the message. A relative path starts from the folder of the samplesheet. See [file formats](../reference/file-formats.md#samplesheet). |
 | `unknown channel` | The samplesheet channel is not an image name of the pipelines | Use the CellProfiler image names, for example `DNA`, not the wavelength. |
-| `No TIFF inputs found` | Empty folder, hidden files, or wrong root | Point `--images` at the parent of the plate folders. Check extensions and visibility. |
-| `Expected images/<plate>/<filename>.tiff` | Wrong folder depth | Put each TIFF directly inside a plate folder. |
+| `No TIFF inputs found` (make_samplesheet.py) | Empty folder, hidden files, or wrong root | Point `--images` at the parent of the plate folders. Check extensions and visibility. |
+| `Expected <images>/<plate>/<filename>.tiff` (make_samplesheet.py) | Wrong folder depth | Put each TIFF directly inside a plate folder. |
 | Requires exactly two pipelines | Missing, extra, or differently named `.cppipe` files | Use the two names listed in [usage](../usage.md). |
 | `unmatched filename` | Filename does not match pipeline metadata rules | Compare it with the [configured rule](../reference/file-formats.md). Check extension and channel spelling. |
 | `missing channels`, `unknown channel`, `duplicate channel` | Incomplete or conflicting image set | Restore the correct files. Check channel mapping in both pipelines. |
@@ -43,7 +43,7 @@ Do not delete work files while investigating a failure.
 | Many cells have blank cytoplasm measurements | Some cells have no cytoplasm pixels | Read [empty-cytoplasm behavior](../output.md#interpret-the-per-cell-table) and inspect the masks. |
 | Final CSV is absent but masks exist | Analysis completed before a later failure | Check MERGE and CONCAT status. Masks alone do not prove run success. |
 | Resume repeats work | Missing cache/output, changed inputs, or changed settings | Restore the original paths and options. CONCAT may repeat because its table was moved. |
-| Berzelius requests shared storage | Missing required paths | Set `--shared_dir`, or both `--nf_work_dir` and `--conda_cache`. |
+| Berzelius requests shared storage | Missing required paths | Set `--shared_dir` or `--nf_work_dir`. |
 | Slurm jobs remain pending | Allocation, partition, or resource availability | Inspect the scheduler reason. Confirm your account and partition with the cluster administrator. |
 | `Fixture destination already exists` | Tutorial crop folder already exists | Use the existing verified fixture or choose a new destination. |
 

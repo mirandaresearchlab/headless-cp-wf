@@ -15,7 +15,7 @@ import pytest
 # The scripts in bin/ are not a package. Add the folder to the import path.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bin"))
 from merge_features import concatenate, header_member, merge_plate
-from prepare import write_csv
+from cp_inputs import write_csv
 
 
 # Three image sets of one plate, and the object names that contract.json would give.

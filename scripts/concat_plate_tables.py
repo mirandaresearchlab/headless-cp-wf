@@ -65,14 +65,20 @@ ROW_GROUP_SIZE = 10_000
 def plate_tables(results):
     """Find the table and the expected cell count of every plate.
 
-    Args:
-        results: the folder with one sub-folder per plate.
+    Parameters
+    ----------
+    results : Path
+        The folder with one sub-folder per plate.
 
-    Returns:
-        A list of (plate name, table path, cells), sorted by plate name.
+    Returns
+    -------
+    list of tuple
+        (plate name, table path, cells), sorted by plate name.
 
-    Raises:
-        ValueError: if there is no plate, a plate has no DONE file, or a table or report is missing.
+    Raises
+    ------
+    ValueError
+        If there is no plate, a plate has no DONE file, or a table or report is missing.
     """
     plates = sorted(p for p in results.iterdir() if p.is_dir() and not p.name.startswith('.') and p.name != 'parquet')
     if not plates:
@@ -94,13 +100,36 @@ def plate_tables(results):
 
 
 def read_header(path):
-    """Read only the header line of a gzip CSV."""
+    """Read only the header line of a gzip CSV file.
+
+    Parameters
+    ----------
+    path : Path
+        The ``.csv.gz`` file.
+
+    Returns
+    -------
+    list of str
+        The column names.
+    """
     with gzip.open(path, 'rt', newline='', encoding='utf-8') as stream:
         return next(csv.reader(stream))
 
 
 def column_type(name):
-    """DuckDB type of one column of the per-cell table."""
+    """Return the DuckDB type of one column of the per-cell table.
+
+    Parameters
+    ----------
+    name : str
+        The column name.
+
+    Returns
+    -------
+    str
+        ``BIGINT`` for image and object numbers, ``VARCHAR`` for metadata and file names,
+        ``DOUBLE`` for all measurements.
+    """
     if name in INTEGER_METADATA:
         return 'BIGINT'
     if name.startswith(TEXT_PREFIXES):
@@ -109,12 +138,36 @@ def column_type(name):
 
 
 def sql_text(value):
-    """Quote one string for SQL."""
+    """Quote one string for SQL.
+
+    Parameters
+    ----------
+    value : str
+        The text.
+
+    Returns
+    -------
+    str
+        The text in single quotes, with each single quote doubled.
+    """
     return "'" + value.replace("'", "''") + "'"
 
 
 def read_csv_sql(sources, schema):
-    """The DuckDB read_csv call for gzip CSV files, with fixed column types and null tokens."""
+    """Return the DuckDB ``read_csv`` call for gzip CSV files, with fixed column types and null tokens.
+
+    Parameters
+    ----------
+    sources : list of Path
+        The ``.csv.gz`` files, read in this order.
+    schema : dict
+        Column -> DuckDB type.
+
+    Returns
+    -------
+    str
+        The SQL table expression.
+    """
     columns = '{' + ', '.join(f'{sql_text(name)}: {sql_text(dtype)}' for name, dtype in schema.items()) + '}'
     files = '[' + ', '.join(sql_text(str(path)) for path in sources) + ']'
     nulls = '[' + ', '.join(sql_text(token) for token in NULL_TOKENS) + ']'
@@ -123,7 +176,19 @@ def read_csv_sql(sources, schema):
 
 
 def convert(con, sources, target, schema):
-    """Stream one or more gzip CSV files, in order, into one Parquet file."""
+    """Stream one or more gzip CSV files, in order, into one Parquet file.
+
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        The DuckDB connection.
+    sources : list of Path
+        The ``.csv.gz`` files, in output order.
+    target : Path
+        The Parquet file to write.
+    schema : dict
+        Column -> DuckDB type.
+    """
     con.execute(f"""
         COPY (SELECT * FROM {read_csv_sql(sources, schema)})
         TO {sql_text(str(target))} (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE {ROW_GROUP_SIZE})
@@ -171,8 +236,19 @@ def check_order(con, path, plates):
     and stops if a key repeats or goes back. So the rows must strictly increase by
     (plate position, image, cell) in file order. This also proves that no cell occurs twice.
 
-    Raises:
-        ValueError: with the first row that breaks the order.
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        The DuckDB connection.
+    path : Path
+        The Parquet file.
+    plates : list of str
+        The plate names in output order.
+
+    Raises
+    ------
+    ValueError
+        With the first row that breaks the order.
     """
     rank = '[' + ', '.join(sql_text(p) for p in plates) + ']'
     bad = con.execute(f"""
@@ -202,8 +278,21 @@ def check_content(con, path, plates, schema):
     or values moved to another row, changes the sum. Together with check_order, this shows that
     row n of the Parquet file is row n of the CSV.
 
-    Raises:
-        ValueError: if a plate differs.
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        The DuckDB connection.
+    path : Path
+        The Parquet file.
+    plates : list of tuple
+        (plate name, CSV table, cells) of the plates in this file.
+    schema : dict
+        Column -> DuckDB type.
+
+    Raises
+    ------
+    ValueError
+        If a plate differs.
     """
     query = 'SELECT Metadata_Plate, count(*), sum(hash(t)) FROM {} t GROUP BY Metadata_Plate'
     expected = dict((p, (n, h)) for p, n, h in
@@ -218,12 +307,25 @@ def check_content(con, path, plates, schema):
 def check_cells(con, path, header):
     """Check that the parts of each row belong to one cell, and that each image has all its cells.
 
-    Returns:
-        {check: rows that break it} for the IDENTITY and GEOMETRY checks whose columns exist, and
-        'images whose row count differs from Image_Count_Cells'.
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        The DuckDB connection.
+    path : Path
+        The Parquet file.
+    header : list of str
+        The columns.
 
-    Raises:
-        ValueError: if an IDENTITY check or the per-image count fails.
+    Returns
+    -------
+    dict
+        Check -> rows that break it, for the IDENTITY and GEOMETRY checks whose columns exist,
+        and 'images whose row count differs from Image_Count_Cells'.
+
+    Raises
+    ------
+    ValueError
+        If an IDENTITY check or the per-image count fails.
     """
     present = set(header)
     rules = [(name, condition) for name, needed, condition in IDENTITY + GEOMETRY if present.issuperset(needed)]
@@ -249,18 +351,30 @@ def check_cells(con, path, header):
 def check(con, path, plates, header, schema):
     """Check one Parquet file: columns, cells per plate, order, values, cell identity, and no NaN or inf.
 
-    Args:
-        con: the DuckDB connection.
-        path: the Parquet file.
-        plates: the (plate name, CSV table, cells) of the plates in this file, in output order.
-        header: the CSV header.
-        schema: {column: DuckDB type}.
+    Parameters
+    ----------
+    con : duckdb.DuckDBPyConnection
+        The DuckDB connection.
+    path : Path
+        The Parquet file.
+    plates : list of tuple
+        (plate name, CSV table, cells) of the plates in this file, in output order.
+    header : list of str
+        The CSV header.
+    schema : dict
+        Column -> DuckDB type.
 
-    Returns:
-        (nulls, cells): the null count of each column, from the Parquet metadata, and the counts of check_cells.
+    Returns
+    -------
+    nulls : dict
+        The null count of each column, from the Parquet metadata.
+    cells : dict
+        The counts of ``check_cells()``.
 
-    Raises:
-        ValueError: on the first check that fails.
+    Raises
+    ------
+    ValueError
+        On the first check that fails.
     """
     source = f'read_parquet({sql_text(str(path))})'
     columns = [row[0] for row in con.execute(f'DESCRIBE SELECT * FROM {source}').fetchall()]
@@ -290,6 +404,7 @@ def check(con, path, plates, header, schema):
 
 
 def main():
+    """Parse the arguments, convert the plate tables, and write the reports. Exit with a message on an error."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('results', type=Path, help='the OUT folder of the plate-by-plate run')
     parser.add_argument('--out', type=Path,

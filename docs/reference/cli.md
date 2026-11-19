@@ -8,6 +8,16 @@ Direct execution requires the expected task layout and active dependencies.
 
 The workflow entry point is `nextflow run .`. See [usage](../usage.md).
 
+## make_samplesheet.py
+
+Writes a samplesheet for a folder of plate folders. Run it by hand before a run.
+
+| Parser in source | Argument | Required, default, choices, or type |
+|---|---|---|
+| `parser` | `--images` | `type=Path, required=True` |
+| `parser` | `--configs` | `type=Path, required=True` |
+| `parser` | `--out` | `type=Path, required=True` |
+
 ## prepare.py
 
 PREPARE validates images and adapts pipelines.
@@ -15,9 +25,8 @@ PREPARE validates images and adapts pipelines.
 | Parser in source | Argument | Required, default, choices, or type |
 |---|---|---|
 | `parser` | `--configs` | `type=Path, required=True` |
+| `parser` | `--samplesheet` | `type=Path, required=True` |
 | `parser` | `--batch-size` | `type=int, required=True` |
-| `parser` | `--images-list` | `type=Path` |
-| `parser` | `--samplesheet` | `type=Path` |
 | `parser` | `--out` | `type=Path, default=Path('prepared')` |
 
 ## run_task.py
@@ -41,33 +50,18 @@ Use the `plate` subcommand to merge batches, or `all` to concatenate plate table
 
 | Parser in source | Argument | Required, default, choices, or type |
 |---|---|---|
-| `one` | `--plate` | `required=True` |
-| `one` | `--manifest` | `type=Path, required=True` |
-| `one` | `--batches` | `type=Path, required=True` |
-| `one` | `--contract` | `type=Path, required=True` |
+| `plate` | `--plate` | `required=True` |
+| `plate` | `--manifest` | `type=Path, required=True` |
+| `plate` | `--batches` | `type=Path, required=True` |
+| `plate` | `--contract` | `type=Path, required=True` |
 | `every` | `tables` | `type=Path, nargs='+'` |
 | `command` | `--out` | `type=Path, required=True` |
 | `command` | `--report` | `type=Path, required=True` |
 
-`one` defines `plate` arguments. `every` defines `all` arguments.
+`plate` defines the MERGE arguments. `every` defines the CONCAT (`all`) arguments.
 `command` adds `--out` and `--report` to both subcommands.
 
-## convert_watershed.py
-
-A one-time conversion utility. The workflow does not call it.
-
-| Parser in source | Argument | Required, default, choices, or type |
-|---|---|---|
-| `parser` | `source` | `Positional argument` |
-| `parser` | `destination` | `Positional argument` |
-
-## cp_inputs.py
-
-Writes a samplesheet for a folder of images. PREPARE also imports its checks.
-
-```bash
-python bin/cp_inputs.py --images <images> --configs cp-configs --out samplesheet.csv
-```
+`cp_inputs.py` is a library: the samplesheet and pipeline checks that the scripts above use.
 
 Argument parsing errors return status 2. Successful helpers return status 0.
 Uncaught validation errors return a nonzero status. Nextflow treats them as task failures.

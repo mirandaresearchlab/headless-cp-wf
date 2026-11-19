@@ -26,4 +26,4 @@ repos:
         entry: uv run --no-project --with-requirements requirements-docs.txt mkdocs build --strict --quiet
         language: system
         pass_filenames: false
-        files: ^(docs/.*|mkdocs\.yml|requirements-docs\.txt|README\.md|nextflow\.config|nf-config/.*|cp-configs/.*|bin/.*\.py)$
+        files: ^(docs/.*|mkdocs\.yml|requirements-docs\.txt|README\.md|nextflow\.config|conf/.*|main\.nf|workflows/.*|modules/.*|cp-configs/.*|bin/.*\.py)$

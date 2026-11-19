@@ -9,10 +9,9 @@ Run every command from the repository root.
 Use new names for the fixture and project.
 
 !!! note "Validation scope"
-    Fixture creation was tested during this documentation update.
-    The Nextflow run below was reviewed against the code but not executed here.
-    Nextflow and CellProfiler were unavailable. Runtime for the cropped example is not yet measured.
-    Allow extra time for a first run. A full-size dataset can take hours.
+    We ran steps 1 to 3 on Berzelius with three real plates and the example pipelines.
+    The run completed with 14 tasks in about 5 minutes on 2 cores.
+    A full-size dataset can take hours.
 
 ## 1. Create small images
 
@@ -26,15 +25,29 @@ For three plates, the expected message is:
 Created 30 crops in example-images
 ```
 
-The script takes the top-left 512 × 512 pixels from five channels at two sites per plate.
-It also writes `example-images.json` with source checksums and crop details.
+The script takes the top-left 1024 × 1024 pixels from five channels at two sites per plate.
+Smaller crops do not work with the example pipelines: CellProfiler stops when an image is
+less than twice the adaptive threshold window (501 pixels).
+The script also writes `example-images.json` with source checksums and crop details.
 It stops if the destination already exists. Cropped images are for testing, not scientific conclusions.
 
-## 2. Run all five workflow steps
+## 2. Make the samplesheet
+
+```bash
+python bin/make_samplesheet.py --images example-images --configs cp-configs --out example-samplesheet.csv
+```
+
+For three plates, the expected message is:
+
+```text
+Wrote example-samplesheet.csv: 6 image sets, 30 files
+```
+
+## 3. Run all five workflow steps
 
 ```bash
 nextflow run . -profile local \
-  --images example-images \
+  --input example-samplesheet.csv \
   --configs cp-configs \
   --project tutorial \
   --batch_size 1
@@ -44,7 +57,7 @@ Nextflow prints the actual output folder and a resume command.
 For three plates with two image sets each, preparation plans six analysis batches.
 The run has 14 tasks: one preparation, three illumination, six analysis, three merges, and one concatenation.
 
-## 3. Check completion
+## 4. Check completion
 
 Open the output folder printed by Nextflow. A fresh project normally uses `projects/tutorial/`.
 Check that the newest `logs/status-*.json` contains `"success": true`.
@@ -65,7 +78,7 @@ The supplied pipeline produces five masks per image set, or 30 masks for this ex
 The number of cell rows depends on the crop. It is not a fixed acceptance target.
 Read [output checks](../output.md) before interpreting the data.
 
-## 4. Read a few cell identifiers
+## 5. Read a few cell identifiers
 
 This command uses Python's standard library. Adjust the path if Nextflow chose another project folder.
 

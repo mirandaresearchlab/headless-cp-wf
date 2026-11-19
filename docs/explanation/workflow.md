@@ -1,7 +1,7 @@
 # How jobs run
 
 Nextflow starts each job when its inputs are ready and execution resources are available.
-A job is one execution of a process. A process is a named step in `main.nf`.
+A job is one execution of a process. A process is a named step in `modules/local/`.
 
 ## Dependencies between plates
 
@@ -35,7 +35,7 @@ CONCAT waits for every plate merge. Resource limits can still delay any ready jo
 
 | Process | Jobs | Actions and outputs |
 |---|---|---|
-| PREPARE | One per run | Check filenames, channels, dimensions, and pipelines. Write manifests, batch plan, adapted pipelines, and contract. |
+| PREPARE | One per run | Check samplesheet rows, channels, dimensions, and pipelines. Write manifests, batch plan, adapted pipelines, and contract. |
 | ILLUMINATION | One per plate | Read every image set of that plate. Save one correction array per channel after the last cycle. Check shape and finite values. |
 | ANALYSIS | One per batch | Check correction checksums. Correct images, segment objects, measure features, save masks, and validate tables. |
 | MERGE | One per plate | Require validated batches. Join cell, nucleus, cytoplasm, and image measurements into a temporary plate table. |

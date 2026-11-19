@@ -131,10 +131,11 @@ Nextflow runs all tasks inside your session. It runs one task on each core at th
 
     ```bash
     cd /proj/<project>/users/$USER/headless-cp-wf
-    bash scripts/berzelius-interactive.sh /proj/<project>/users/$USER/my-images my-test 1
+    bash scripts/berzelius-interactive.sh /proj/<project>/users/$USER/samplesheet.csv my-test 1
     ```
 
-    The arguments are the image folder, the project name and the batch size.
+    The arguments are the samplesheet, the project name and the batch size.
+    See [Prepare the inputs](../usage.md#prepare-the-inputs) to make the samplesheet.
     The batch size is optional. The default is 1.
     The script loads the module and activates the environment for you.
 
@@ -190,7 +191,7 @@ Nextflow submits each CellProfiler task as its own Slurm job on `berzelius-cpu`.
     sbatch -A <account> scripts/berzelius-run.sbatch /proj/<project>/users/$USER/samplesheet.csv screen01 9
     ```
 
-    The arguments are the samplesheet (or the image folder), the project name and the batch size.
+    The arguments are the samplesheet, the project name and the batch size.
     See [Prepare the inputs](../usage.md#prepare-the-inputs) to make the samplesheet.
     The batch size is optional. The default is 9.
 
@@ -279,19 +280,18 @@ Check the free space with `nscquota` before you submit.
 Submit from the repository folder:
 
 ```bash
-DATA=/proj/<project>/users/$USER/my-images \
+SHEET=/proj/<project>/users/$USER/samplesheet.csv \
 OUT=/proj/<project>/users/$USER/results/screen01 \
 MAX_JOBS=96 TASK_TIME=4h \
 sbatch -A <account> scripts/berzelius-run-plates.sbatch
 ```
 
-`DATA` is the folder with one folder per plate. `OUT` is the results folder.
-To run only some plates, add their folder names at the end of the command.
-To use a samplesheet, set `SHEET=<samplesheet.csv>` instead of `DATA`. The script then runs
-each `plate` of the samplesheet with only its own rows. Not tested yet: a full run in this mode.
-The split of the samplesheet into plates has a test.
+`SHEET` is the samplesheet. `OUT` is the results folder.
+The script runs each `plate` of the samplesheet with only its own rows.
+To run only some plates, add their names at the end of the command.
+Not tested yet: a full run of this script with a samplesheet. The split of the samplesheet into plates has a test.
 The settings `BATCH_SIZE`, `TASK_MEMORY` and `TASK_TIME` work in the same way.
-The script uses 9, 7 GB and 2 hours if you do not set them. Set `TASK_TIME=4h`, as in the example.
+The script uses 9, 14 GB and 4 hours if you do not set them.
 See [Choose resources for a full screen](#choose-resources-for-a-full-screen).
 
 For each plate, in alphabetical order, the script does these steps:
@@ -373,7 +373,7 @@ For what happens when a job fails or is killed, see the [FAQ](berzelius-faq.md#w
 | Exit status 140 | The task reached its time limit | Increase `--task_time` and resume. |
 | `needs about N GiB, but only M GiB is free` | The plate script found too little free space | Free space in the project, then submit the same command again. |
 | `nscquota gave no answer` | `nscquota` failed three times | Check the free space with `nscquota`. The run is not stopped. |
-| `Set DATA ... and OUT` | The plate script needs both settings | Set `DATA` and `OUT` in the command. |
+| `Set SHEET ... and OUT` | The plate script needs both settings | Set `SHEET` and `OUT` in the command. |
 
 For other errors, see [troubleshooting](troubleshooting.md).
 For questions about cores, memory, cost and nodes, see the [Berzelius FAQ](berzelius-faq.md).
@@ -399,6 +399,5 @@ Berzelius support: berzelius-support@nsc.liu.se. Give the job ID, the command an
       --input <samplesheet.csv> --configs cp-configs \
       --outdir $PROJ/runs --project <project_name> \
       --nf_work_dir $PROJ/runs/<project_name>-work \
-      --conda_cache $PROJ/runs/conda-cache \
       --slurm_account <account>
     ```
