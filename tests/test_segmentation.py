@@ -3,6 +3,7 @@
 They load the real cp-configs/2_analysis.cppipe with CellProfiler. They need the conda
 environment with Java.
 """
+
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ from prepare import load_pipeline
 
 class FakeMeasurements:
     """Minimal stand-in for CellProfiler image measurements of one image set."""
+
     image_set_number = 1
 
     def __init__(self, values):
@@ -64,24 +66,32 @@ def save_masks(tmp_path, labels):
         object_set.add_objects(objects, name)
 
     # Measurements as LoadData would set them: metadata, and a file name and folder per image.
-    values = {'Metadata_Plate': 'P1', 'Metadata_Batch': 'batch_0001', 'Metadata_Acquisition': 'A01_s1_x0_y0',
-              'Metadata_Well': 'A01'}
+    values = {'Metadata_Plate': 'P1', 'Metadata_Batch': 'batch_0001', 'Metadata_Acquisition': 'A01_s1_x0_y0', 'Metadata_Well': 'A01'}
     for channel in ('DNA', 'RNA', 'AGP', 'Mito', 'ER'):
-        values.update({f'FileName_{channel}': f'{channel}.tiff', f'PathName_{channel}': '/raw/P1',
-                       f'FileName_Illum{channel}': f'Illum{channel}.npy', f'PathName_Illum{channel}': '/illum/P1'})
+        values.update(
+            {
+                f'FileName_{channel}': f'{channel}.tiff',
+                f'PathName_{channel}': '/raw/P1',
+                f'FileName_Illum{channel}': f'Illum{channel}.npy',
+                f'PathName_Illum{channel}': '/illum/P1',
+            }
+        )
 
     # Number 100 puts the module after every module of the real pipeline.
     module = SaveLabelMasks()
     module.set_module_num(100)
     set_default_output_directory(str(tmp_path))
-    module.run(SimpleNamespace(measurements=FakeMeasurements(values), object_set=object_set,
-                               pipeline=load_pipeline(ROOT / 'cp-configs/2_analysis.cppipe')))
+    module.run(
+        SimpleNamespace(
+            measurements=FakeMeasurements(values), object_set=object_set, pipeline=load_pipeline(ROOT / 'cp-configs/2_analysis.cppipe')
+        )
+    )
 
     # Read every mask back. The file name is <image name>_<object>.tiff.
     result = {}
     for path in (tmp_path / 'masks').glob('*.tiff'):
         with tifffile.TiffFile(path) as tiff:
-            result[path.stem[len('A01_s1_x0_y0_'):]] = (tiff.asarray(), json.loads(tiff.pages[0].description))
+            result[path.stem[len('A01_s1_x0_y0_') :]] = (tiff.asarray(), json.loads(tiff.pages[0].description))
     return result
 
 
@@ -100,11 +110,14 @@ def test_mask_provenance_traces_source_images(tmp_path):
 
     # Primary nuclei come only from the corrected DNA image, not from the other channels.
     _, primary = masks['NucleiPaired']
-    assert primary['source_files'] == {'DNA': {'file': 'DNA.tiff', 'folder': '/raw/P1'},
-                                       'IllumDNA': {'file': 'IllumDNA.npy', 'folder': '/illum/P1'}}
+    assert primary['source_files'] == {
+        'DNA': {'file': 'DNA.tiff', 'folder': '/raw/P1'},
+        'IllumDNA': {'file': 'IllumDNA.npy', 'folder': '/illum/P1'},
+    }
     assert [(s['output'], s['module'], s['inputs']) for s in primary['steps']] == [
         ('NucleiPaired', 'IdentifyPrimaryObjects', ['CorrDNA']),
-        ('CorrDNA', 'CorrectIlluminationApply', ['DNA', 'IllumDNA'])]
+        ('CorrDNA', 'CorrectIlluminationApply', ['DNA', 'IllumDNA']),
+    ]
 
     # Final nuclei are masked by cells, which were grown on the AGP+ER cell body image.
     _, final = masks['Nuclei']

@@ -13,7 +13,9 @@
 #              To make one from a folder of plate folders: python bin/make_samplesheet.py --help
 # project     output name under $PROJ/runs/projects/
 # batch_size  image sets per CellProfiler task (default 1: every image set gets its own core)
-# PROJ and CP_ENV can be set in the environment to override the defaults below.
+# PROJ, CP_ENV and CONFIGS (the folder with the two .cppipe files, default cp-configs) can be set
+# in the environment to override the defaults below. For Cellpose-SAM on the CPU, for example:
+#   CONFIGS=$PWD/cp-configs-cellpose bash scripts/berzelius-interactive.sh <samplesheet.csv> <project> 1 --segmentation cpu
 # The conda environment must exist first: see docs/how-to/run-on-hpc.md, "Set up once".
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -57,7 +59,7 @@ echo "Job $SLURM_JOB_ID: $cores cores, $total_memory, samplesheet $samplesheet, 
 
 nextflow run "$repo" -profile local -resume \
     --input "$samplesheet" \
-    --configs "$repo/cp-configs" \
+    --configs "${CONFIGS:-$repo/cp-configs}" \
     --outdir "$PROJ/runs" --project "$project" \
     --nf_work_dir "$PROJ/runs/$project-work" \
     --batch_size "$batch_size" \

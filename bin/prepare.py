@@ -13,10 +13,12 @@ Data out: the folder 'prepared'. Nextflow publishes it to logs/run_inputs/. It h
   manifests/<plate>/batch_NNNN.csv     the image sets of one batch
   pipelines/illumination.cppipe        working copy of 1_illumination.cppipe
   pipelines/analysis.cppipe            working copy of 2_analysis.cppipe
+  pipelines/segmentation.cppipe        the RunCellpose part of 2_analysis.cppipe (only if it has RunCellpose)
   pipelines/contract.json              facts that the later steps check against
 
 The original .cppipe files do not change.
 """
+
 import argparse
 import hashlib
 import importlib.metadata
@@ -29,6 +31,11 @@ from pathlib import Path
 from cp_inputs import read_config, read_samplesheet, write_csv, write_samplesheet
 
 CELLPROFILER_VERSION = '4.2.8.1'
+
+# RunCellpose runs in its own SEGMENT task (GPU or CPU). Only Cellpose-SAM (Cellpose 4) is supported,
+# with the version of the RunCellpose Docker image cellprofiler/runcellpose_with_pretrained:4.0.6.
+CELLPOSE = 'RunCellpose'
+CELLPOSE_VERSION = '4.0.6'
 
 # The first four modules of a CellProfiler pipeline read the images: Images, Metadata,
 # NamesAndTypes and Groups. The working copies replace them with one LoadData module.
@@ -100,8 +107,10 @@ def check_illumination(modules):
     calculated = {m.illumination_image_name.value: m.image_name.value for m in calculations}
     if len(calculated) != len(calculations):
         raise ValueError('Duplicate illumination function names')
-    if any(m.each_or_all.value != 'All: Across cycles' or m.show_window or m.save_average_image.value
-           or m.save_dilated_image.value for m in calculations):
+    if any(
+        m.each_or_all.value != 'All: Across cycles' or m.show_window or m.save_average_image.value or m.save_dilated_image.value
+        for m in calculations
+    ):
         raise ValueError('Illumination must accumulate across cycles without intermediate calculation/display')
     for module in saves:
         if module.when_to_save.value != 'Last cycle' or module.file_format.value != 'npy':
@@ -131,26 +140,35 @@ def check_analysis(modules):
     Raises
     ------
     ValueError
-        If a module needs data from other image sets, the segmentation is not nuclei first and
-        then a watershed or propagation for the cells, the correction is applied after the
-        segmentation, or there is not exactly one IdentifyTertiaryObjects module.
+        If a module needs data from other image sets, there is no supported segmentation (see
+        below), the correction is applied after the segmentation, or there is not exactly one
+        IdentifyTertiaryObjects module.
+
+    Notes
+    -----
+    Supported segmentation: classic nuclei first (IdentifyPrimaryObjects with declumping), then
+    cells grown from them with a watershed or propagation; or RunCellpose (Cellpose-SAM) for any
+    of the objects. IdentifyPrimaryObjects and IdentifySecondaryObjects keep their rules when
+    they are used together with RunCellpose.
     """
     for module in modules[INPUT_MODULES:]:
         if module.is_aggregation_module() or module.module_name in {'TrackObjects', 'CreateBatchFiles', 'FlagImage'}:
             raise ValueError(f'{module.module_name} requires group/cycle review before independent batching')
 
-    # Classic segmentation: nuclei first, then cells grown from them with a watershed or propagation.
     primary = [m for m in modules if m.module_name == 'IdentifyPrimaryObjects']
     secondary = [m for m in modules if m.module_name == 'IdentifySecondaryObjects']
-    if not primary or not secondary or any(
-            m.method.value not in {'Watershed - Gradient', 'Watershed - Image', 'Propagation'} for m in secondary):
-        raise ValueError('Analysis must use traditional nuclei detection and watershed or propagation secondary objects')
+    cellpose = [m for m in modules if m.module_name == CELLPOSE]
+    if not cellpose and (not primary or not secondary):
+        raise ValueError('Analysis must use traditional nuclei detection and watershed or propagation secondary objects, or RunCellpose')
+    if any(m.method.value not in {'Watershed - Gradient', 'Watershed - Image', 'Propagation'} for m in secondary):
+        raise ValueError('Secondary objects must use watershed or propagation')
     if any(m.watershed_method.value not in {'Intensity', 'Shape'} or m.unclump_method.value == 'None' for m in primary):
         raise ValueError('Primary objects must enable watershed declumping')
 
-    # The illumination correction must happen before segmentation.
+    # The illumination correction must happen before the first segmentation module.
+    first = min(modules.index(m) for m in primary + cellpose)
     apply = [m for m in modules if m.module_name == 'CorrectIlluminationApply']
-    if len(apply) != 1 or modules.index(apply[0]) > modules.index(primary[0]):
+    if len(apply) != 1 or modules.index(apply[0]) > first:
         raise ValueError('Apply plate illumination before segmentation')
     corrections = {image.illum_correct_function_image_name.value: image.image_name.value for image in apply[0].images}
 
@@ -158,10 +176,127 @@ def check_analysis(modules):
     tertiary = [m for m in modules if m.module_name == 'IdentifyTertiaryObjects']
     if len(tertiary) != 1:
         raise ValueError('A per-cell feature table requires exactly one IdentifyTertiaryObjects module')
-    compartments = dict(cells=tertiary[0].secondary_objects_name.value,
-                        nuclei=tertiary[0].primary_objects_name.value,
-                        cytoplasm=tertiary[0].subregion_objects_name.value)
+    compartments = dict(
+        cells=tertiary[0].secondary_objects_name.value,
+        nuclei=tertiary[0].primary_objects_name.value,
+        cytoplasm=tertiary[0].subregion_objects_name.value,
+    )
     return corrections, compartments
+
+
+def check_cellpose(module):
+    """Check that a RunCellpose module can run headless as Cellpose-SAM in a SEGMENT task.
+
+    Parameters
+    ----------
+    module : RunCellpose
+        A RunCellpose module of ``2_analysis.cppipe``.
+
+    Returns
+    -------
+    dict or None
+        For a custom model: its path, size and modification time, for the contract. Else None.
+
+    Raises
+    ------
+    ValueError
+        If the module is not Cellpose-SAM (v4), is 3D, saves a probability image, or uses a
+        custom model that is not a file in an absolute folder.
+    """
+    name = module.y_name.value
+    if module.cellpose_version.value != 'v4':
+        raise ValueError(f'RunCellpose {name}: select Cellpose version v4 (Cellpose-SAM); the environment has cellpose {CELLPOSE_VERSION}')
+    if module.do_3D.value:
+        raise ValueError(f'RunCellpose {name}: 3D is not supported; the workflow reads 2D images')
+
+    # Only the objects go from SEGMENT to ANALYSIS, so no later module may use other outputs.
+    if module.save_probabilities.value:
+        raise ValueError(
+            f'RunCellpose {name}: set "Save probability image?" to No; the probability image is not passed from SEGMENT to ANALYSIS'
+        )
+    if module.mode_v4.value != 'custom':
+        return None
+
+    # A task reads a custom model from its own folder, so the folder must be absolute.
+    choice, folder = module.model_directory.dir_choice, module.model_directory.custom_path
+    if choice != 'Elsewhere...' or not Path(folder).is_absolute():
+        raise ValueError(f'RunCellpose {name}: a custom model must be in an absolute folder ("Elsewhere..."), not {choice}')
+    model = Path(folder) / module.model_file_name.value
+    if not model.is_file():
+        raise ValueError(f'RunCellpose {name}: custom model file not found: {model}')
+    return {'path': str(model), 'size': model.stat().st_size, 'mtime_ns': model.stat().st_mtime_ns}
+
+
+def split_segmentation(modules):
+    """Split the analysis modules into the SEGMENT part and the ANALYSIS part.
+
+    SEGMENT runs each RunCellpose module and the modules that make its input images (for example
+    CorrectIlluminationApply), in pipeline order. ANALYSIS runs every module, with a LoadLabelMasks
+    module (from plugins/) in place of each RunCellpose module: same position, same input images,
+    same object name. LoadLabelMasks reads the masks that SEGMENT saved.
+
+    Parameters
+    ----------
+    modules : list
+        The modules of ``2_analysis.cppipe`` after the four input modules. The RunCellpose modules
+        are changed in place: Python mode, model kept between image sets, GPU off. SEGMENT turns
+        the GPU on at run time.
+
+    Returns
+    -------
+    segmentation : list
+        The modules of SEGMENT. Empty if there is no RunCellpose module.
+    analysis : list
+        The modules of ANALYSIS.
+    objects : list of str
+        The objects that RunCellpose makes, in pipeline order.
+
+    Raises
+    ------
+    ValueError
+        If a RunCellpose module fails ``check_cellpose()``, or its input depends on objects that
+        another kind of module makes (SEGMENT would have to run that segmentation too).
+    """
+    from cellprofiler_core.setting.text import LabelName
+    from loadlabelmasks import LoadLabelMasks
+    from savelabelmasks import INPUTS, names, producers
+
+    cellpose = [m for m in modules if m.module_name == CELLPOSE]
+    for module in cellpose:
+        check_cellpose(module)
+
+    # Walk back from the inputs of each RunCellpose module to the modules that make them.
+    # Images that no module makes are the images of the LoadData manifest.
+    made_by = producers(modules)
+    needed = {id(m) for m in cellpose}
+    todo = [name for m in cellpose for name in names(m.visible_settings(), INPUTS)]
+    while todo:
+        name = todo.pop()
+        if name not in made_by or id(made_by[name][0]) in needed:
+            continue
+        module, inputs = made_by[name]
+        if module.module_name != CELLPOSE and names(module.visible_settings(), (LabelName,)):
+            raise ValueError(
+                f'RunCellpose input {name} depends on objects of {module.module_name}; SEGMENT runs only RunCellpose and image modules'
+            )
+        needed.add(id(module))
+        todo += inputs
+
+    analysis = []
+    for module in modules:
+        if module.module_name == CELLPOSE:
+            module.docker_or_python.value = 'Python'
+            module.cache_model.value = True
+            module.use_gpu.value = False
+            loader = LoadLabelMasks()
+            loader.x_name.value = module.x_name.value
+            loader.y_name.value = module.y_name.value
+            if module.supply_nuclei.value:
+                loader.nuclei_image.value = module.nuclei_image.value
+            module = loader
+        analysis.append(module)
+    segmentation = [m for m in modules if id(m) in needed]
+    return segmentation, analysis, [m.y_name.value for m in cellpose]
 
 
 def working_copy(kind, modules):
@@ -169,13 +304,14 @@ def working_copy(kind, modules):
 
     The analysis copy also exports every measurement to ``features/<Object>.csv`` and saves one
     uint32 label mask per object type (SaveLabelMasks, from plugins/) just before the export.
+    The segmentation copy saves the masks of its objects at the end.
 
     Parameters
     ----------
-    kind : {'illumination', 'analysis'}
+    kind : {'illumination', 'analysis', 'segmentation'}
         Which pipeline this is.
     modules : list
-        The CellProfiler modules of the source pipeline.
+        The CellProfiler modules of the pipeline, without the four input modules.
 
     Returns
     -------
@@ -197,7 +333,9 @@ def working_copy(kind, modules):
     loader.csv_directory.value = 'Default Input Folder|'
     loader.csv_file_name.value = 'load_data.csv'
     loader.rescale.value = True
-    active = [loader] + modules[INPUT_MODULES:]
+    active = [loader] + modules
+    if kind == 'segmentation':
+        active.append(SaveLabelMasks())
     if kind == 'analysis':
         exporters = [m for m in active if m.module_name == 'ExportToSpreadsheet']
         if len(exporters) != 1:
@@ -212,7 +350,7 @@ def working_copy(kind, modules):
     for number, module in enumerate(active, 1):
         module.set_module_num(number)
         module.show_window = False
-        if kind == 'analysis':
+        if kind != 'illumination' and module.module_name != CELLPOSE:
             for item in module.settings():
                 if isinstance(item, Directory) and item.value.startswith('Elsewhere...|') and item.value != 'Elsewhere...|':
                     raise ValueError(f'{module.module_name}: absolute output destination requires review: {item.value}')
@@ -242,9 +380,14 @@ def counted_objects(pipeline):
     """
     from cellprofiler_core.constants.measurement import IMAGE
 
-    objects = sorted({feature[len('Count_'):] for module in pipeline.modules()[1:]
-                      for obj, feature, *_ in module.get_measurement_columns(pipeline)
-                      if obj == IMAGE and feature.startswith('Count_')})
+    objects = sorted(
+        {
+            feature[len('Count_') :]
+            for module in pipeline.modules()[1:]
+            for obj, feature, *_ in module.get_measurement_columns(pipeline)
+            if obj == IMAGE and feature.startswith('Count_')
+        }
+    )
     if not objects:
         raise ValueError('No object counts defined by analysis pipeline')
     if any(not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', name) for name in objects):
@@ -257,7 +400,9 @@ def adapt(config_dir, output):
 
     Changes to the copies: one LoadData module replaces the four input modules, so each task
     reads only its own manifest. The analysis copy exports every table and saves label masks.
-    Segmentation and measurement settings stay the same.
+    If the analysis has RunCellpose modules, they go to a third copy, segmentation.cppipe, and the
+    analysis copy loads their masks instead (see ``split_segmentation()``). Segmentation and
+    measurement settings stay the same.
 
     Parameters
     ----------
@@ -286,24 +431,48 @@ def adapt(config_dir, output):
     set_plugin_directory(str(Path('plugins').resolve()))
     sys.path.insert(0, str(Path('plugins').resolve()))
 
-    report = dict(objects=[], changes=[
-        'Replace input modules with generated LoadData manifests',
-        'Keep across-cycle illumination and last-cycle NPY exports',
-        'Export all object tables and uint32 label masks; use batch-local destinations',
-        'Realign CP 4.2.8.1 AreaShape/Texture rows shifted by objects without pixels',
-    ], versions={p: importlib.metadata.version(p)
-                 for p in ('cellprofiler', 'cellprofiler-core', 'numpy', 'scipy', 'scikit-image', 'tifffile')})
-    for kind, filename in [('illumination', '1_illumination.cppipe'), ('analysis', '2_analysis.cppipe')]:
-        modules = load_pipeline(config_dir / filename).modules()
-        if kind == 'illumination':
-            report['calculated'] = check_illumination(modules)
-        else:
-            report['corrections'], report['compartments'] = check_analysis(modules)
-        pipeline = working_copy(kind, modules)
-        if kind == 'analysis':
-            report['objects'] = counted_objects(pipeline)
+    report = dict(
+        objects=[],
+        changes=[
+            'Replace input modules with generated LoadData manifests',
+            'Keep across-cycle illumination and last-cycle NPY exports',
+            'Export all object tables and uint32 label masks; use batch-local destinations',
+            'Realign CP 4.2.8.1 AreaShape/Texture rows shifted by objects without pixels',
+        ],
+        versions={
+            p: importlib.metadata.version(p) for p in ('cellprofiler', 'cellprofiler-core', 'numpy', 'scipy', 'scikit-image', 'tifffile')
+        },
+    )
+    copies = {}
+    modules = load_pipeline(config_dir / '1_illumination.cppipe').modules()
+    report['calculated'] = check_illumination(modules)
+    copies['illumination'] = working_copy('illumination', modules[INPUT_MODULES:])
 
-        # Write the copy, then load it again to prove that CellProfiler accepts it.
+    modules = load_pipeline(config_dir / '2_analysis.cppipe').modules()
+    report['corrections'], report['compartments'] = check_analysis(modules)
+    segmentation, analysis, report['segmentation'] = split_segmentation(modules[INPUT_MODULES:])
+    copies['analysis'] = working_copy('analysis', analysis)
+    report['objects'] = counted_objects(copies['analysis'])
+    if segmentation:
+        if importlib.metadata.version('cellpose') != CELLPOSE_VERSION:
+            raise ValueError(f'Require cellpose={CELLPOSE_VERSION} from environment.yml for RunCellpose')
+        copies['segmentation'] = working_copy('segmentation', segmentation)
+        report['versions'].update({p: importlib.metadata.version(p) for p in ('cellpose', 'torch')})
+        report['models'] = [model for model in map(check_cellpose, (m for m in segmentation if m.module_name == CELLPOSE)) if model]
+        report['changes'].append('Run RunCellpose in SEGMENT tasks; ANALYSIS loads its masks with LoadLabelMasks')
+
+    # MERGE joins nuclei and cytoplasm to their cell by Parent_<Cells>, so both must have it.
+    columns = {(obj, feature) for obj, feature, *_ in copies['analysis'].get_measurement_columns()}
+    cells = report['compartments']['cells']
+    for part in ('nuclei', 'cytoplasm'):
+        if (report['compartments'][part], f'Parent_{cells}') not in columns:
+            raise ValueError(
+                f'{report["compartments"][part]} has no Parent_{cells} measurement; '
+                f'relate it to {cells} (RelateObjects) so that MERGE can join it'
+            )
+
+    # Write each copy, then load it again to prove that CellProfiler accepts it.
+    for kind, pipeline in copies.items():
         with (output / f'{kind}.cppipe').open('w') as stream:
             pipeline.dump(stream)
         load_pipeline(output / f'{kind}.cppipe')
@@ -371,12 +540,25 @@ def plan_batches(image_sets, config, batch_size, destination):
         batches = []
         for start in range(0, len(rows), batch_size):
             batch = f'batch_{start // batch_size + 1:04d}'
-            selected = rows[start:start + batch_size]
+            selected = rows[start : start + batch_size]
             write_csv(folder / f'{batch}.csv', [dict(row, Metadata_Batch=batch) for row, _ in selected])
-            batches.append(dict(batch=batch, manifest=str((folder / f'{batch}.csv').relative_to(destination)),
-                                images=[p for _, paths in selected for p in paths], sets=len(selected)))
-        plan.append(dict(plate=plate, manifest=str((folder / 'illumination.csv').relative_to(destination)),
-                         images=[p for _, paths in rows for p in paths], batches=batches, sets=len(rows)))
+            batches.append(
+                dict(
+                    batch=batch,
+                    manifest=str((folder / f'{batch}.csv').relative_to(destination)),
+                    images=[p for _, paths in selected for p in paths],
+                    sets=len(selected),
+                )
+            )
+        plan.append(
+            dict(
+                plate=plate,
+                manifest=str((folder / 'illumination.csv').relative_to(destination)),
+                images=[p for _, paths in rows for p in paths],
+                batches=batches,
+                sets=len(rows),
+            )
+        )
     return plan
 
 
@@ -409,8 +591,10 @@ def prepare(config_dir, samplesheet, staged, batch_size, destination):
     if staged:
         staged = {Path(p).resolve() for p in staged}
         if staged != listed:
-            raise ValueError(f'Staged files differ from the samplesheet: {len(staged - listed)} extra, '
-                             f'{len(listed - staged)} missing, for example {sorted(staged ^ listed)[:3]}')
+            raise ValueError(
+                f'Staged files differ from the samplesheet: {len(staged - listed)} extra, '
+                f'{len(listed - staged)} missing, for example {sorted(staged ^ listed)[:3]}'
+            )
     (destination / 'pipelines').mkdir(parents=True, exist_ok=True)
     write_samplesheet(destination / 'samplesheet.csv', image_sets, config)
     plan = plan_batches(image_sets, config, batch_size, destination)
@@ -419,10 +603,8 @@ def prepare(config_dir, samplesheet, staged, batch_size, destination):
     contract = adapt(config_dir, destination / 'pipelines')
     contract.update(config)
     contract['image_sets'] = len(image_sets)
-    contract['input_fingerprints'] = {str(p): {'size': p.stat().st_size, 'mtime_ns': p.stat().st_mtime_ns}
-                                      for p in sorted(listed)}
-    contract['pipeline_sha256'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                   for p in sorted(config_dir.glob('*.cppipe'))}
+    contract['input_fingerprints'] = {str(p): {'size': p.stat().st_size, 'mtime_ns': p.stat().st_mtime_ns} for p in sorted(listed)}
+    contract['pipeline_sha256'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(config_dir.glob('*.cppipe'))}
     (destination / 'plan.json').write_text(json.dumps(plan, indent=2))
     (destination / 'pipelines' / 'contract.json').write_text(json.dumps(contract, indent=2))
     print(f'Validated {len(image_sets)} image sets, {len(plan)} plates, {sum(len(p["batches"]) for p in plan)} batches')

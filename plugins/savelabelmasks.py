@@ -51,11 +51,8 @@ def names(settings, kinds):
     found = []
     for setting in settings:
         if isinstance(setting, kinds):
-
             # Some settings hold one name, others a list of names.
-            values = (
-                setting.value if isinstance(setting.value, list) else [setting.value]
-            )
+            values = setting.value if isinstance(setting.value, list) else [setting.value]
             found += [v for v in values if v and v != "None"]
     return found
 
@@ -79,15 +76,8 @@ def producers(modules):
     """
     result = {}
     for module in modules:
-
         # The repeated groups of a module, e.g. one group per channel.
-        groups = [
-            g
-            for value in vars(module).values()
-            if isinstance(value, list)
-            for g in value
-            if isinstance(g, SettingsGroup)
-        ]
+        groups = [g for value in vars(module).values() if isinstance(value, list) for g in value if isinstance(g, SettingsGroup)]
         grouped = {id(s) for g in groups for s in g.visible_settings()}
         shared = [s for s in module.visible_settings() if id(s) not in grouped]
         every = names(module.visible_settings(), INPUTS)
@@ -198,10 +188,7 @@ class SaveLabelMasks(Module):
         m = workspace.measurements
 
         # The keys that name this image set, and all its metadata for the provenance JSON.
-        metadata = {
-            key: str(m.get_current_image_measurement("Metadata_" + key))
-            for key in ("Plate", "Batch", "Acquisition")
-        }
+        metadata = {key: str(m.get_current_image_measurement("Metadata_" + key)) for key in ("Plate", "Batch", "Acquisition")}
         acquisition = {
             f[len("Metadata_") :]: str(m.get_current_image_measurement(f))
             for f in m.get_feature_names("Image")
@@ -209,11 +196,7 @@ class SaveLabelMasks(Module):
         }
 
         # Only modules that run before this one can have made the objects.
-        made_by = producers(
-            module
-            for module in workspace.pipeline.modules()
-            if module.module_num < self.module_num
-        )
+        made_by = producers(module for module in workspace.pipeline.modules() if module.module_num < self.module_num)
 
         # mask_manifest.csv gets one row per mask. Write the header only the first time.
         manifest = output / "mask_manifest.csv"
@@ -236,14 +219,8 @@ class SaveLabelMasks(Module):
             for name in sorted(workspace.object_set.object_names):
                 objects = workspace.object_set.get_objects(name)
                 labels = objects.segmented
-                if (
-                    labels.ndim != 2
-                    or labels.min() < 0
-                    or labels.max() > np.iinfo(np.uint32).max
-                ):
-                    raise ValueError(
-                        f"{name}: unsupported mask dimensionality or labels"
-                    )
+                if labels.ndim != 2 or labels.min() < 0 or labels.max() > np.iinfo(np.uint32).max:
+                    raise ValueError(f"{name}: unsupported mask dimensionality or labels")
 
                 # Same name as the raw images, e.g. A02_s1_x0_y0_Cells.tiff. The plate is the folder.
                 filename = f"{metadata['Acquisition']}_{name}.tiff"

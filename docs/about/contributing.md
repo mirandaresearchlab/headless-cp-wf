@@ -39,8 +39,14 @@ Each push to the default branch also publishes the site to
 Pull requests build the site but never publish it.
 Hosting requires GitHub Actions as the source in the repository's Pages settings.
 
-The `tests` workflow runs on the same events. It runs the input, output and merge tests
-with NumPy, tifffile and pytest only. The CellProfiler plugin tests do not run on GitHub.
+The `pre-commit` workflow runs on the same events. It runs the ruff and Nextflow hooks of
+`.pre-commit-config.yaml`. On a pull request from a branch of this repository, it commits their fixes
+to the pull request branch ("Apply pre-commit fixes"). Then it runs the hooks again. They must pass without changes.
+On a pull request from a fork, it cannot push. It shows the changes and fails: run pre-commit locally and push the result.
+After the hooks, it runs the `tests` workflow on the commit that passed them.
+These are the input, output, merge and segmentation-task tests, with NumPy, tifffile and pytest only.
+The CellProfiler and Cellpose tests do not run on GitHub.
+After a fix commit, pull it (`git pull`) before you push again.
 
 ## Pre-commit checks
 
@@ -55,6 +61,10 @@ When a Python file, pipeline or `environment.yml` changes, the hook runs the ful
 the `cp-headless` environment through `scripts/test-cellprofiler.sh`. It works with conda, mamba
 or micromamba. Set `CP_ENV` to use another environment name or a prefix path.
 A second hook runs the strict documentation build when documentation sources change.
+Ruff fixes and formats changed Python files, then reports the errors it cannot fix. Its settings are in `ruff.toml`.
+`nextflow lint -format` formats the workflow, the modules and the configuration files, then reports errors.
+It needs `nextflow` on `PATH`, for example in the activated `cp-headless` environment.
+If a hook changes files, the commit stops. Check the changes, add them with `git add`, and commit again.
 Run every check by hand with `uvx pre-commit run --all-files`.
 
 ## Code layout

@@ -26,6 +26,8 @@ conda activate cp-headless
 Expected result: Conda creates and activates `cp-headless`.
 The environment pins Python 3.9.19 and CellProfiler 4.2.8.1.
 It also includes NumPy, SciPy, scikit-image, tifffile, pandas, and pytest.
+For Cellpose-SAM it installs cellpose 4.0.6 and PyTorch 2.5.1 with CUDA 12.1 from pip.
+This PyTorch also runs on computers without a GPU. It needs about 5 GB of disk space.
 The file pins key packages, but it is not a complete dependency lock file.
 Allow time and internet access for downloads and dependency resolution.
 
@@ -57,6 +59,17 @@ cellprofiler --help
 
 Expected values: Python 3.9.19, two lines containing 4.2.8.1, Nextflow 25.10.4 or later, and CellProfiler help text.
 An import error or missing command means the environment is not ready.
+
+For Cellpose-SAM on a GPU, also check that PyTorch sees the GPU. Run this on a computer or node with a GPU:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+Expected value: `2.5.1+cu121 True`. On Berzelius, this was checked on an A100 node.
+
+The first SEGMENT task downloads the Cellpose-SAM model (`cpsam`, 1.2 GB) to `~/.cellpose/models`.
+To use a model file that you already have, give its folder with `--cellpose_models <folder>`.
 
 ## 4. Prepare storage and data
 

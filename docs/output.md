@@ -13,7 +13,7 @@ A project name already owned by another session also falls back to the session I
 | `run.json` | Workflow startup | Session ID, project name, input paths, Nextflow version, launch command |
 | `illum/<plate>/Illum*.npy` | ILLUMINATION | One correction array per channel |
 | `illum/<plate>/provenance.json` | ILLUMINATION | Plate identity and SHA-256 correction checksums |
-| `masks/<plate>/*.tiff` | ANALYSIS | Unsigned 32-bit object label masks |
+| `masks/<plate>/*.tiff` | ANALYSIS | Unsigned 32-bit object label masks. With RunCellpose, they include the Cellpose objects, equal to the SEGMENT masks |
 | `cp_features/all_plates.csv.gz` | CONCAT | Combined per-cell measurements, compressed with gzip |
 | `logs/run_inputs/samplesheet.csv` | PREPARE | One row per image file: metadata, channel, and path. Use it as `--input` for a new run |
 | `logs/run_inputs/plan.json` | PREPARE | Plates, source files, manifests, and batch sizes |
@@ -25,7 +25,11 @@ A project name already owned by another session also falls back to the session I
 | `logs/<plate>/batch_*.metrics.json` | ANALYSIS | Task timing and resource measurements |
 | `logs/<plate>/batch_*.load_data.csv` | ANALYSIS | Exact image and correction file paths used |
 | `logs/<plate>/batch_*.validation.json` | ANALYSIS | Validation results and measurement repairs |
-| `logs/<plate>/merge.json` | MERGE | Per-plate merge summary |
+| `logs/<plate>/segment_*.metrics.json` | SEGMENT | Only with RunCellpose: device, workers, time, image sets per minute and, on a GPU, mean GPU use and peak GPU memory |
+| `logs/<plate>/segment_*.gpu.csv` | SEGMENT | Only with `--segmentation gpu`: GPU use and memory for each second of the task |
+| `logs/<plate>/segment_*.worker*.log` | SEGMENT | CellProfiler log of each worker |
+| `logs/<plate>/segment_*.validation.json` | SEGMENT | Batches, number of masks, and the checked illumination files |
+| `logs/<plate>/merge.json` | MERGE | Per-plate merge summary. `objects` is the sum of `Count_<Object>` for cells, cytoplasm and nuclei: each object is in the table once, or is counted as not joined |
 | `logs/all_plates.merge.json` | CONCAT | Combined table summary |
 | `logs/status-*.json` | Workflow completion | Success flag, exit status, duration, session, command, error |
 | `logs/nextflow-*.log` | Workflow completion | Saved copy of the launch log when available |
@@ -83,11 +87,14 @@ Pixel value zero means background. Pixels equal to `Metadata_ObjectNumber` belon
 Object numbers are local to an image and object type. They are not global cell identifiers.
 The TIFF description contains JSON metadata, source files, and pipeline steps.
 The default pipeline saves Cells, CellsPaired, Cytoplasm, Nuclei, and NucleiPaired masks.
+In `cp-configs-cellpose/`, NucleiPaired is the Cellpose-SAM mask. Its provenance names LoadLabelMasks and the DNA image.
 
 ## Checks performed by the software
 
 Analysis checks the exact image sets, module errors, mask types, mask provenance, counts, labels, and measured areas.
 It checks that each object's measured area equals its mask pixel count.
 Merge rejects missing or unvalidated batches, mismatched columns, inconsistent parent links, and repeated image sets.
+It also rejects a nucleus or cytoplasm whose cell does not exist, so no object is dropped without a report.
+With RunCellpose, SEGMENT and ANALYSIS check that each mask belongs to its image set. See [segmentation choices](explanation/segmentation.md#how-the-masks-stay-linked-to-their-images).
 Concatenation rejects differences in column names or order between plate tables.
 See [troubleshooting](how-to/troubleshooting.md) if any check fails.

@@ -1,0 +1,39 @@
+/*
+ * SEGMENT: runs once per group of --segmentation_batches batches of one plate, only if
+ * 2_analysis.cppipe has RunCellpose modules. Groups of all plates run in parallel.
+ *
+ * In:   (plate, group name, the batch manifests of the group, their images, the folder with this
+ *       plate's .npy files), the SEGMENT pipeline from PREPARE, contract.json, the scripts and plugins.
+ * Does: runs --segmentation_workers CellProfiler processes at the same time, each on a part of the
+ *       group. They run RunCellpose (Cellpose-SAM) and the modules that make its input image, on
+ *       the GPU (--segmentation gpu; all workers share it) or on the CPU. Then checks every mask
+ *       against its image set and raw files, and sorts the masks into one folder per batch.
+ * Out:  (plate, one folder per batch with masks/, mask_manifest.csv and validation.json) for
+ *       ANALYSIS. These stay in work/: ANALYSIS saves the same masks again and publishes them.
+ *       Task logs (with GPU use per second), published to logs/<plate>/.
+ */
+process SEGMENT {
+    tag "${plate}/${group}"
+    label 'segmentation'
+    publishDir path: { "${destination}/logs/${plate}" }, mode: 'copy', pattern: 'result/logs/*', saveAs: { name -> name.tokenize('/').last() }
+
+    input:
+    val destination
+    tuple val(plate), val(group), path(manifests, stageAs: 'manifests/*'), path(images, stageAs: 'tracked??????/*'), path(illumination)
+    path pipeline
+    path contract
+    path code, stageAs: 'code/*'
+    path plugins, stageAs: 'plugins/*'
+
+    output:
+    tuple val(plate), path('result/segmentation/*'), emit: batches
+    path 'result/logs/*', emit: logs
+
+    script:
+    """
+    python code/run_task.py segmentation --plate '${plate}' --batch '${group}' \\
+        --manifest manifests/*.csv --pipeline '${pipeline}' --contract '${contract}' \\
+        --illumination '${illumination}' --device ${params.segmentation} \\
+        --workers ${params.segmentation_workers} --cpus ${task.cpus}
+    """
+}

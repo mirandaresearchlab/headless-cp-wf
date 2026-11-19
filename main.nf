@@ -9,7 +9,7 @@
  *
  * Results go to <outdir>/projects/<project>/:
  *   illum/<plate>/                 correction functions (ILLUMINATION)
- *   masks/<plate>/                 label masks (ANALYSIS)
+ *   masks/<plate>/                 label masks (ANALYSIS; with RunCellpose, the Cellpose masks of SEGMENT too)
  *   cp_features/all_plates.csv.gz  per-cell table of all plates (CONCAT)
  *   logs/                          run inputs, manifests, task logs and checks
  *   report/                        Nextflow report.html, timeline.html, trace.txt (with --project)
@@ -69,6 +69,12 @@ def checkParameters() {
     }
     if (!(params.total_cpus.toString() ==~ /[1-9][0-9]*/)) {
         error('--total_cpus must be a positive integer')
+    }
+    if (!(params.segmentation in ['cpu', 'gpu'])) {
+        error('--segmentation must be cpu or gpu')
+    }
+    if (!(params.segmentation_batches.toString() ==~ /[0-9]+/) || !(params.segmentation_workers.toString() ==~ /[1-9][0-9]*/)) {
+        error('--segmentation_batches must be 0 or a positive integer, and --segmentation_workers a positive integer')
     }
     if ((params.task_memory as MemoryUnit).toBytes() <= 0 || (params.task_memory as MemoryUnit) > (params.total_memory as MemoryUnit)) {
         error('--task_memory must be positive and cannot exceed --total_memory')

@@ -1,0 +1,105 @@
+name: pre-commit
+
+# Runs the pre-commit hooks (ruff, ruff format, nextflow lint and format) on every pull request
+# and on the default branch. On a pull request from a branch of this repository, the workflow
+# commits what the hooks fixed to the pull request branch, runs the hooks again, and then runs the
+# unit tests on that fixed commit.
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pre-commit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hooks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to push the fixes to the pull request branch
+    outputs:
+      sha: ${{ steps.result.outputs.sha }}
+      repository: ${{ steps.result.outputs.repository }}
+    env:
+      # These hooks run elsewhere: the CellProfiler tests need the cp-headless conda environment
+      # (they run locally only), and docs.yml builds the documentation.
+      SKIP: pytest-cellprofiler,docs-build
+      # The Nextflow version of environment.yml, so that CI formats and lints like a local run.
+      NXF_VER: 26.10.3
+      # Fixes are pushed only to pull requests from this repository. A fork's branch cannot take them.
+      CAN_PUSH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      # On a pull request, check out the branch itself, not the merge commit, so that a fix can be pushed to it.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.head_ref || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # nextflow lint needs Java and Nextflow.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Nextflow ${{ env.NXF_VER }}
+        run: |
+          curl -fsSL https://get.nextflow.io | bash
+          sudo mv nextflow /usr/local/bin/
+          nextflow -version
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      - run: pip install pre-commit==4.7.0
+
+      # First run: the hooks fix what they can. A failure here only means that a hook changed files
+      # or found an error. The next steps decide what to do.
+      - name: Run the hooks
+        id: first
+        run: pre-commit run --all-files --show-diff-on-failure || echo "failed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the fixes to the pull request branch
+        if: steps.first.outputs.failed == 'true'
+        run: |
+          if git diff --quiet; then
+            echo "The hooks changed no files. The second run shows the errors that they cannot fix."
+            exit 0
+          fi
+          if [ "$CAN_PUSH" != "true" ]; then
+            echo "::error::pre-commit changed files (diff above), but this workflow cannot push them here. Run 'uvx pre-commit run --all-files' locally and push the result."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Apply pre-commit fixes (ruff, ruff format, nextflow lint)"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
+
+      # Second run: after the fixes, every hook must pass without changing anything.
+      - name: Run the hooks again
+        if: steps.first.outputs.failed == 'true'
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Record the commit that passed the hooks
+        id: result
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "repository=${{ github.event.pull_request.head.repo.full_name || github.repository }}" >> "$GITHUB_OUTPUT"
+
+  # The unit tests run again on the commit that passed the hooks, so the fixed code is tested.
+  # (A push with the workflow's token does not start a new workflow run on its own.)
+  tests:
+    needs: hooks
+    uses: ./.github/workflows/tests.yml
+    with:
+      repository: ${{ needs.hooks.outputs.repository }}
+      ref: ${{ needs.hooks.outputs.sha }}

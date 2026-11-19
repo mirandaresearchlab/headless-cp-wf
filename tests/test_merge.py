@@ -40,7 +40,7 @@ def batch(root, name, sites, cells):
         The batch folder.
     """
     folder = root / name
-    meta = lambda n, site: dict(
+    meta = lambda n, site: dict(  # noqa: E731
         ImageNumber=str(n),
         Metadata_Plate="P1",
         Metadata_Batch=name,
@@ -90,14 +90,10 @@ def batch(root, name, sites, cells):
 
     # A table without rows still needs its header, as CellProfiler writes it.
     for table, rows in objects.items():
-        header = (
-            sorted(meta(1, "")) + sorted(set(rows[0]) - set(meta(1, "")))
-            if rows
-            else None
+        header = sorted(meta(1, "")) + sorted(set(rows[0]) - set(meta(1, ""))) if rows else None
+        header = header or sorted(meta(1, "")) + {"Cells": ["AreaShape_Area", "Children_Nuclei_Count", "ObjectNumber"]}.get(
+            table, ["AreaShape_Area", "ObjectNumber", "Parent_Cells"]
         )
-        header = header or sorted(meta(1, "")) + {
-            "Cells": ["AreaShape_Area", "Children_Nuclei_Count", "ObjectNumber"]
-        }.get(table, ["AreaShape_Area", "ObjectNumber", "Parent_Cells"])
         with (folder / f"features/{table}.csv").open("w", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=header)
             writer.writeheader()
@@ -192,9 +188,7 @@ def test_one_row_per_cell_in_single_batch_order(tmp_path):
         "Metadata_Well",
         "Metadata_PlateImageNumber",
     ]
-    assert not any(
-        c.endswith("_ImageNumber") and c != "Metadata_ImageNumber" for c in header
-    )
+    assert not any(c.endswith("_ImageNumber") and c != "Metadata_ImageNumber" for c in header)
     assert sum(c.startswith("Metadata_Plate") for c in header) == 2
     assert report["cells"] == 3 and report["cells_without_nucleus"] == 0
 
@@ -214,9 +208,7 @@ def test_column_mismatch_between_batches_fails(tmp_path):
     path = batches[0] / "features/Cells.csv.gz"
 
     # Rename one column in one batch only.
-    write_text(
-        path, read_text(path).replace("AreaShape_Area", "AreaShape_Perimeter", 1)
-    )
+    write_text(path, read_text(path).replace("AreaShape_Area", "AreaShape_Perimeter", 1))
     with pytest.raises(ValueError, match="columns differ"):
         merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
 
@@ -255,6 +247,58 @@ def test_cell_with_two_nuclei_fails(tmp_path):
     write_text(path, text.getvalue())
     with pytest.raises(ValueError, match="several nuclei"):
         merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
+
+
+def rewrite(path, change):
+    """Change the rows of one gzip table in place.
+
+    Args:
+        path: the .csv.gz table.
+        change: a function that gets the list of row dicts and changes it in place.
+    """
+    rows = read(path)
+    change(rows)
+    text = io.StringIO()
+    writer = csv.DictWriter(text, fieldnames=list(rows[0]))
+    writer.writeheader()
+    writer.writerows(rows)
+    write_text(path, text.getvalue())
+
+
+@pytest.mark.parametrize("table, column", [("Nuclei", "Parent_Cells"), ("Cytoplasm", "ObjectNumber")])
+def test_object_of_a_missing_cell_fails(tmp_path, table, column):
+    """A nucleus or cytoplasm that names a cell number with no cell row stops the merge.
+
+    Without this check the merge would leave the object out of the table, and the number of
+    objects in the table would be smaller than Count_<Object> in Image.csv.
+    """
+    manifest, batches = plate(tmp_path)
+
+    # Site-1 has cells 1 and 2. Point the first object to cell 3, which does not exist.
+    def to_cell_three(rows):
+        rows[0][column] = "3"
+        if table == "Cytoplasm":
+            rows[0]["Parent_Cells"] = "3"
+
+    rewrite(batches[1] / f"features/{table}.csv.gz", to_cell_three)
+    with pytest.raises(ValueError, match="no cell"):
+        merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
+
+
+def test_report_accounts_for_every_object(tmp_path):
+    """The report gives the objects of each table, and each one is either joined or counted as unjoined."""
+    manifest, batches = plate(tmp_path)
+
+    # Site-1: the first nucleus has no cell (Parent_Cells 0), so cell 2 has no nucleus.
+    rewrite(batches[1] / "features/Nuclei.csv.gz", lambda rows: rows[0].update(Parent_Cells="0"))
+    rewrite(batches[1] / "features/Cells.csv.gz", lambda rows: rows[0].update(Children_Nuclei_Count="0"))
+    report = merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
+
+    # Count_<Object> of the three images: 2 + 0 + 1 for every table.
+    assert report["objects"] == {"Cells": 3, "Cytoplasm": 3, "Nuclei": 3}
+    assert report["cells"] == 3 == len(read(tmp_path / "P1.csv.gz"))
+    assert report["nuclei_without_cell"] == 1 and report["cells_without_nucleus"] == 1
+    assert report["cells"] - report["cells_without_nucleus"] + report["nuclei_without_cell"] == report["objects"]["Nuclei"]
 
 
 def test_interleaved_batches_fail(tmp_path):
@@ -298,18 +342,11 @@ def test_merge_writes_header_as_separate_member(tmp_path):
 def test_concatenate_joins_plates_in_name_order(tmp_path):
     """Plates are joined in name order with one header. The rows are unchanged."""
     plate_table(tmp_path / "B.csv.gz", ["Metadata_Plate", "X"], [["B", "2"]])
-    plate_table(
-        tmp_path / "A.csv.gz", ["Metadata_Plate", "X"], [["A", "1"], ["A", "3"]]
-    )
-    report = concatenate(
-        [tmp_path / "B.csv.gz", tmp_path / "A.csv.gz"], tmp_path / "all.csv.gz"
-    )
+    plate_table(tmp_path / "A.csv.gz", ["Metadata_Plate", "X"], [["A", "1"], ["A", "3"]])
+    report = concatenate([tmp_path / "B.csv.gz", tmp_path / "A.csv.gz"], tmp_path / "all.csv.gz")
 
     # Plate A comes first even though it was given second. One header, all rows.
-    assert (
-        read_text(tmp_path / "all.csv.gz")
-        == "Metadata_Plate,X\r\nA,1\r\nA,3\r\nB,2\r\n"
-    )
+    assert read_text(tmp_path / "all.csv.gz") == "Metadata_Plate,X\r\nA,1\r\nA,3\r\nB,2\r\n"
     assert report["plates"] == ["A", "B"] and report["columns"] == 2
 
 
@@ -320,16 +357,12 @@ def test_concatenate_requires_identical_columns(tmp_path):
     # Same columns in another order.
     plate_table(tmp_path / "B.csv.gz", ["X", "Metadata_Plate"], [["2", "B"]])
     with pytest.raises(ValueError, match="different order: True"):
-        concatenate(
-            [tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz"
-        )
+        concatenate([tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz")
 
     # A different column.
     plate_table(tmp_path / "B.csv.gz", ["Metadata_Plate", "Y"], [["B", "2"]])
     with pytest.raises(ValueError, match=r"missing \['X'\], extra \['Y'\]"):
-        concatenate(
-            [tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz"
-        )
+        concatenate([tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz")
 
 
 def test_concatenate_rejects_tables_not_written_by_merge(tmp_path):
@@ -339,6 +372,4 @@ def test_concatenate_rejects_tables_not_written_by_merge(tmp_path):
     # A normal gzip CSV: header and rows in one part.
     write_text(tmp_path / "B.csv.gz", "Metadata_Plate,X\r\nB,2\r\n")
     with pytest.raises(ValueError, match="not written by MERGE"):
-        concatenate(
-            [tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz"
-        )
+        concatenate([tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz")

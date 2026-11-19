@@ -10,6 +10,7 @@ The crops must be more than twice the adaptive threshold window of the analysis 
 <new folder>.json records the source path, SHA-256 and crop of each file.
 It never changes the source images and stops if the new folder already exists.
 """
+
 import argparse
 import hashlib
 import json
@@ -42,7 +43,6 @@ def make_fixture(source, destination):
         raise ValueError(f'Fixture destination already exists: {destination}')
     records = []
     for plate in sorted(p for p in source.iterdir() if p.is_dir()):
-
         # The five channel files of site 1 in wells A02 and A03.
         paths = [p for p in sorted(plate.glob('*.tiff')) if p.name.startswith(('A02_s1_', 'A03_s1_'))]
         if len(paths) != 10:
@@ -57,9 +57,14 @@ def make_fixture(source, destination):
             tifffile.imwrite(out, cropped, photometric='minisblack')
 
             # Record where each crop came from, with the checksum of the source.
-            records.append({'source': str(path.resolve()), 'output': str(out.resolve()),
-                                'source_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-                                'crop': f'y=0:{CROP},x=0:{CROP}'})
+            records.append(
+                {
+                    'source': str(path.resolve()),
+                    'output': str(out.resolve()),
+                    'source_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                    'crop': f'y=0:{CROP},x=0:{CROP}',
+                }
+            )
     destination.with_suffix('.json').write_text(json.dumps(records, indent=2))
     print(f'Created {len(records)} crops in {destination}')
 

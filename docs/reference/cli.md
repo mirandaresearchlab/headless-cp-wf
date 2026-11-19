@@ -31,18 +31,22 @@ PREPARE validates images and adapts pipelines.
 
 ## run_task.py
 
-Runs illumination or analysis, then validates its outputs.
+Runs illumination, segmentation (RunCellpose) or analysis, then validates its outputs.
 
 | Parser in source | Argument | Required, default, choices, or type |
 |---|---|---|
-| `parser` | `kind` | `choices=['illumination', 'analysis']` |
+| `parser` | `kind` | `choices=['illumination', 'segmentation', 'analysis']` |
 | `parser` | `--plate` | `required=True` |
 | `parser` | `--batch` | `default='illumination'` |
-| `parser` | `--manifest` | `type=Path, required=True` |
+| `parser` | `--manifest` | `type=Path, nargs='+', required=True` |
 | `parser` | `--pipeline` | `type=Path, required=True` |
 | `parser` | `--contract` | `type=Path, required=True` |
 | `parser` | `--plugins` | `type=Path, default=Path('plugins')` |
 | `parser` | `--illumination` | `type=Path` |
+| `parser` | `--segmentation` | `type=Path` |
+| `parser` | `--device` | `choices=['cpu', 'gpu'], default='cpu'` |
+| `parser` | `--workers` | `type=int, default=1` |
+| `parser` | `--cpus` | `type=int, default=1` |
 
 ## merge_features.py
 
