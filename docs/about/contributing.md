@@ -39,8 +39,14 @@ Each push to the default branch also publishes the site to
 Pull requests build the site but never publish it.
 Hosting requires GitHub Actions as the source in the repository's Pages settings.
 
-The `tests` workflow runs on the same events. It runs the input, output and merge tests
-with NumPy, tifffile and pytest only. The CellProfiler plugin tests do not run on GitHub.
+The `pre-commit` workflow runs on the same events. It runs the ruff and Nextflow hooks of
+`.pre-commit-config.yaml`. On a pull request from a branch of this repository, it commits their fixes
+to the pull request branch ("Apply pre-commit fixes"). Then it runs the hooks again. They must pass without changes.
+On a pull request from a fork, it cannot push. It shows the changes and fails: run pre-commit locally and push the result.
+After the hooks, it runs the `tests` workflow on the commit that passed them.
+These are the input, output, merge and segmentation-task tests, with NumPy, tifffile and pytest only.
+The CellProfiler and Cellpose tests do not run on GitHub.
+After a fix commit, pull it (`git pull`) before you push again.
 
 ## Pre-commit checks
 
