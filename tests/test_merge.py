@@ -1,4 +1,4 @@
-"""Unit tests for the per-cell merge and the plate concatenation (bin/merge_features.py).
+"""Unit tests for the per-cell merge and its Parquet output (bin/merge_features.py).
 
 The tests build small fake batch folders in the same format as CellProfiler exports.
 """
@@ -6,15 +6,20 @@ The tests build small fake batch folders in the same format as CellProfiler expo
 import csv
 import gzip
 import io
+import json
+import subprocess
 import sys
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 
 # The scripts in bin/ are not a package. Add the folder to the import path.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bin"))
-from merge_features import concatenate, header_member, merge_plate
+import merge_features
+from merge_features import check_parquet, merge_plate, to_parquet
 from cp_inputs import write_csv
 
 
@@ -316,60 +321,154 @@ def test_interleaved_batches_fail(tmp_path):
         merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
 
 
-def plate_table(path, header, rows):
-    """Write a plate table the way MERGE does: a gzip part with the header, then one with the rows.
+def parquet_plate(tmp_path):
+    """Merge plate P1 and convert it to Parquet.
 
-    Args:
-        path: the .csv.gz file to write.
-        header: the column names.
-        rows: the rows, as lists of values.
+    Site-1 has a cell without a nucleus (blank Nuclei columns), and one Image value is nan.
+
+    Returns:
+        (merged CSV, Parquet file, MERGE report).
     """
-    text = io.StringIO()
-    csv.writer(text).writerows(rows)
-    path.write_bytes(header_member(header) + gzip.compress(text.getvalue().encode()))
-
-
-def test_merge_writes_header_as_separate_member(tmp_path):
-    """MERGE output starts with the header member, so CONCAT can join plates without decompressing."""
+    # Make a plate with one cell that has no nucleus, and one image with a nan value.
     manifest, batches = plate(tmp_path)
+
+    # rewrite the first nucleus to have no parent cell, and the first cell to have no children nuclei.
+    rewrite(batches[1] / "features/Nuclei.csv.gz", lambda rows: rows[0].update(Parent_Cells="0"))
+    rewrite(batches[1] / "features/Cells.csv.gz", lambda rows: rows[0].update(Children_Nuclei_Count="0"))
+    rewrite(batches[0] / "features/Image.csv.gz", lambda rows: rows[0].update(Intensity_MeanIntensity_DNA="nan"))
+    
+    # Merge the plate and convert it to Parquet. The Parquet file has one row per cell, with every value parsed by the fixed type rule.
+    report = merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
+    header = to_parquet(tmp_path / "P1.csv.gz", tmp_path / "P1.parquet")
+    
+    # checks that the Parquet file has the same number of rows as the CSV, and that every value is parsed correctly.
+    check_parquet(tmp_path / "P1.parquet", header, "P1", report["cells"], PARTS)
+
+    return tmp_path / "P1.csv.gz", tmp_path / "P1.parquet", report
+
+
+@pytest.mark.parametrize("row_group", [1, 10_000])
+def test_parquet_matches_csv_value_by_value(tmp_path, monkeypatch, row_group):
+    """Row n of the Parquet file is row n of the merged CSV, with every value parsed by the fixed type rule."""
+
+    # set the row group size to a small number to test that the Parquet file is written in multiple row groups.
+    monkeypatch.setattr(merge_features, "ROW_GROUP_SIZE", row_group)
+    table, parquet, report = parquet_plate(tmp_path)
+
+    # set expected table and found table to the CSV and Parquet files, respectively. 
+    # Check that they have the same number of rows, and that every value matches the expected type and value.
+    expected = read(table)
+    found = pq.read_table(parquet).to_pylist()
+
+    # check that the number of rows in the CSV, Parquet, and report are all equal to 3.
+    assert len(found) == len(expected) == report["cells"] == 3
+
+    # iterate over the expected and found rows, checking that each value matches the expected type and value.
+    for want, got in zip(expected, found):
+        assert list(got) == list(want)
+        for column, text in want.items():
+            kind = merge_features.column_type(column)
+            value = (
+                None
+                if text in merge_features.NULL_TOKENS
+                else (str(text) if kind == pa.string() else int(text) if kind == pa.int64() else float(text))
+            )
+            assert got[column] == value, column
+
+    # if the row group size is 1, check that the Parquet file has 3 row groups.
+    if row_group == 1:
+        assert pq.ParquetFile(parquet).metadata.num_row_groups == 3
+
+
+def test_parquet_types_do_not_depend_on_values(tmp_path):
+    """Metadata is text, image and object numbers are integers, measurements are doubles, even in an all-empty column."""
+    # set up a plate with one cell that has no nucleus, and one image with a nan value. Merge the plate and convert it to Parquet.
+    _, parquet, _ = parquet_plate(tmp_path)
+
+    # set schema to the Parquet schema, and check that the types of the columns are as expected.
+    schema = pq.read_schema(parquet)
+
+    # check for the expected types of the columns in the Parquet schema. 
+    # Metadata columns should be strings, image and object numbers should be integers, 
+    # and measurements should be doubles.
+    assert schema.field("Metadata_Plate").type == pa.string()
+    assert schema.field("Metadata_PlateImageNumber").type == pa.int64()
+    assert schema.field("Metadata_ObjectNumber").type == pa.int64()
+    assert schema.field("Cells_AreaShape_Area").type == pa.float64()
+
+    # Image_Intensity_MeanIntensity_DNA is nan in one image: it is a null, not a text column.
+    assert schema.field("Image_Intensity_MeanIntensity_DNA").type == pa.float64()
+    assert pq.read_table(parquet, columns=["Image_Intensity_MeanIntensity_DNA"]).column(0).null_count == 1
+
+
+def test_value_that_is_not_a_number_fails(tmp_path):
+    """A measurement that is not a number or a missing-value token stops the conversion."""
+    manifest, batches = plate(tmp_path)
+    rewrite(batches[1] / "features/Cells.csv.gz", lambda rows: rows[0].update(AreaShape_Area="12,5"))
     merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
-    header = read_text(tmp_path / "P1.csv.gz").splitlines()[0].split(",")
-
-    # The file must start with exactly the bytes that CONCAT expects to skip.
-    assert (tmp_path / "P1.csv.gz").read_bytes().startswith(header_member(header))
+    with pytest.raises(ValueError):
+        to_parquet(tmp_path / "P1.csv.gz", tmp_path / "P1.parquet")
 
 
-def test_concatenate_joins_plates_in_name_order(tmp_path):
-    """Plates are joined in name order with one header. The rows are unchanged."""
-    plate_table(tmp_path / "B.csv.gz", ["Metadata_Plate", "X"], [["B", "2"]])
-    plate_table(tmp_path / "A.csv.gz", ["Metadata_Plate", "X"], [["A", "1"], ["A", "3"]])
-    report = concatenate([tmp_path / "B.csv.gz", tmp_path / "A.csv.gz"], tmp_path / "all.csv.gz")
-
-    # Plate A comes first even though it was given second. One header, all rows.
-    assert read_text(tmp_path / "all.csv.gz") == "Metadata_Plate,X\r\nA,1\r\nA,3\r\nB,2\r\n"
-    assert report["plates"] == ["A", "B"] and report["columns"] == 2
+def tampered(parquet, out, change):
+    """Write a copy of a Parquet file after a change to its rows (a function of the list of row dicts)."""
+    table = pq.read_table(parquet)
+    rows = table.to_pylist()
+    change(rows)
+    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), out)
+    return table.schema.names
 
 
-def test_concatenate_requires_identical_columns(tmp_path):
-    """Different column sets or orders stop the concatenation."""
-    plate_table(tmp_path / "A.csv.gz", ["Metadata_Plate", "X"], [["A", "1"]])
-
-    # Same columns in another order.
-    plate_table(tmp_path / "B.csv.gz", ["X", "Metadata_Plate"], [["2", "B"]])
-    with pytest.raises(ValueError, match="different order: True"):
-        concatenate([tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz")
-
-    # A different column.
-    plate_table(tmp_path / "B.csv.gz", ["Metadata_Plate", "Y"], [["B", "2"]])
-    with pytest.raises(ValueError, match=r"missing \['X'\], extra \['Y'\]"):
-        concatenate([tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz")
+def test_check_finds_two_swapped_cells(tmp_path):
+    """Two cells change places: the order check fails."""
+    _, parquet, report = parquet_plate(tmp_path)
+    header = tampered(parquet, tmp_path / "bad.parquet", lambda rows: rows.insert(0, rows.pop(1)))
+    with pytest.raises(ValueError, match="order"):
+        check_parquet(tmp_path / "bad.parquet", header, "P1", report["cells"], PARTS)
 
 
-def test_concatenate_rejects_tables_not_written_by_merge(tmp_path):
-    """A plain one-member gzip CSV is refused, because its rows cannot be copied without the header."""
-    plate_table(tmp_path / "A.csv.gz", ["Metadata_Plate", "X"], [["A", "1"]])
+def test_check_finds_nucleus_of_another_cell(tmp_path):
+    """The Nuclei columns move down one row, so a row holds the nucleus of another cell: the identity check fails."""
+    # read the Parquet file and the report from merging the plate, and tamper with the rows by shifting the Nuclei
+    #  columns down one row. Then check that the Parquet file fails the identity check.
+    _, parquet, report = parquet_plate(tmp_path)
 
-    # A normal gzip CSV: header and rows in one part.
-    write_text(tmp_path / "B.csv.gz", "Metadata_Plate,X\r\nB,2\r\n")
-    with pytest.raises(ValueError, match="not written by MERGE"):
-        concatenate([tmp_path / "A.csv.gz", tmp_path / "B.csv.gz"], tmp_path / "all.csv.gz")
+    # setting internal function for shifting the Nuclei columns down one row, so that each row holds the nucleus of another cell.
+    def shift(rows):
+        nuclei = [{c: v for c, v in r.items() if c.startswith("Nuclei_")} for r in rows]
+        for row, nucleus in zip(rows, [dict.fromkeys(nuclei[0])] + nuclei[:-1]):
+            row.update(nucleus)
+
+    # setting header to the schema 
+    header = tampered(parquet, tmp_path / "bad.parquet", shift)
+    with pytest.raises(ValueError, match="Nuclei_Parent_Cells"):
+        check_parquet(tmp_path / "bad.parquet", header, "P1", report["cells"], PARTS)
+
+
+def test_check_finds_a_lost_cell(tmp_path):
+    """The Parquet file has fewer rows than MERGE counted: the row count check fails."""
+    _, parquet, report = parquet_plate(tmp_path)
+    header = tampered(parquet, tmp_path / "bad.parquet", lambda rows: rows.pop())
+    with pytest.raises(ValueError, match="rows"):
+        check_parquet(tmp_path / "bad.parquet", header, "P1", report["cells"], PARTS)
+
+
+def test_command_writes_only_the_parquet_table(tmp_path):
+    """The plate command, as MERGE runs it, publishes <plate>.parquet and deletes its temporary CSV."""
+    manifest, batches = plate(tmp_path)
+    folder = tmp_path / "batches"
+    folder.mkdir()
+    for b in batches:
+        b.rename(folder / b.name)
+    contract = tmp_path / "contract.json"
+    contract.write_text(json.dumps({"compartments": PARTS}))
+    script = Path(merge_features.__file__)
+    args = ["plate", "--plate", "P1", "--manifest", manifest, "--batches", folder, "--contract", contract]
+    run = subprocess.run(
+        [sys.executable, script, *args, "--out", tmp_path / "out/P1.parquet", "--report", tmp_path / "merge.json"],
+        capture_output=True,
+        text=True,
+    )
+    assert run.returncode == 0, run.stderr
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["P1.parquet"]
+    assert pq.read_metadata(tmp_path / "out/P1.parquet").num_rows == json.loads((tmp_path / "merge.json").read_text())["cells"] == 3
