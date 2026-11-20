@@ -277,7 +277,7 @@ def check_image_sets(sets, shapes, config):
     Returns
     -------
     list of dict
-        The image sets, sorted by their key.
+        The image sets, sorted by ``image_set_order()``.
 
     Raises
     ------
@@ -295,7 +295,33 @@ def check_image_sets(sets, shapes, config):
     # One plate gets one correction function per channel, so all its images need one size.
     if any(len(s) != 1 for s in shapes.values()):
         raise ValueError(f'All images in a plate must share dimensions: {dict(shapes)}')
-    return [sets[key] for key in sorted(sets)]
+    return sorted(sets.values(), key=lambda s: image_set_order(s['metadata']))
+
+
+def image_set_order(metadata):
+    """Return the sort key of an image set: plate, well, site, then the other metadata by name.
+
+    Numbers inside a value compare as numbers, so site 2 comes before site 10 and well A2
+    before A10. The text of each value breaks ties such as A2 and A02.
+
+    Parameters
+    ----------
+    metadata : dict
+        The metadata of the image set, e.g. ``{"Plate": "P1", "Well": "A02", "Site": "1"}``.
+
+    Returns
+    -------
+    tuple
+        A key for ``sorted()``.
+    """
+
+    def parts(value):
+        # (0, number) or (1, text) per part, so a number is never compared with text.
+        return [(0, int(p)) if p[0].isdigit() else (1, p) for p in re.findall(r'[0-9]+|[^0-9]+', value)]
+
+    first = ['Plate', 'Well', 'Site']
+    names = first + sorted(set(metadata) - set(first))
+    return tuple((name, parts(metadata[name]), metadata[name]) for name in names)
 
 
 class ImageSets:

@@ -66,6 +66,8 @@ See [segmentation choices](segmentation.md) for the checks on each mask.
 
 A batch contains consecutive complete image sets from one plate.
 It never splits channels or mixes plates.
+PREPARE sorts the image sets of a plate by well, then site, then the other metadata columns by name.
+Numbers inside a value compare as numbers, so site 2 comes before site 10 and well A2 before A10.
 For P plates and B total analysis batches, a successful run requires `2 + 2P + B` tasks, excluding retries.
 B is the sum of each plate's image-set count divided by batch size, rounded up separately for each plate.
 With RunCellpose, add one SEGMENT task for each group: the batches of each plate divided by `--segmentation_batches`, rounded up.

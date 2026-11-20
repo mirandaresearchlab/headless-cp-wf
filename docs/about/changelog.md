@@ -2,6 +2,14 @@
 
 This page records the scope of the documentation update.
 
+## Image set order
+
+- PREPARE sorts the image sets of a plate by well, then site, then the other metadata. Numbers compare as numbers: site 2 comes before site 10.
+  Before, the order came from the metadata names in alphabetical order, with values compared as text (issue #15).
+- The measurements do not change. Which image sets share a batch, and `Metadata_PlateImageNumber`, do change.
+  Do not join outputs of runs before and after this change on `Metadata_PlateImageNumber`; use plate, well and site.
+  A run that was started before this change cannot `-resume` its ANALYSIS and MERGE tasks.
+
 ## Cellpose-SAM
 
 - `2_analysis.cppipe` can use RunCellpose with Cellpose-SAM (Cellpose 4). A new SEGMENT step runs it on a GPU or on CPUs
