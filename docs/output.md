@@ -58,7 +58,7 @@ Partial outputs can exist after a failure. Passing file checks does not prove bi
 | `Metadata_Plate`, `Metadata_Well`, `Metadata_Site`, `Metadata_X`, `Metadata_Y` | Image identity |
 | `Metadata_Acquisition` | Shared filename prefix, such as `A02_s1_x0_y0` |
 | `Metadata_Batch`, `Metadata_ImageNumber` | Batch identity and batch-local image number |
-| `Metadata_PlateImageNumber` | Image position in the sorted plate manifest |
+| `Metadata_PlateImageNumber` | Image position in the plate, sorted by well, then site, then other metadata (numbers as numbers) |
 | `Metadata_ObjectNumber` | Cell label in the Cells mask |
 | `Cells_*`, `Cytoplasm_*`, `Nuclei_*` | Measurements from those cell compartments |
 | `Image_*` | Whole-image measurements repeated for each cell row |

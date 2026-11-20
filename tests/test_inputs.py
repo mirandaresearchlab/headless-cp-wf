@@ -243,6 +243,24 @@ def test_excel_style_file_is_read(tmp_path, config):
     assert image_set['metadata'] == dict(Plate='P1', Well='A02', Site='1')
 
 
+def test_image_sets_are_sorted_by_well_then_site_as_numbers(tmp_path, config):
+    """Image sets sort by well, then site, and numbers compare as numbers: A2 before A10, site 2 before 10 (issue #15)."""
+    rows = free_names(tmp_path, wells=('B3', 'A10', 'A2'), sites=(10, 2, 1))[::-1]
+    image_sets = read_samplesheet(write_sheet(tmp_path / 's.csv', rows), config)
+    order = [(s['metadata']['Well'], s['metadata']['Site']) for s in image_sets]
+    assert order == [(w, s) for w in ('A2', 'A10', 'B3') for s in ('1', '2', '10')]
+
+
+def test_extra_metadata_does_not_change_the_order(tmp_path, config):
+    """An extra metadata column only breaks ties after well and site; it does not reorder the image sets."""
+    rows = free_names(tmp_path, wells=('A2', 'B3'), sites=(1, 2))
+    plain = read_samplesheet(write_sheet(tmp_path / 'plain.csv', rows), config)
+    # 'Aaa' sorts before 'Plate' by name, and its values run against the well and site order.
+    extra = [dict(r, aaa=str(9 - i // len(WAVELENGTHS))) for i, r in enumerate(rows)]
+    with_extra = read_samplesheet(write_sheet(tmp_path / 'extra.csv', extra), config)
+    assert [s['name'] for s in with_extra] == [s['name'] for s in plain]
+
+
 @pytest.mark.parametrize(
     'change, message',
     [
