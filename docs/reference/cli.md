@@ -50,7 +50,7 @@ Runs illumination, segmentation (RunCellpose) or analysis, then validates its ou
 
 ## merge_features.py
 
-Use the `plate` subcommand to merge batches, or `all` to concatenate plate tables.
+The `plate` subcommand merges the batches of one plate into `<plate>.parquet`.
 
 | Parser in source | Argument | Required, default, choices, or type |
 |---|---|---|
@@ -58,12 +58,10 @@ Use the `plate` subcommand to merge batches, or `all` to concatenate plate table
 | `plate` | `--manifest` | `type=Path, required=True` |
 | `plate` | `--batches` | `type=Path, required=True` |
 | `plate` | `--contract` | `type=Path, required=True` |
-| `every` | `tables` | `type=Path, nargs='+'` |
-| `command` | `--out` | `type=Path, required=True` |
-| `command` | `--report` | `type=Path, required=True` |
+| `plate` | `--out` | `type=Path, required=True` |
+| `plate` | `--report` | `type=Path, required=True` |
 
-`plate` defines the MERGE arguments. `every` defines the CONCAT (`all`) arguments.
-`command` adds `--out` and `--report` to both subcommands.
+`plate` defines the MERGE arguments.
 
 `cp_inputs.py` is a library: the samplesheet and pipeline checks that the scripts above use.
 

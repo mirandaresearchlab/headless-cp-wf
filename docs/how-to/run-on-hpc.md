@@ -245,7 +245,7 @@ sbatch -A <account> scripts/berzelius-run.sbatch /proj/<project>/users/$USER/my-
 
 1. Count the image sets. An image set is all channels of one site. For example, 17,000 images with 5 channels are 3,400 image sets.
 2. Calculate the core-hours: image sets × 5.4 minutes ÷ 60. For 3,400 image sets, this is about 310 core-hours.
-3. Calculate the time: core-hours ÷ `--max_jobs`. Add about 3 hours for illumination, MERGE and CONCAT.
+3. Calculate the time: core-hours ÷ `--max_jobs`. Add about 3 hours for illumination and MERGE.
 
 | Example: 3 plates of 3,400 image sets (930 core-hours) | Time |
 |---|---|
@@ -346,7 +346,9 @@ For each plate, in alphabetical order, the script does these steps:
 4. It deletes the work files of the plate. It does this only if the workflow reports success and the final table exists.
 5. It writes the file `OUT/<plate>/DONE`, which contains the path of the results.
 
-Each plate gets its own table: `OUT/<plate>/projects/<folder>/cp_features/all_plates.csv.gz`.
+Each plate gets its own table: `OUT/<plate>/projects/<folder>/cp_features/<plate>.parquet`.
+All plates have the same columns and types, so they read as one table, for example
+`duckdb.sql("SELECT ... FROM 'OUT/*/projects/*/cp_features/*.parquet'")`.
 To see the result path of each plate, run `cat OUT/*/DONE`.
 
 If a plate fails, the script stops and keeps the work files of this plate.

@@ -10,7 +10,7 @@ You supply one folder per plate and two CellProfiler pipeline files.
     See [provide your own pipelines](usage.md#provide-your-own-pipelines).
 
 The workflow corrects uneven lighting, finds objects, measures them, and checks the outputs.
-It saves label masks and one compressed CSV table with one row per cell.
+It saves label masks and one Parquet table per plate with one row per cell.
 
 ```mermaid
 flowchart LR
@@ -19,8 +19,7 @@ flowchart LR
     B --> D[ANALYSIS: one job per batch]
     C --> D
     D --> E[MERGE: one job per plate]
-    E --> F[CONCAT: all plates]
-    F --> G[Combined cell table]
+    E --> G[Cell table per plate: Parquet]
     D --> H[Label masks]
 ```
 

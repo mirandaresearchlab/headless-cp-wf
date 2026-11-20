@@ -21,15 +21,14 @@ flowchart TD
         A21 --> M2[MERGE plate 2]
         A22 --> M2
     end
-    M1 --> C[CONCAT: wait for every plate]
-    M2 --> C
-    C --> F[all_plates.csv.gz]
+    M1 --> F1[plate 1.parquet]
+    M2 --> F2[plate 2.parquet]
 ```
 
 Each plate's analysis waits for that plate's illumination files.
 It does not wait for other plates to finish illumination.
 A plate merge waits for all batches from its own plate.
-CONCAT waits for every plate merge. Resource limits can still delay any ready job.
+No step waits for all plates. Resource limits can still delay any ready job.
 
 ## Dependencies with Cellpose-SAM
 
@@ -63,8 +62,7 @@ See [segmentation choices](segmentation.md) for the checks on each mask.
 | ILLUMINATION | One per plate | Read every image set of that plate. Save one correction array per channel after the last cycle. Check shape and finite values. |
 | SEGMENT | One per group of batches, only with RunCellpose | Run RunCellpose and the modules that make its input image. Save one mask per image set and object. Check each mask against its image set and files. |
 | ANALYSIS | One per batch | Check correction checksums. Correct images, segment objects (or load the SEGMENT masks), measure features, save masks, and validate tables. |
-| MERGE | One per plate | Require validated batches. Join cell, nucleus, cytoplasm, and image measurements into a temporary plate table. |
-| CONCAT | One per run | Require matching columns. Join plate tables in name order into the published compressed table. |
+| MERGE | One per plate | Require validated batches. Join cell, nucleus, cytoplasm, and image measurements into one row per cell. Write the published `<plate>.parquet` with fixed column types, read it back, and check rows, order and cell identity. |
 
 A batch contains consecutive complete image sets from one plate.
 It never splits channels or mixes plates.

@@ -23,7 +23,7 @@ Each task runs on one node.
 | Memory | 7 GB | `--task_memory` (default 6 GB) |
 | Time limit | 4 hours | `--task_time` (default 4 hours) |
 
-All five steps get the same values: PREPARE, ILLUMINATION, ANALYSIS, MERGE and CONCAT.
+All four steps get the same values: PREPARE, ILLUMINATION, ANALYSIS and MERGE.
 
 ### Why does each task use only one core?
 
@@ -105,7 +105,7 @@ For an estimate, see [Estimate the run time and the cost](run-on-hpc.md#estimate
 ### Why does an interactive session cost more than a batch job?
 
 Berzelius charges every core of an interactive session for the full time that the session is open.
-At the end of a run, only MERGE and CONCAT run, and most cores do nothing.
+At the end of a run, only MERGE runs, and most cores do nothing.
 A batch job charges only for the tasks that run.
 
 ## Where tasks run
@@ -270,7 +270,7 @@ If they are almost the same, the task reached its time limit.
 |---|---|
 | Work files of the finished tasks | Kept in the work folder. The next run reuses them. |
 | Masks and logs of the finished ANALYSIS tasks | Kept in the results folder. |
-| Final table (`all_plates.csv.gz`) | Not written. MERGE and CONCAT write it at the end of a plate. |
+| Final table (`cp_features/<plate>.parquet`) | Not written for that plate. MERGE writes it at the end of a plate. |
 | `DONE` file of the plate script | Not written. The script writes it only after a plate succeeds. |
 | Work files of the failed plate (plate script) | Kept. The script deletes them only after a plate succeeds. |
 

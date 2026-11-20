@@ -25,7 +25,9 @@ conda activate cp-headless
 
 Expected result: Conda creates and activates `cp-headless`.
 The environment pins Python 3.9.19 and CellProfiler 4.2.8.1.
-It also includes NumPy, SciPy, scikit-image, tifffile, pandas, and pytest.
+It also includes NumPy, SciPy, scikit-image, tifffile, pandas, pyarrow (for the Parquet tables), and pytest.
+An environment made before pyarrow was added needs it once: `conda install -c conda-forge pyarrow=16.1.0` in the activated environment.
+Do not install pyarrow with pip there: the pip wheel loads an older system C++ library, and then pandas does not import.
 For Cellpose-SAM it installs cellpose 4.0.6 and PyTorch 2.5.1 with CUDA 12.1 from pip.
 This PyTorch also runs on computers without a GPU. It needs about 5 GB of disk space.
 The file pins key packages, but it is not a complete dependency lock file.

@@ -44,7 +44,7 @@ The `pre-commit` workflow runs on the same events. It runs the ruff and Nextflow
 to the pull request branch ("Apply pre-commit fixes"). Then it runs the hooks again. They must pass without changes.
 On a pull request from a fork, it cannot push. It shows the changes and fails: run pre-commit locally and push the result.
 After the hooks, it runs the `tests` workflow on the commit that passed them.
-These are the input, output, merge and segmentation-task tests, with NumPy, tifffile and pytest only.
+These are the input, output, merge and segmentation-task tests, with NumPy, tifffile, pyarrow and pytest only.
 The CellProfiler and Cellpose tests do not run on GitHub.
 After a fix commit, pull it (`git pull`) before you push again.
 
@@ -75,13 +75,13 @@ The workflow follows the nf-core layout:
 |---|---|
 | `main.nf` | Entry point: checks the parameters, chooses the output folder, starts the workflow |
 | `workflows/cellprofiler.nf` | The workflow: how the samplesheet, plates and batches flow through the steps |
-| `modules/local/<step>/main.nf` | One process each: PREPARE, ILLUMINATION, ANALYSIS, MERGE, CONCAT |
+| `modules/local/<step>/main.nf` | One process each: PREPARE, ILLUMINATION, SEGMENT, ANALYSIS, MERGE |
 | `nextflow.config` | All parameters, reports and profiles |
 | `conf/base.config` | Process settings for every profile |
 | `conf/local.config`, `conf/berzelius.config` | Executor settings for one profile |
 | `bin/` | Python scripts that the processes run. `cp_inputs.py` is the shared input library |
 | `plugins/` | The SaveLabelMasks CellProfiler module |
-| `scripts/` | Berzelius run scripts and the Parquet conversion |
+| `scripts/` | Berzelius run scripts |
 | `tests/` | Unit tests and `make_fixture.py` |
 
 Python functions use NumPy-style docstrings. The processes stage `bin/` and `plugins/` as inputs,
@@ -96,15 +96,25 @@ python -m pytest -q tests
 ```
 
 Expected result: all tests pass. The full suite requires CellProfiler and Java.
-The input, output, and merge tests can also run with their smaller NumPy/tifffile/pytest dependencies.
+The input, output, and merge tests can also run with their smaller NumPy/tifffile/pyarrow/pytest dependencies.
 Keep documentation changes with the behavior changes they describe.
 See [pre-commit checks](#pre-commit-checks) to run the full suite automatically before each commit.
 
-The Parquet tests need DuckDB, which `cp-headless` does not have. Without it, pytest skips them. Run them with:
+### Tests of the Parquet output
 
-```bash
-uv run --python 3.12 --with duckdb==1.4.1 --with pytest pytest -q tests/test_concat_parquet.py
-```
+`tests/test_merge.py` also tests the Parquet table that MERGE writes. Each test has a one-line docstring:
+
+| Test | What it proves |
+|---|---|
+| `test_parquet_matches_csv_value_by_value` | Row n of the Parquet file is row n of the merged CSV, and every value equals the CSV text parsed by the type rule. It runs with one row per row group and with the default row group size |
+| `test_parquet_types_do_not_depend_on_values` | The column types come from the column names: a measurement column with `nan` is still a float column, with nulls |
+| `test_value_that_is_not_a_number_fails` | A measurement that is not a number stops the conversion |
+| `test_check_finds_two_swapped_cells` | The read-back check finds two cells that changed places |
+| `test_check_finds_nucleus_of_another_cell` | The read-back check finds a row that holds the nucleus of another cell |
+| `test_check_finds_a_lost_cell` | The read-back check finds a file with fewer rows than MERGE counted |
+| `test_command_writes_only_the_parquet_table` | The `plate` command writes `<plate>.parquet` and deletes its temporary CSV |
+
+Run only these tests with `python -m pytest -q tests/test_merge.py -k "parquet or check"`.
 
 ## Validation status
 
