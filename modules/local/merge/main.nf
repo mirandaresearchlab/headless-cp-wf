@@ -4,10 +4,13 @@
  * In:   (plate, the plate manifest, all batch folders of the plate), contract.json, the scripts.
  * Does: joins the Image, Cells, Cytoplasm and Nuclei rows into one row per cell. Sorts the rows
  *       in plate image order, then by cell number. Checks columns and row counts across batches.
- * Out:  <plate>.csv.gz for CONCAT. It stays in work/. The report, published to logs/<plate>/.
+ *       Converts the table to Parquet with fixed column types, then reads it back and checks it.
+ * Out:  <plate>.parquet, copied to cp_features/. The report, published to logs/<plate>/.
+ *       The copy (not a move) keeps the file in work/, so -resume does not run MERGE again.
  */
 process MERGE {
     tag "${plate}"
+    publishDir path: { "${destination}/cp_features" }, mode: 'copy', pattern: 'result/*.parquet', saveAs: { name -> name.tokenize('/').last() }
     publishDir path: { "${destination}/logs/${plate}" }, mode: 'copy', pattern: 'result/logs/*', saveAs: { name -> name.tokenize('/').last() }
 
     input:
@@ -17,12 +20,12 @@ process MERGE {
     path code, stageAs: 'code/*'
 
     output:
-    path "result/${plate}.csv.gz", emit: table
+    path "result/${plate}.parquet", emit: table
     path 'result/logs/*', emit: logs
 
     script:
     """
     python code/merge_features.py plate --plate '${plate}' --manifest '${manifest}' --batches batches \\
-        --contract '${contract}' --out 'result/${plate}.csv.gz' --report result/logs/merge.json
+        --contract '${contract}' --out 'result/${plate}.parquet' --report result/logs/merge.json
     """
 }

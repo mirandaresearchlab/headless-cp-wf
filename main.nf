@@ -10,10 +10,10 @@
  * Results go to <outdir>/projects/<project>/:
  *   illum/<plate>/                 correction functions (ILLUMINATION)
  *   masks/<plate>/                 label masks (ANALYSIS; with RunCellpose, the Cellpose masks of SEGMENT too)
- *   cp_features/all_plates.csv.gz  per-cell table of all plates (CONCAT)
+ *   cp_features/<plate>.parquet    per-cell table of each plate (MERGE)
  *   logs/                          run inputs, manifests, task logs and checks
  *   report/                        Nextflow report.html, timeline.html, trace.txt (with --project)
- * Batch and plate tables stay in work/. Nextflow needs them there to resume a stopped run.
+ * Batch tables stay in work/. Nextflow needs them there to resume a stopped run.
  */
 
 include { CELLPROFILER } from './workflows/cellprofiler'

@@ -1,5 +1,5 @@
 /*
- * The CellProfiler workflow: from a samplesheet to one per-cell feature table.
+ * The CellProfiler workflow: from a samplesheet to one per-cell feature table per plate.
  *
  *   1. PREPARE reads the samplesheet once. It groups the files into image sets, plans the
  *      batches, and writes the LoadData manifests and the working copies of the pipelines.
@@ -8,8 +8,8 @@
  *      --segmentation_batches batches, on a GPU or a CPU (--segmentation). It saves the masks.
  *   4. ANALYSIS runs once per batch: correct, segment (or load the SEGMENT masks), measure, save
  *      masks, export tables. It always runs on CPUs.
- *   5. MERGE runs once per plate. It joins the batch tables into one row per cell.
- *   6. CONCAT runs once. It appends all plate tables into one CSV file.
+ *   5. MERGE runs once per plate. It joins the batch tables into one row per cell and writes
+ *      <plate>.parquet. The plate files have the same columns and types, so they read as one table.
  *
  * Terms:
  *   image set  all channel files of one acquisition position (plate, well, site)
@@ -24,7 +24,6 @@ include { ILLUMINATION } from '../modules/local/illumination'
 include { SEGMENT } from '../modules/local/segment'
 include { ANALYSIS } from '../modules/local/analysis'
 include { MERGE } from '../modules/local/merge'
-include { CONCAT } from '../modules/local/concat'
 
 workflow CELLPROFILER {
     take:
@@ -99,11 +98,8 @@ workflow CELLPROFILER {
         code,
     )
 
-    // toSortedList waits for every plate table. This is the only step that waits for all plates.
-    CONCAT(destination, MERGE.out.table.toSortedList { a, b -> a.name <=> b.name }, code)
-
     emit:
-    table = CONCAT.out.table
+    table = MERGE.out.table
 }
 
 /*

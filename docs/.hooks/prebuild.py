@@ -95,7 +95,7 @@ def generate():
                 'make_samplesheet': 'Writes a samplesheet for a folder of plate folders. Run it by hand before a run.',
                 'prepare': 'PREPARE validates images and adapts pipelines.',
                 'run_task': 'Runs illumination, segmentation (RunCellpose) or analysis, then validates its outputs.',
-                'merge_features': 'Use the `plate` subcommand to merge batches, or `all` to concatenate plate tables.',
+                'merge_features': 'The `plate` subcommand merges the batches of one plate into `<plate>.parquet`.',
             }[name],
             '',
             '| Parser in source | Argument | Required, default, choices, or type |',
@@ -109,8 +109,7 @@ def generate():
         if name == 'merge_features':
             lines += [
                 '',
-                '`plate` defines the MERGE arguments. `every` defines the CONCAT (`all`) arguments.',
-                '`command` adds `--out` and `--report` to both subcommands.',
+                '`plate` defines the MERGE arguments.',
             ]
         lines += ['']
     lines += [
