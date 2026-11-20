@@ -155,7 +155,7 @@ for plate in "${plates[@]}"; do
     marker=$(find "$dir/projects" -mindepth 2 -maxdepth 2 -name run.json 2>/dev/null | head -n 1 || true)
     results=$(dirname "$marker")
     status=$(ls -t "$results"/logs/status-*.json 2>/dev/null | head -n 1 || true)
-    if [[ -z "$marker" || -z "$status" || ! -s "$results/cp_features/all_plates.csv.gz" ]] \
+    if [[ -z "$marker" || -z "$status" || ! -s "$results/cp_features/$plate.parquet" ]] \
         || ! grep -q '"success": *true' "$status"; then
         echo "$plate: no successful result found in $dir/projects. The work files stay." >&2
         exit 1

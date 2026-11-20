@@ -11,6 +11,7 @@ dependencies:
   - scikit-image=0.18.3
   - tifffile=2022.4.8
   - pandas=2.2.3          
+  - pyarrow=16.1.0 
   - sentry-sdk=0.18.0
   - setuptools<81
   - pytest=7.4.4

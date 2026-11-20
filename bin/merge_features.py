@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""MERGE and CONCAT steps: build the per-cell feature table.
+"""MERGE step: build the per-cell feature table of one plate.
 
 plate (MERGE, one task per plate)
   In:  the plate manifest, all batch folders of the plate (features/*.csv.gz) and contract.json.
-  Out: <plate>.csv.gz with one row per cell. It stays in work/ and is not published.
-all (CONCAT, one task)
-  In:  every <plate>.csv.gz.
-  Out: all_plates.csv.gz, the only published feature table. All plate tables must have the same columns.
+  Out: <plate>.parquet with one row per cell, the published feature table of the plate.
 
-File format: a CSV compressed with gzip, stored as two gzip parts ("members"). The first part
-holds only the header line. The second part holds the rows. CONCAT checks each header, then
-copies the compressed rows as they are, without unpacking them. gzip, zcat and pandas read the
-result as one normal CSV.
+The rows are first written to a temporary <plate>.csv.gz next to the output. That table is then
+converted to Parquet, the Parquet file is read back and checked, and the CSV is deleted.
+All plates get the same column types, so the plate files read as one table.
+
+Column types are fixed by the column name, not guessed from the values: text for metadata and
+file names, integers for image and object numbers, doubles for all measurements. Every missing
+value (empty, nan, inf) becomes a Parquet null. A value that is not a number stops the conversion.
 
 How one cell row is built. The object names come from contract.json 'compartments':
   Cells row      the anchor. The output has one row per cell.
@@ -20,17 +20,19 @@ How one cell row is built. The object names come from contract.json 'compartment
   Image row      the image that holds the cell. Its values repeat on each cell row.
 Columns: Metadata_* once, then Image_*, Cells_*, Cytoplasm_*, Nuclei_*.
 Row order: plate image order (Metadata_PlateImageNumber), then cell number.
-The values are copied as text. Nothing is rounded or calculated again.
+The values are copied as text, then parsed once by the type rule. Nothing is rounded or calculated again.
 """
 
 import argparse
-import contextlib
 import csv
 import gzip
-import io
 import json
-import shutil
 from pathlib import Path
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.csv as pacsv
+import pyarrow.parquet as pq
 
 from cp_inputs import read_csv
 
@@ -42,26 +44,21 @@ LEVEL = 1
 # Columns that every exported table needs to place its rows. Object tables also need ObjectNumber.
 KEYS = ('ImageNumber', 'Metadata_Plate', 'Metadata_Batch', 'Metadata_Acquisition')
 
+# Every missing-value token in the CSV becomes a Parquet null.
+# nan and inf come from CellProfiler. An empty field is a part (e.g. a nucleus) that a cell does not have.
+NULL_TOKENS = ['', 'nan', 'NaN', '-nan', 'inf', '-inf', 'Inf', '-Inf', 'Infinity', '-Infinity']
+TEXT_PREFIXES = ('Metadata_', 'Image_FileName_', 'Image_PathName_', 'Image_URL_', 'Image_MD5Digest_')
+INTEGER_METADATA = {
+    'Metadata_Site',
+    'Metadata_X',
+    'Metadata_Y',
+    'Metadata_PlateImageNumber',
+    'Metadata_ImageNumber',
+    'Metadata_ObjectNumber',
+}
 
-def header_member(columns):
-    """Compress the header line on its own, as the first gzip part of a table.
-
-    The result is the same bytes every time for the same columns. CONCAT uses this to find
-    where the header ends and the rows start.
-
-    Parameters
-    ----------
-    columns : list of str
-        The column names.
-
-    Returns
-    -------
-    bytes
-        The compressed header line.
-    """
-    text = io.StringIO()
-    csv.writer(text).writerow(columns)
-    return gzip.compress(text.getvalue().encode('utf-8'), compresslevel=LEVEL, mtime=0)
+# Rows per Parquet row group. About 4,000 columns x 10,000 rows x 8 bytes = 320 MB in memory.
+ROW_GROUP_SIZE = 10_000
 
 
 def read_table(path):
@@ -252,7 +249,7 @@ def merge_plate(plate, manifest, batches, compartments, out):
     compartments : dict
         The object names from contract.json, e.g. ``{"cells": "Cells", ...}``.
     out : Path
-        The ``.csv.gz`` file to write.
+        The temporary ``.csv.gz`` file to write.
 
     Returns
     -------
@@ -288,23 +285,19 @@ def merge_plate(plate, manifest, batches, compartments, out):
         objects=dict(Cells=0, Cytoplasm=0, Nuclei=0),
     )
     out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open('wb') as raw, contextlib.ExitStack() as rows_member:
-        writer = None
+    with gzip.open(out, 'wt', compresslevel=LEVEL, encoding='utf-8', newline='') as stream:
+        writer = csv.writer(stream)
         for folder in batches:
             by_image = read_batch(folder, list(names), headers, plate, index)
 
-            # With the first batch, build the output columns and write the header as its own gzip part.
+            # With the first batch, build the output columns and write the header.
             if columns is None:
                 metadata = [c for c in headers['Image'] if c.startswith('Metadata_')]
                 columns = metadata + [INDEX, 'Metadata_ImageNumber', 'Metadata_ObjectNumber']
                 columns += [f'{names[t]}_{c}' for t in names for c in features(headers[t])]
                 if len(set(columns)) != len(columns):
                     raise ValueError('Per-cell column names collide')
-                raw.write(header_member(columns))
-
-                # Everything written from here on goes into the second gzip part: the rows.
-                rows_gzip = rows_member.enter_context(gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=LEVEL, mtime=0))
-                writer = csv.writer(rows_member.enter_context(io.TextIOWrapper(rows_gzip, encoding='utf-8', newline='')))
+                writer.writerow(columns)
 
             # Go through the images in plate order, then the cells in cell number order.
             for number, image_rows in sorted(by_image.items(), key=lambda item: index[item[1]['Image'][0]['Metadata_Acquisition']]):
@@ -348,80 +341,153 @@ def merge_plate(plate, manifest, batches, compartments, out):
     return report
 
 
-def concatenate(paths, out):
-    """Join the plate tables into one table, in plate name order.
-
-    MERGE already checked every row. This function checks that all headers are the same,
-    writes the header once, then copies the compressed rows of each plate as they are.
+def column_type(name):
+    """Return the Parquet type of one column of the per-cell table.
 
     Parameters
     ----------
-    paths : list of Path
-        The ``<plate>.csv.gz`` files from MERGE.
-    out : Path
-        The ``all_plates.csv.gz`` file to write.
+    name : str
+        The column name.
 
     Returns
     -------
-    dict
-        A summary for all_plates.merge.json: the plates, the number of columns, the file size.
+    pyarrow.DataType
+        int64 for image and object numbers, string for metadata and file names, float64 for
+        all measurements.
+    """
+    if name in INTEGER_METADATA:
+        return pa.int64()
+    if name.startswith(TEXT_PREFIXES):
+        return pa.string()
+    return pa.float64()
+
+
+def to_parquet(table, out):
+    """Convert the merged CSV table of one plate to Parquet, with fixed column types.
+
+    The CSV is read in blocks and written in row groups, so the table is never held in memory.
+
+    Parameters
+    ----------
+    table : Path
+        The ``.csv.gz`` file from ``merge_plate()``.
+    out : Path
+        The ``.parquet`` file to write.
+
+    Returns
+    -------
+    list of str
+        The columns, in CSV order.
 
     Raises
     ------
     ValueError
-        If a table has different columns, or was not written by MERGE.
+        If a value does not fit the type of its column (pyarrow.ArrowInvalid is a ValueError).
     """
-    paths = sorted(paths, key=lambda p: p.name)
-    if not paths or len({p.name for p in paths}) != len(paths):
-        raise ValueError('Require uniquely named plate tables')
-    header = None
-    with out.open('wb') as target:
-        for path in paths:
-            with gzip.open(path, 'rt', newline='', encoding='utf-8') as source:
-                columns = next(csv.reader(source), None)
-            if header is None:
-                header = columns
-                target.write(header_member(header))
-            elif columns != header:
-                missing = [c for c in header if c not in columns]
-                extra = [c for c in columns or [] if c not in header]
-                raise ValueError(
-                    f'{path.name}: columns differ from {paths[0].name}; missing {missing[:5]}, '
-                    f'extra {extra[:5]}, same set but different order: {not missing and not extra}'
-                )
+    with gzip.open(table, 'rt', newline='', encoding='utf-8') as stream:
+        header = next(csv.reader(stream))
+    schema = pa.schema([(name, column_type(name)) for name in header])
 
-            # Skip the compressed header part, then copy the compressed rows unchanged.
-            member = header_member(columns)
-            with path.open('rb') as source:
-                if source.read(len(member)) != member:
-                    raise ValueError(f'{path.name}: header is not a separate gzip member (not written by MERGE)')
-                shutil.copyfileobj(source, target, 16 * 1024 * 1024)
-    return dict(plates=[p.name.split('.')[0] for p in paths], columns=len(header), bytes=out.stat().st_size)
+    # A block must hold whole rows. One row of 4,000 columns is about 80 kB of text.
+    reader = pacsv.open_csv(
+        table,
+        read_options=pacsv.ReadOptions(block_size=64 << 20),
+        convert_options=pacsv.ConvertOptions(column_types=schema, null_values=NULL_TOKENS, strings_can_be_null=True),
+    )
+    with pq.ParquetWriter(out, schema, compression='zstd') as writer:
+        buffer, rows = [], 0
+        for block in reader:
+            buffer.append(block)
+            rows += block.num_rows
+            if rows >= ROW_GROUP_SIZE:
+                writer.write_table(pa.Table.from_batches(buffer, schema), row_group_size=ROW_GROUP_SIZE)
+                buffer, rows = [], 0
+        if buffer:
+            writer.write_table(pa.Table.from_batches(buffer, schema), row_group_size=ROW_GROUP_SIZE)
+    return header
+
+
+def check_parquet(path, header, plate, cells, compartments):
+    """Read the Parquet file back and check that each row is still one whole cell, in MERGE order.
+
+    MERGE checked the rows before it wrote them. This check proves that the conversion lost,
+    repeated, moved or mixed no row: the columns equal the CSV header, the row count equals the
+    cells of the MERGE report, the rows strictly increase by (plate image, cell), and the
+    Cells, Cytoplasm and Nuclei numbers of each row point to the cell of that row.
+
+    Parameters
+    ----------
+    path : Path
+        The Parquet file.
+    header : list of str
+        The columns of the merged CSV.
+    plate : str
+        The plate name.
+    cells : int
+        The number of cells in the MERGE report.
+    compartments : dict
+        The object names from contract.json.
+
+    Raises
+    ------
+    ValueError
+        On the first check that fails.
+    """
+    file = pq.ParquetFile(path)
+    if file.schema_arrow.names != header:
+        raise ValueError(f'{path.name}: the Parquet columns differ from the CSV header')
+    if file.metadata.num_rows != cells:
+        raise ValueError(f'{path.name}: {file.metadata.num_rows} rows, but MERGE counted {cells} cells')
+
+    # (column, may be null, may be 0). A cell can lack a cytoplasm or a nucleus, so those columns
+    # can be null. CellProfiler gives Parent 0 to a cytoplasm without a parent.
+    parent = f'Parent_{compartments["cells"]}'
+    identity = [
+        ('Cells_ObjectNumber', False, False),
+        ('Cytoplasm_ObjectNumber', True, False),
+        (f'Cytoplasm_{parent}', True, True),
+        (f'Nuclei_{parent}', True, False),
+    ]
+    identity = [rule for rule in identity if rule[0] in header]
+    columns = ['Metadata_Plate', INDEX, 'Metadata_ObjectNumber'] + [c for c, *_ in identity]
+    data = pq.read_table(path, columns=columns)
+    if cells and data.column('Metadata_Plate').unique().to_pylist() != [plate]:
+        raise ValueError(f'{path.name}: rows from another plate than {plate}')
+
+    image, cell = (data.column(c).to_numpy() for c in (INDEX, 'Metadata_ObjectNumber'))
+    ordered = (image[1:] > image[:-1]) | ((image[1:] == image[:-1]) & (cell[1:] > cell[:-1]))
+    if not ordered.all():
+        raise ValueError(f'{path.name}: row {int(np.argmin(ordered)) + 1} breaks the order (plate image, cell)')
+    for column, may_be_null, may_be_zero in identity:
+        # Nulls become nan in a float array.
+        values = data.column(column).to_numpy(zero_copy_only=False).astype(float)
+        good = (values == cell) | (may_be_null & np.isnan(values)) | (may_be_zero & (values == 0))
+        if not good.all():
+            raise ValueError(f'{path.name}: {column} of row {int(np.argmin(good))} is another cell')
 
 
 def main():
-    """Parse the arguments and run MERGE (``plate``) or CONCAT (``all``). Exit with code 2 on an error."""
+    """Parse the arguments and run MERGE (``plate``). Exit with code 2 on an error."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
-    plate = commands.add_parser('plate', help="Join one plate's batches into one row per cell")
+    plate = commands.add_parser('plate', help="Join one plate's batches into one row per cell, as Parquet")
     plate.add_argument('--plate', required=True)
     plate.add_argument('--manifest', type=Path, required=True)
     plate.add_argument('--batches', type=Path, required=True)
     plate.add_argument('--contract', type=Path, required=True)
-    every = commands.add_parser('all', help='Concatenate plate tables with identical columns')
-    every.add_argument('tables', type=Path, nargs='+')
-    for command in (plate, every):
-        command.add_argument('--out', type=Path, required=True)
-        command.add_argument('--report', type=Path, required=True)
+    plate.add_argument('--out', type=Path, required=True)
+    plate.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
+    table = args.out.with_suffix('.csv.gz')
     try:
-        if args.command == 'plate':
-            compartments = json.loads(args.contract.read_text())['compartments']
-            report = merge_plate(args.plate, args.manifest, [p for p in args.batches.iterdir() if p.is_dir()], compartments, args.out)
-        else:
-            report = concatenate(args.tables, args.out)
+        compartments = json.loads(args.contract.read_text())['compartments']
+        report = merge_plate(args.plate, args.manifest, [p for p in args.batches.iterdir() if p.is_dir()], compartments, table)
+        header = to_parquet(table, args.out)
+        check_parquet(args.out, header, args.plate, report['cells'], compartments)
+        table.unlink()
     except (ValueError, FileNotFoundError, KeyError) as error:
         parser.exit(2, f'Feature merge failed: {error}\n')
+    report['bytes'] = args.out.stat().st_size
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2))
     print(json.dumps(report))

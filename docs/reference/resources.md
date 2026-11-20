@@ -60,8 +60,12 @@ Measured on the same benchmark dataset, about 430 cells per image set:
 | Data | Per image set |
 |---|---|
 | Raw images (input, 5 TIFFs) | 63 MB |
-| `all_plates.csv.gz` | ~15 MB |
+| `cp_features/<plate>.parquet` | ~11 MB (the old gzip CSV was ~15 MB) |
 | Masks | ~1 MB |
 | `work/` during the run (batch and plate tables) | ~28 MB, retained after success |
 
-For example, 3 plates × 3,400 image sets need about 160 GB of output, plus about 290 GB in `work/` during the run. Use `--nf_work_dir PATH` to choose a disk with enough space. Replace `PATH` with your work folder.
+On 50,000 cells of a full screen plate (4,054 columns), the Parquet table was 0.74 times the size of the gzip CSV.
+MERGE converted these cells in 32 seconds and checked them in 3 seconds, with a peak memory of 2.1 GB.
+During MERGE, the temporary gzip CSV of the plate also needs space in `work/`, until the Parquet file passes its checks.
+
+For example, 3 plates × 3,400 image sets need about 120 GB of output, plus about 290 GB in `work/` during the run. Use `--nf_work_dir PATH` to choose a disk with enough space. Replace `PATH` with your work folder.

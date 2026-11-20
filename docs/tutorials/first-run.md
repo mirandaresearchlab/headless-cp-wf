@@ -55,7 +55,7 @@ nextflow run . -profile local \
 
 Nextflow prints the actual output folder and a resume command.
 For three plates with two image sets each, preparation plans six analysis batches.
-The run has 14 tasks: one preparation, three illumination, six analysis, three merges, and one concatenation.
+The run has 13 tasks: one preparation, three illumination, six analysis, and three merges.
 
 ## 4. Check completion
 
@@ -70,7 +70,7 @@ projects/tutorial/
   run.json
   illum/
   masks/
-  cp_features/all_plates.csv.gz
+  cp_features/<plate>.parquet   (one file per plate)
   logs/
 ```
 
@@ -80,19 +80,17 @@ Read [output checks](../output.md) before interpreting the data.
 
 ## 5. Read a few cell identifiers
 
-This command uses Python's standard library. Adjust the path if Nextflow chose another project folder.
+This command uses pandas and pyarrow from `cp-headless`. It reads all plate files of the folder as one table,
+and only the three columns it needs. Adjust the path if Nextflow chose another project folder.
 
 ```bash
 python - <<'PYTHON'
-import csv
-import gzip
-from itertools import islice
-with gzip.open('projects/tutorial/cp_features/all_plates.csv.gz', 'rt') as stream:
-    for row in islice(csv.DictReader(stream), 5):
-        print(row['Metadata_Plate'], row['Metadata_Acquisition'], row['Metadata_ObjectNumber'])
+import pandas as pd
+cells = pd.read_parquet('projects/tutorial/cp_features', columns=['Metadata_Plate', 'Metadata_Acquisition', 'Metadata_ObjectNumber'])
+print(cells.head())
 PYTHON
 ```
 
-Expected output: up to five lines, each with a plate name, acquisition name, and cell number.
-This read command was checked with a saved plate table, not a new full workflow run.
+Expected output: a table of up to five rows, each with a plate name, acquisition name, and cell number.
+This read command was checked with plate tables converted from a saved tutorial run, not a new full workflow run.
 Continue with [your own images](../usage.md) or [troubleshooting](../how-to/troubleshooting.md).

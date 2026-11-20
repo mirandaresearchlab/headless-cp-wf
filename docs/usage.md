@@ -110,7 +110,6 @@ Do not change the samplesheet before a resume. A changed samplesheet runs PREPAR
 
 Nextflow can reuse valid cached tasks when their inputs and settings still match.
 Missing work outputs or changed inputs can cause tasks to run again.
-The final table is moved out of its task folder, so CONCAT may run again on resume.
 Neither profile deletes work files automatically.
 Only remove a run's work data after checking and archiving results, when you no longer need resume.
 

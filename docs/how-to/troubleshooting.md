@@ -41,8 +41,8 @@ Do not delete work files while investigating a failure.
 | `Illumination checksum mismatch` or plate mismatch | Changed or incorrect correction files | Preserve the files for inspection. Restore matching inputs or run a fresh project. Do not edit the checksum record. |
 | Mask, area, count, provenance, or column validation error | Inconsistent output or unsupported pipeline change | Stop using the affected results. Retain the work directory and reports. Reproduce with the supplied pipelines. |
 | Many cells have blank cytoplasm measurements | Some cells have no cytoplasm pixels | Read [empty-cytoplasm behavior](../output.md#interpret-the-per-cell-table) and inspect the masks. |
-| Final CSV is absent but masks exist | Analysis completed before a later failure | Check MERGE and CONCAT status. Masks alone do not prove run success. |
-| Resume repeats work | Missing cache/output, changed inputs, or changed settings | Restore the original paths and options. CONCAT may repeat because its table was moved. |
+| A plate Parquet file is absent but masks exist | Analysis completed before a later failure | Check the MERGE status of that plate. Masks alone do not prove run success. |
+| Resume repeats work | Missing cache/output, changed inputs, or changed settings | Restore the original paths and options. |
 | Berzelius requests shared storage | Missing required paths | Set `--shared_dir` or `--nf_work_dir`. |
 | Slurm jobs remain pending | Allocation, partition, or resource availability | Inspect the scheduler reason. Confirm your account and partition with the cluster administrator. |
 | `Fixture destination already exists` | Tutorial crop folder already exists | Use the existing verified fixture or choose a new destination. |
