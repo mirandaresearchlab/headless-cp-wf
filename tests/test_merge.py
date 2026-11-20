@@ -336,11 +336,11 @@ def parquet_plate(tmp_path):
     rewrite(batches[1] / "features/Nuclei.csv.gz", lambda rows: rows[0].update(Parent_Cells="0"))
     rewrite(batches[1] / "features/Cells.csv.gz", lambda rows: rows[0].update(Children_Nuclei_Count="0"))
     rewrite(batches[0] / "features/Image.csv.gz", lambda rows: rows[0].update(Intensity_MeanIntensity_DNA="nan"))
-    
+
     # Merge the plate and convert it to Parquet. The Parquet file has one row per cell, with every value parsed by the fixed type rule.
     report = merge_plate("P1", manifest, batches, PARTS, tmp_path / "P1.csv.gz")
     header = to_parquet(tmp_path / "P1.csv.gz", tmp_path / "P1.parquet")
-    
+
     # checks that the Parquet file has the same number of rows as the CSV, and that every value is parsed correctly.
     check_parquet(tmp_path / "P1.parquet", header, "P1", report["cells"], PARTS)
 
@@ -355,7 +355,7 @@ def test_parquet_matches_csv_value_by_value(tmp_path, monkeypatch, row_group):
     monkeypatch.setattr(merge_features, "ROW_GROUP_SIZE", row_group)
     table, parquet, report = parquet_plate(tmp_path)
 
-    # set expected table and found table to the CSV and Parquet files, respectively. 
+    # set expected table and found table to the CSV and Parquet files, respectively.
     # Check that they have the same number of rows, and that every value matches the expected type and value.
     expected = read(table)
     found = pq.read_table(parquet).to_pylist()
@@ -388,8 +388,8 @@ def test_parquet_types_do_not_depend_on_values(tmp_path):
     # set schema to the Parquet schema, and check that the types of the columns are as expected.
     schema = pq.read_schema(parquet)
 
-    # check for the expected types of the columns in the Parquet schema. 
-    # Metadata columns should be strings, image and object numbers should be integers, 
+    # check for the expected types of the columns in the Parquet schema.
+    # Metadata columns should be strings, image and object numbers should be integers,
     # and measurements should be doubles.
     assert schema.field("Metadata_Plate").type == pa.string()
     assert schema.field("Metadata_PlateImageNumber").type == pa.int64()
@@ -439,7 +439,7 @@ def test_check_finds_nucleus_of_another_cell(tmp_path):
         for row, nucleus in zip(rows, [dict.fromkeys(nuclei[0])] + nuclei[:-1]):
             row.update(nucleus)
 
-    # setting header to the schema 
+    # setting header to the schema
     header = tampered(parquet, tmp_path / "bad.parquet", shift)
     with pytest.raises(ValueError, match="Nuclei_Parent_Cells"):
         check_parquet(tmp_path / "bad.parquet", header, "P1", report["cells"], PARTS)
