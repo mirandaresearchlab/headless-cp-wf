@@ -29,7 +29,7 @@ DESCRIPTIONS = {
     'gpu_partition': 'Slurm partition for SEGMENT with --segmentation gpu. Each task requests one GPU.',
     'gpu_cpus': 'Cores of one SEGMENT task with --segmentation gpu: the cores that come with one GPU (16 on Berzelius Ampere, 14 on Hopper).',
     'max_gpus': 'Most SEGMENT tasks, and so GPUs, at the same time with --segmentation gpu on Slurm.',
-    'max_retries': 'Retry limit for task exit statuses 137 or 143. Resources do not increase on retry.',
+    'max_retries': 'Retry limit for task exit statuses 137 (memory), 140 (time limit) or 143 (cancel). Each retry multiplies task_memory and task_time by the attempt number, up to the profile limit (local: total_memory; Berzelius: 960 GB and 72 hours).',
 }
 
 

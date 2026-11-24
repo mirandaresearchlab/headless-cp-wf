@@ -91,8 +91,9 @@ An unexpected shift pattern stops the task rather than accepting uncertain measu
 
 The local executor runs jobs on the current machine.
 The Berzelius executor submits them to Slurm, the cluster's job scheduler.
-Both profiles retry task exit statuses 137 and 143 within their retry limits.
-Other failures terminate the workflow. A retry uses the same resource request.
+Both profiles retry task exit statuses 137 (memory), 140 (time limit) and 143 (cancel) within their retry limits.
+Other failures terminate the workflow. Each retry asks for more: attempt 2 gets twice `task_memory` and `task_time`, attempt 3 three times.
+The request never goes above `total_memory` (local) or one CPU node and 72 hours (Berzelius).
 A killed CellProfiler child can produce a Python failure with a different status, so it may not trigger automatic retry.
 
 See [resources](../reference/resources.md), [outputs](../output.md), and [design limits](design.md).

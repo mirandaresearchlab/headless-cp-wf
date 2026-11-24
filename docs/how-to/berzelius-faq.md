@@ -67,7 +67,8 @@ scontrol show config | grep DefMemPerCPU
 ### What happens when a task uses too much memory?
 
 Slurm stops the task with exit status 137.
-The workflow tries the task again with the same memory, so the retry usually fails too.
+The workflow tries the task again with more memory: twice `--task_memory` on the second attempt, three times on the third.
+If the last attempt also fails, the run stops.
 
 1. Read `report/trace.txt` to find the task and its peak memory (`peak_rss`).
 2. Submit the same command again with more memory, for example `--task_memory '14 GB'`.
@@ -225,8 +226,8 @@ Nextflow keeps the work of every task that finished. The next run reuses it.
 
 | What happened | What happens to the run | What you do |
 |---|---|---|
-| A task fails. For example, it reaches its time limit (exit status 140). | Nextflow stops the run. It cancels the tasks that are still running or waiting. | Find the failed task in the log. Fix the cause. Submit the same command. |
-| Slurm stops a task for memory (exit status 137), or someone cancels a task (exit status 143) | Nextflow tries the task again, up to 2 times, with the same memory. If it fails again, the run stops. | Increase `--task_memory`. Submit the same command. |
+| A task fails with an error from CellProfiler or a check | Nextflow stops the run. It cancels the tasks that are still running or waiting. | Find the failed task in the log. Fix the cause. Submit the same command. |
+| Slurm stops a task for memory (exit status 137) or time (exit status 140), or someone cancels a task (exit status 143) | Nextflow tries the task again, up to 2 times. Each retry gets more memory and time: 2 times `--task_memory` and `--task_time`, then 3 times. If the last attempt fails, the run stops. | Increase `--task_memory` or `--task_time`. Submit the same command. |
 | The head job reaches its 72-hour limit, or you cancel it with `scancel` | The run stops. Finished tasks stay saved. | Run `squeue -u $USER`. Cancel task jobs that remain. Submit the same command. |
 | An interactive session ends | The tasks in the session stop. | Start a new session. Run the same script command again. |
 

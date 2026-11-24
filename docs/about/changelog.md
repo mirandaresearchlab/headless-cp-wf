@@ -2,6 +2,14 @@
 
 This page records the scope of the documentation update.
 
+## Retries with more resources
+
+- A task that Slurm stops at its time limit (exit status 140) is now retried, like exit statuses 137 and 143 (issue #12).
+  Before, it stopped the whole run.
+- Each retry asks for more memory and time: attempt 2 gets twice `--task_memory` and `--task_time`, attempt 3 three times.
+  The request never goes above `--total_memory` (local) or one Berzelius CPU node (960 GB) and 72 hours.
+- The Berzelius profile now really uses `--max_retries 2`. Before, tasks were retried only once, because the default of 1 was read first.
+
 ## Image set order
 
 - PREPARE sorts the image sets of a plate by well, then site, then the other metadata. Numbers compare as numbers: site 2 comes before site 10.
