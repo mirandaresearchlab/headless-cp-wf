@@ -2,6 +2,14 @@
 
 This page records the scope of the documentation update.
 
+## Segmentation only
+
+- New parameter `--segmentation_only` (issue #3): the run stops after SEGMENT and publishes each
+  batch folder of Cellpose-SAM masks to `masks/<plate>/<batch>/`. ANALYSIS and MERGE do not run.
+  A later run without the flag and with `-resume` reuses ILLUMINATION and SEGMENT.
+  See [segment only](../usage.md#segment-only).
+- It needs RunCellpose in `2_analysis.cppipe`. A classic pipeline segments inside ANALYSIS, so the run stops with a message.
+
 ## Stub test of the whole workflow
 
 - Each process has a `stub:` block, and `tests/test_workflow_stub.py` runs `main.nf` with

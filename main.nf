@@ -76,6 +76,10 @@ def checkParameters() {
     if (!(params.segmentation_batches.toString() ==~ /[0-9]+/) || !(params.segmentation_workers.toString() ==~ /[1-9][0-9]*/)) {
         error('--segmentation_batches must be 0 or a positive integer, and --segmentation_workers a positive integer')
     }
+    // Nextflow gives command-line values as text: --segmentation_only is 'true', not true.
+    if (!(params.segmentation_only.toString() in ['true', 'false'])) {
+        error('--segmentation_only takes no value, or true or false')
+    }
     if ((params.task_memory as MemoryUnit).toBytes() <= 0 || (params.task_memory as MemoryUnit) > (params.total_memory as MemoryUnit)) {
         error('--task_memory must be positive and cannot exceed --total_memory')
     }

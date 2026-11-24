@@ -11,11 +11,16 @@
  * Out:  (plate, one folder per batch with masks/, mask_manifest.csv and validation.json) for
  *       ANALYSIS. These stay in work/: ANALYSIS saves the same masks again and publishes them.
  *       Task logs (with GPU use per second), published to logs/<plate>/.
+ *       With --segmentation_only, ANALYSIS does not run, so SEGMENT publishes each batch folder
+ *       to masks/<plate>/<batch>/ (masks/*.tiff, mask_manifest.csv, validation.json).
  */
 process SEGMENT {
     tag "${plate}/${group}"
     label 'segmentation'
     publishDir path: { "${destination}/logs/${plate}" }, mode: 'copy', pattern: 'result/logs/*', saveAs: { name -> name.tokenize('/').last() }
+    // Only with --segmentation_only: each batch folder whole (Nextflow does not publish single files
+    // inside a folder that is itself an output).
+    publishDir path: { "${destination}/masks/${plate}" }, mode: 'copy', pattern: 'result/segmentation/*', saveAs: { name -> name.tokenize('/').last() }, enabled: params.segmentation_only.toString() == 'true'
 
     input:
     val destination
@@ -45,7 +50,9 @@ process SEGMENT {
     mkdir -p result/logs
     for manifest in manifests/*.csv; do
         batch=\$(basename "\$manifest" .csv)
-        mkdir -p "result/segmentation/\$batch"
+        mkdir -p "result/segmentation/\$batch/masks"
+        touch "result/segmentation/\$batch/masks/${plate}_\${batch}_segment_stub.tiff"
+        echo "Plate,Batch,MaskPath" > "result/segmentation/\$batch/mask_manifest.csv"
         echo "plate=${plate} group=${group} batch=\$batch illumination=\$(cat '${illumination}/plate.txt')" > "result/segmentation/\$batch/stub.txt"
     done
     touch result/logs/segmentation.json

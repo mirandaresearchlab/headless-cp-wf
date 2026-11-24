@@ -14,6 +14,7 @@ A project name already owned by another session also falls back to the session I
 | `illum/<plate>/Illum*.npy` | ILLUMINATION | One correction array per channel |
 | `illum/<plate>/provenance.json` | ILLUMINATION | Plate identity and SHA-256 correction checksums |
 | `masks/<plate>/*.tiff` | ANALYSIS | Unsigned 32-bit object label masks. With RunCellpose, they include the Cellpose objects, equal to the SEGMENT masks |
+| `masks/<plate>/<batch>/` | SEGMENT | Only with `--segmentation_only`: the Cellpose-SAM masks of one batch (`masks/*.tiff`), `mask_manifest.csv` and `validation.json`. See [segment only](usage.md#segment-only) |
 | `cp_features/<plate>.parquet` | MERGE | Per-cell measurements of one plate, as Parquet. All plates have the same columns and types |
 | `logs/run_inputs/samplesheet.csv` | PREPARE | One row per image file: metadata, channel, and path. Use it as `--input` for a new run |
 | `logs/run_inputs/plan.json` | PREPARE | Plates, source files, manifests, and batch sizes |

@@ -15,6 +15,7 @@ DESCRIPTIONS = {
     'segmentation_batches': 'Analysis batches in one SEGMENT task. 0: 16 with --segmentation gpu (larger groups keep a GPU busy), 1 with cpu.',
     'segmentation_workers': 'Positive number of CellProfiler processes in one SEGMENT task. On a GPU they share it: 4 keep an A100 80% busy, 8 about 89% (3.8 GB GPU memory each). On a CPU each gets one core and task_memory.',
     'cellpose_models': 'Folder with the Cellpose-SAM model file cpsam. Default: ~/.cellpose/models. A missing file is downloaded once (1.2 GB).',
+    'segmentation_only': 'Stop after SEGMENT: publish the Cellpose-SAM masks to masks/<plate>/ and skip ANALYSIS and MERGE (no measurements). Needs RunCellpose in 2_analysis.cppipe. A later run with -resume and without the flag reuses ILLUMINATION and SEGMENT.',
     'task_cpus': 'CPU request for each task. Library threads remain limited to one.',
     'task_memory': 'Memory request for each task. Must be positive and no larger than total_memory, on either profile.',
     'task_time': 'Time limit for each task.',
