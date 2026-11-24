@@ -58,7 +58,8 @@ Set `total_memory` below the memory actually available to your process, leaving 
 For one oversized task, raise `task_memory` and the total budget if the machine can support them.
 For Slurm time limits, raise `task_time` within your allocation's limits.
 Smaller batches reduce work per analysis job, but do not make a single image smaller.
-Retries do not automatically raise memory or time.
+Each retry raises memory and time: attempt 2 gets twice `task_memory` and `task_time`, attempt 3 three times, up to the profile limit.
+If all retries fail, raise the values yourself and resume.
 
 Use the [resume guide](../usage.md#resume-a-run) after correcting the cause.
 If old CellProfiler processes remain, identify the exact processes belonging to your stopped run before terminating them.

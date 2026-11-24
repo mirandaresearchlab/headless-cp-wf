@@ -415,8 +415,8 @@ For what happens when a job fails or is killed, see the [FAQ](berzelius-faq.md#w
 | `Not in a Slurm job` | You ran the interactive script on the login node | Start an interactive session first. |
 | The script shows fewer cores than you expected | The session has fewer cores | Close it and start a new session with a larger `-c`. |
 | Task jobs stay `PENDING` | The CPU nodes are busy | Wait. Run `squeue -u $USER` to see the reason. |
-| Exit status 137 or 143 | The task used too much memory, or Slurm or a user cancelled it | Read `trace.txt`. Increase `--task_memory` and resume. |
-| Exit status 140 | The task reached its time limit | Increase `--task_time` and resume. |
+| Exit status 137 or 143 after all retries | The task used too much memory, or Slurm or a user cancelled it. Each retry already had more memory. | Read `trace.txt`. Increase `--task_memory` and resume. |
+| Exit status 140 after all retries | The task reached its time limit. Each retry already had more time. | Increase `--task_time` and resume. |
 | `needs about N GiB, but only M GiB is free` | The plate script found too little free space | Free space in the project, then submit the same command again. |
 | `nscquota gave no answer` | `nscquota` failed three times | Check the free space with `nscquota`. The run is not stopped. |
 | `Set SHEET ... and OUT` | The plate script needs both settings | Set `SHEET` and `OUT` in the command. |

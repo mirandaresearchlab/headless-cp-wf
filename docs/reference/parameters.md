@@ -19,7 +19,7 @@ Defaults below are configuration values. Descriptions explain path fallbacks and
 | `--task_cpus` | `1` | `1` | CPU request for each task. Library threads remain limited to one. |
 | `--task_memory` | `'6 GB'` | `'6 GB'` | Memory request for each task. Must be positive and no larger than total_memory, on either profile. |
 | `--task_time` | `'4h'` | `'4h'` | Time limit for each task. |
-| `--max_retries` | `1` | `2` | Retry limit for task exit statuses 137 or 143. Resources do not increase on retry. |
+| `--max_retries` | `1` | `2` | Retry limit for task exit statuses 137 (memory), 140 (time limit) or 143 (cancel). Each retry multiplies task_memory and task_time by the attempt number, up to the profile limit (local: total_memory; Berzelius: 960 GB and 72 hours). |
 | `--total_cpus` | `2` | `2` | Positive shared CPU budget for the local executor. |
 | `--total_memory` | `'16 GB'` | `'16 GB'` | Shared memory budget for local execution. Also bounds task_memory during validation on both profiles. |
 | `--max_forks` | `0` | `0` | Local per-process concurrency limit. Zero adds no limit beyond executor resources. |
