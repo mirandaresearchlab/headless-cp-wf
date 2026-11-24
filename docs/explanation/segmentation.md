@@ -43,6 +43,9 @@ So the workflow cuts the analysis pipeline in two parts:
 LoadLabelMasks reads the mask that SEGMENT saved, and adds the same objects and measurements as RunCellpose
 (Count, Location_Center_X/Y/Z and Number_Object_Number). So all later modules get the same objects as from RunCellpose in the same task.
 
+Because the masks are complete after SEGMENT, a run can stop there with `--segmentation_only`, and
+measure later with `-resume`. See [segment only](../usage.md#segment-only).
+
 One SEGMENT task segments `--segmentation_batches` consecutive batches of one plate.
 It starts `--segmentation_workers` CellProfiler processes at the same time, each on a part of the image sets.
 On a GPU, the workers share the GPU. One worker loads images or finds the objects on the CPU. At the same time, the others use the GPU.

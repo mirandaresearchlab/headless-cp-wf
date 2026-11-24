@@ -305,6 +305,19 @@ ANALYSIS of the same plate needs about 310 core-hours (about 19 allocation hours
     So do not run the `local` profile in a GPU job for a whole screen: its CPU tasks then keep the GPU idle.
     Use the `berzelius` profile. It gives the GPU only to SEGMENT.
 
+To check the masks before you spend CPU hours on the measurements, segment first.
+Add `--segmentation_only`. The run stops after SEGMENT, and the masks of each batch go to
+`masks/<plate>/<batch>/` (see [segment only](../usage.md#segment-only)):
+
+```bash
+CONFIGS=$PWD/cp-configs-cellpose sbatch -A <account> scripts/berzelius-run.sbatch \
+    /proj/<project>/users/$USER/samplesheet.csv screen01 9 --segmentation gpu --segmentation_only
+```
+
+When the masks look correct, submit the same command without `--segmentation_only`.
+The script always resumes, so Nextflow reuses ILLUMINATION and SEGMENT, and runs only ANALYSIS and MERGE on `berzelius-cpu`.
+Keep the other options the same, or the reused tasks run again.
+
 Cellpose-SAM also runs on the CPU nodes (`--segmentation cpu`). It is much slower.
 On a `berzelius-cpu` node, one 1024 × 1024 image took 124 seconds on one core and 30 seconds on eight cores.
 An image of 2500 × 2500 pixels has six times as many pixels, so expect about 12 minutes on one core.

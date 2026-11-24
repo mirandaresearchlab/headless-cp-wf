@@ -87,6 +87,31 @@ Use single-dash Nextflow options such as `-profile` and `-resume`.
 Use double-dash workflow parameters such as `--input` and `--batch_size`.
 All workflow parameters appear in the [generated reference](reference/parameters.md).
 
+## Segment only
+
+With RunCellpose (Cellpose-SAM) in `2_analysis.cppipe`, you can stop the run after segmentation,
+for example to check the masks before you spend CPU time on the measurements.
+Add `--segmentation_only`:
+
+```bash
+nextflow run . -profile local \
+  --input samplesheet.csv --configs cp-configs-cellpose \
+  --outdir results --project screen01 \
+  --nf_work_dir work-screen01 \
+  --segmentation_only
+```
+
+PREPARE, ILLUMINATION and SEGMENT run. ANALYSIS and MERGE do not, so there is no `cp_features/`.
+SEGMENT publishes one folder per batch to `masks/<plate>/<batch>/`: the label masks in `masks/`,
+`mask_manifest.csv` (which mask belongs to which image set and object) and `validation.json`.
+
+To measure later, run the same command without `--segmentation_only` and with `-resume SESSION_ID`
+(see [Resume a run](#resume-a-run)). Nextflow reuses the ILLUMINATION and SEGMENT tasks, and runs only
+ANALYSIS and MERGE. Do not change other options, or the reused tasks run again.
+
+Without RunCellpose, segmentation is part of ANALYSIS, and `--segmentation_only` stops the run at the start
+with `--segmentation_only needs RunCellpose in 2_analysis.cppipe`.
+
 ## Resume a run
 
 Keep `.nextflow/`, the work directory, inputs, code, and original output folder.

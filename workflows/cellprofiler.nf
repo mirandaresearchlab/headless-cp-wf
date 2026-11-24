@@ -11,6 +11,9 @@
  *   5. MERGE runs once per plate. It joins the batch tables into one row per cell and writes
  *      <plate>.parquet. The plate files have the same columns and types, so they read as one table.
  *
+ * With --segmentation_only, the run stops after SEGMENT. SEGMENT publishes its masks, and
+ * ANALYSIS and MERGE do not run.
+ *
  * Terms:
  *   image set  all channel files of one acquisition position (plate, well, site)
  *   batch      a fixed group of complete image sets from one plate
@@ -67,39 +70,45 @@ workflow CELLPROFILER {
     // One item per segmented batch: ((plate, batch), its SEGMENT folder). The folder name is the batch.
     masks = SEGMENT.out.batches.flatMap { plate, dirs -> (dirs instanceof List ? dirs : [dirs]).collect { dir -> tuple(tuple(plate, dir.name), dir) } }
 
-    // combine(by: 0) pairs each batch with the .npy folder of its own plate.
-    // The batches of a plate start as soon as the illumination of that plate is complete.
-    // With RunCellpose, join() also pairs each batch with its own SEGMENT folder, by plate and batch.
-    // It stops the run if a batch has no SEGMENT folder or two of them.
-    ready = batches
-        .combine(ILLUMINATION.out.functions, by: 0)
-        .branch { item ->
-            segmented: item[4]
-            plain: true
-        }
-    segmented = ready.segmented
-        .map { plate, batch, manifest, images, _segmented, functions -> tuple(tuple(plate, batch), plate, batch, manifest, images, functions) }
-        .join(masks, failOnMismatch: true, failOnDuplicate: true)
-        .map { _key, plate, batch, manifest, images, functions, folder -> tuple(plate, batch, manifest, images, functions, folder) }
-    ANALYSIS(
-        destination,
-        ready.plain.map { plate, batch, manifest, images, _segmented, functions -> tuple(plate, batch, manifest, images, functions, []) }.mix(segmented),
-        prepared.map { dir -> dir.resolve('pipelines/analysis.cppipe') },
-        contract,
-        code,
-        plugins,
-    )
+    // --segmentation_only: SEGMENT publishes the masks, and the run ends there.
+    table = channel.empty()
+    // Command-line values are text, so compare as text: 'false' must mean false.
+    if (params.segmentation_only.toString() != 'true') {
+        // combine(by: 0) pairs each batch with the .npy folder of its own plate.
+        // The batches of a plate start as soon as the illumination of that plate is complete.
+        // With RunCellpose, join() also pairs each batch with its own SEGMENT folder, by plate and batch.
+        // It stops the run if a batch has no SEGMENT folder or two of them.
+        ready = batches
+            .combine(ILLUMINATION.out.functions, by: 0)
+            .branch { item ->
+                segmented: item[4]
+                plain: true
+            }
+        segmented = ready.segmented
+            .map { plate, batch, manifest, images, _segmented, functions -> tuple(tuple(plate, batch), plate, batch, manifest, images, functions) }
+            .join(masks, failOnMismatch: true, failOnDuplicate: true)
+            .map { _key, plate, batch, manifest, images, functions, folder -> tuple(plate, batch, manifest, images, functions, folder) }
+        ANALYSIS(
+            destination,
+            ready.plain.map { plate, batch, manifest, images, _segmented, functions -> tuple(plate, batch, manifest, images, functions, []) }.mix(segmented),
+            prepared.map { dir -> dir.resolve('pipelines/analysis.cppipe') },
+            contract,
+            code,
+            plugins,
+        )
 
-    // MERGE gets (plate, plate manifest) joined with (plate, all batch folders of the plate).
-    MERGE(
-        destination,
-        plates.map { plate, manifest, _images -> tuple(plate, manifest) }.join(plateBatches(ANALYSIS.out.results, plan)),
-        contract,
-        code,
-    )
+        // MERGE gets (plate, plate manifest) joined with (plate, all batch folders of the plate).
+        MERGE(
+            destination,
+            plates.map { plate, manifest, _images -> tuple(plate, manifest) }.join(plateBatches(ANALYSIS.out.results, plan)),
+            contract,
+            code,
+        )
+        table = MERGE.out.table
+    }
 
     emit:
-    table = MERGE.out.table
+    table = table
 }
 
 /*
@@ -141,6 +150,9 @@ def samplesheetImages(sheet) {
  */
 def readPlan(dir, groupSize) {
     def segmented = new groovy.json.JsonSlurper().parse(dir.resolve('pipelines/contract.json').toFile()).segmentation as Boolean
+    if (params.segmentation_only.toString() == 'true' && !segmented) {
+        error('--segmentation_only needs RunCellpose in 2_analysis.cppipe: without it, segmentation is part of ANALYSIS')
+    }
     return new groovy.json.JsonSlurper()
         .parse(dir.resolve('plan.json').toFile())
         .collect { p ->

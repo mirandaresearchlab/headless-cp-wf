@@ -28,6 +28,7 @@ PREPARE validates images and adapts pipelines.
 | `parser` | `--samplesheet` | `type=Path, required=True` |
 | `parser` | `--batch-size` | `type=int, required=True` |
 | `parser` | `--out` | `type=Path, default=Path('prepared')` |
+| `parser` | `--stub` | `action='store_true'` |
 
 ## run_task.py
 
