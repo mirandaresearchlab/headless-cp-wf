@@ -27,7 +27,8 @@ Created 30 crops in example-images
 
 The script takes the top-left 1024 × 1024 pixels from five channels at two sites per plate.
 Smaller crops do not work with the example pipelines: CellProfiler stops when an image is
-less than twice the adaptive threshold window (501 pixels).
+less than twice the adaptive threshold window (501 pixels). PREPARE checks this before any
+CellProfiler task, and stops the run with the module, the window and the image size.
 The script also writes `example-images.json` with source checksums and crop details.
 It stops if the destination already exists. Cropped images are for testing, not scientific conclusions.
 
