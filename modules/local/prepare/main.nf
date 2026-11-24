@@ -27,4 +27,11 @@ process PREPARE {
     """
     python code/prepare.py --configs config --samplesheet '${samplesheet}' --batch-size ${params.batch_size}
     """
+
+    stub:
+
+    // -stub: the real samplesheet checks and batch plan, without CellProfiler (see prepare.py --stub).
+    """
+    python code/prepare.py --configs config --samplesheet '${samplesheet}' --batch-size ${params.batch_size} --stub
+    """
 }

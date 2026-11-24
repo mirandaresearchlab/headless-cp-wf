@@ -28,4 +28,13 @@ process MERGE {
     python code/merge_features.py plate --plate '${plate}' --manifest '${manifest}' --batches batches \\
         --contract '${contract}' --out 'result/${plate}.parquet' --report result/logs/merge.json
     """
+
+    stub:
+
+    // -stub: a text file, not Parquet. One line per batch that reached this MERGE task.
+    """
+    mkdir -p result/logs
+    cat batches/*/stub.txt > 'result/${plate}.parquet'
+    touch result/logs/merge.json
+    """
 }

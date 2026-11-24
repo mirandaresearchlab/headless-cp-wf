@@ -2,6 +2,15 @@
 
 This page records the scope of the documentation update.
 
+## Stub test of the whole workflow
+
+- Each process has a `stub:` block, and `tests/test_workflow_stub.py` runs `main.nf` with
+  `nextflow run -stub` for the classic and the Cellpose configuration (issue #14).
+  It checks the joins between plates, batches, illumination, SEGMENT and MERGE, and the `--project`
+  output folder. GitHub runs it in the new `workflow-stub` job. See
+  [contributing](contributing.md#test-the-whole-workflow-with-stubs).
+- `prepare.py --stub` plans the batches without CellProfiler. Only the stub run uses it.
+
 ## Adaptive threshold window check
 
 - PREPARE stops the run if an adaptive threshold window of either pipeline is more than half of the

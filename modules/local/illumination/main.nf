@@ -30,4 +30,13 @@ process ILLUMINATION {
     python code/run_task.py illumination --plate '${plate}' \\
         --manifest '${manifest}' --pipeline '${pipeline}' --contract '${contract}'
     """
+
+    stub:
+
+    // -stub: a folder that names its plate, so the tests can check which batches got it.
+    """
+    mkdir -p result/illumination result/logs
+    echo '${plate}' > result/illumination/plate.txt
+    touch result/illumination/stub.npy result/logs/illumination.json
+    """
 }
