@@ -28,7 +28,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from cp_inputs import read_config, read_samplesheet, write_csv, write_samplesheet
+from cp_inputs import read_config, read_samplesheet, tiff_shape, write_csv, write_samplesheet
 
 CELLPROFILER_VERSION = '4.2.8.1'
 
@@ -182,6 +182,80 @@ def check_analysis(modules):
         cytoplasm=tertiary[0].subregion_objects_name.value,
     )
     return corrections, compartments
+
+
+def adaptive_windows(modules):
+    """Return the adaptive threshold windows that CellProfiler will use.
+
+    A module uses its window only if it is enabled and thresholds with the Adaptive strategy.
+    CellProfiler does not split the image into window blocks for the Sauvola method, for
+    IdentifyPrimaryObjects without advanced settings, or for IdentifySecondaryObjects with
+    Distance - N.
+
+    Parameters
+    ----------
+    modules : list
+        The CellProfiler modules of a pipeline.
+
+    Returns
+    -------
+    list of tuple
+        One ``(module label, window size in pixels)`` per module, e.g.
+        ``[("IdentifySecondaryObjects #9", 501)]``.
+    """
+    # iterate over all modules, not just the ones that are known to use adaptive thresholds,
+    # so that any future modules that use adaptive thresholds are also checked.
+    windows = []
+    for module in modules:
+        # set settings to the module's threshold settings if they exist, otherwise None
+        settings = module if hasattr(module, 'adaptive_window_size') else getattr(module, 'threshold', None)
+
+        # if the module is disabled, or does not have an adaptive_window_size setting, skip it
+        if not module.enabled or settings is None or not hasattr(settings, 'adaptive_window_size'):
+            continue
+        # if the module is a basic module, skip it
+        if getattr(module, 'basic', False):
+            continue
+        # if the module is IdentifySecondaryObjects and uses Distance - N, skip it
+        if module.module_name == 'IdentifySecondaryObjects' and module.method.value == 'Distance - N':
+            continue
+        # threshold_operation is the method of the selected strategy, as a string.
+        if settings.threshold_scope.value == 'Adaptive' and settings.threshold_operation != 'Sauvola':
+            windows.append((f'{module.module_name} #{module.module_num}', settings.adaptive_window_size.value))
+    return windows
+
+
+def check_adaptive_windows(windows, shapes):
+    """Check that each adaptive threshold window fits the images of every plate.
+
+    CellProfiler 4.2.8.1 splits the image into blocks of the window size and stops with "Adaptive
+    window cannot exceed 50% of an image dimension" if a side holds fewer than two blocks. This
+    check applies the same rule in PREPARE, so the run stops before ILLUMINATION and not in
+    ANALYSIS.
+
+    Parameters
+    ----------
+    windows : list of tuple
+        ``(module label, window size)`` from ``adaptive_windows()``.
+    shapes : dict
+        Plate -> image shape ``(rows, columns)``. All images of a plate share one shape.
+
+    Raises
+    ------
+    ValueError
+        If a side of the images of a plate is less than twice a window.
+    """
+    # iterate over the plates in sorted order, so that the error messages are deterministic
+    # for each module that uses an adaptive threshold window, check if the window fits the image shape
+    for plate, shape in sorted(shapes.items()):
+        for label, window in windows:
+            if any(side // window < 2 for side in shape):
+                raise ValueError(
+                    f'{label} uses an adaptive threshold window of {window} pixels, but the images of plate '
+                    f'{plate} are {shape[0]} x {shape[1]} pixels. The window must be at most half of the '
+                    f'shorter side ({min(shape) // 2} pixels). Use larger images, or a smaller "Size of '
+                    f'adaptive window" in the pipeline'
+                )
 
 
 def check_cellpose(module):
@@ -395,7 +469,7 @@ def counted_objects(pipeline):
     return objects
 
 
-def adapt(config_dir, output):
+def adapt(config_dir, output, shapes=None):
     """Check both pipelines, write their working copies, and return the contract.
 
     Changes to the copies: one LoadData module replaces the four input modules, so each task
@@ -410,6 +484,9 @@ def adapt(config_dir, output):
         The folder with ``1_illumination.cppipe`` and ``2_analysis.cppipe``.
     output : Path
         The folder for the working copies (``prepared/pipelines``).
+    shapes : dict, optional
+        Plate -> image shape ``(rows, columns)``. If given, every adaptive threshold window must
+        fit these images (see ``check_adaptive_windows()``).
 
     Returns
     -------
@@ -445,11 +522,16 @@ def adapt(config_dir, output):
     )
     copies = {}
     modules = load_pipeline(config_dir / '1_illumination.cppipe').modules()
+    windows = adaptive_windows(modules)
     report['calculated'] = check_illumination(modules)
     copies['illumination'] = working_copy('illumination', modules[INPUT_MODULES:])
 
     modules = load_pipeline(config_dir / '2_analysis.cppipe').modules()
     report['corrections'], report['compartments'] = check_analysis(modules)
+    windows += adaptive_windows(modules)
+    report['adaptive_windows'] = dict(windows)
+    if shapes:
+        check_adaptive_windows(windows, shapes)
     segmentation, analysis, report['segmentation'] = split_segmentation(modules[INPUT_MODULES:])
     copies['analysis'] = working_copy('analysis', analysis)
     report['objects'] = counted_objects(copies['analysis'])
@@ -599,8 +681,14 @@ def prepare(config_dir, samplesheet, staged, batch_size, destination):
     write_samplesheet(destination / 'samplesheet.csv', image_sets, config)
     plan = plan_batches(image_sets, config, batch_size, destination)
 
-    # The contract, plus input sizes and pipeline checksums for the logs.
-    contract = adapt(config_dir, destination / 'pipelines')
+    # The contract, plus input sizes and pipeline checksums for the logs. All images of a plate
+    # share one shape (read_samplesheet() checks this), so the first image gives the plate shape.
+    shapes = {}
+    for image_set in image_sets:
+        plate = image_set['metadata']['Plate']
+        if plate not in shapes:
+            shapes[plate] = tiff_shape(next(iter(image_set['images'].values())))
+    contract = adapt(config_dir, destination / 'pipelines', shapes)
     contract.update(config)
     contract['image_sets'] = len(image_sets)
     contract['input_fingerprints'] = {str(p): {'size': p.stat().st_size, 'mtime_ns': p.stat().st_mtime_ns} for p in sorted(listed)}

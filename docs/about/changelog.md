@@ -2,6 +2,16 @@
 
 This page records the scope of the documentation update.
 
+## Adaptive threshold window check
+
+- PREPARE stops the run if an adaptive threshold window of either pipeline is more than half of the
+  shorter image side of a plate (issue #11). Before, CellProfiler stopped in ANALYSIS with
+  `Adaptive window cannot exceed 50% of an image dimension`, after ILLUMINATION was complete.
+- The rule is the one of CellProfiler 4.2.8.1. Windows that CellProfiler does not use are not checked:
+  a disabled module, a Global or Sauvola threshold, IdentifyPrimaryObjects without advanced settings,
+  and IdentifySecondaryObjects with Distance - N.
+- `contract.json` records the checked windows (`adaptive_windows`).
+
 ## Retries with more resources
 
 - A task that Slurm stops at its time limit (exit status 140) is now retried, like exit statuses 137 and 143 (issue #12).

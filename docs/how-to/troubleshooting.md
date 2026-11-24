@@ -33,6 +33,7 @@ Do not delete work files while investigating a failure.
 | `ambiguous image set` | Different acquisitions share the configured matching keys | Review metadata and matching rules. Do not combine distinct acquisitions. |
 | `Expected single-plane grayscale TIFF` or `Unsupported TIFF dtype` | Stack, RGB, float, or other unsupported layout | Export one 2D unsigned 8-bit or 16-bit grayscale TIFF per channel. Check the conversion preserves scientific values. |
 | `All images in a plate must share dimensions` | Mixed image sizes | Correct the plate contents or image export. |
+| `uses an adaptive threshold window of N pixels, but the images of plate P are ...` | A side of the images is less than twice the adaptive window of a module. CellProfiler would stop in ANALYSIS with `Adaptive window cannot exceed 50% of an image dimension`. | Use larger images (the tutorial crops are 1024 × 1024), or lower `Size of adaptive window` in the named module, then check the segmentation again. |
 | Unsafe plate or image name | Unsupported characters or a reserved name | Follow the naming rules in [usage](../usage.md). |
 | Output/work directory must be outside images | Results or work files are inside the input root | Choose separate output and work folders. |
 | Invalid batch size or memory budget | Zero, negative, or inconsistent parameter | Use a positive integer batch size. Keep task memory within total memory, including on Slurm. |
