@@ -36,4 +36,18 @@ process SEGMENT {
         --illumination '${illumination}' --device ${params.segmentation} \\
         --workers ${params.segmentation_workers} --cpus ${task.cpus}
     """
+
+    stub:
+
+    // -stub: one folder per batch of the group, named like the batch (as run_task.py does).
+    // stub.txt records the plate, the group and the illumination folder that the task got.
+    """
+    mkdir -p result/logs
+    for manifest in manifests/*.csv; do
+        batch=\$(basename "\$manifest" .csv)
+        mkdir -p "result/segmentation/\$batch"
+        echo "plate=${plate} group=${group} batch=\$batch illumination=\$(cat '${illumination}/plate.txt')" > "result/segmentation/\$batch/stub.txt"
+    done
+    touch result/logs/segmentation.json
+    """
 }

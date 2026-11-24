@@ -35,3 +35,30 @@ jobs:
           python-version: "3.12"
       - run: pip install numpy tifffile pyarrow==16.1.0 pytest
       - run: python -m pytest -q tests --ignore=tests/test_segmentation.py --ignore=tests/test_cellpose.py --ignore=tests/test_adaptive_window.py
+
+  # The whole workflow (main.nf) with nextflow run -stub, for the classic and the Cellpose
+  # configuration. The stub: blocks need no CellProfiler. See tests/test_workflow_stub.py.
+  workflow-stub:
+    runs-on: ubuntu-latest
+    env:
+      # The same Nextflow version as the lint in pre-commit.yml.
+      NXF_VER: 26.10.3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Nextflow ${{ env.NXF_VER }}
+        run: |
+          curl -fsSL https://get.nextflow.io | bash
+          sudo mv nextflow /usr/local/bin/
+          nextflow -version
+      - run: pip install numpy tifffile pytest
+      - run: python -m pytest -q -rs tests/test_workflow_stub.py

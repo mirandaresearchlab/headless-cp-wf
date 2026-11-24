@@ -24,11 +24,12 @@ import hashlib
 import importlib.metadata
 import json
 import re
+import shutil
 import sys
 from collections import defaultdict
 from pathlib import Path
 
-from cp_inputs import read_config, read_samplesheet, tiff_shape, write_csv, write_samplesheet
+from cp_inputs import blocks, read_config, read_samplesheet, setting, tiff_shape, write_csv, write_samplesheet
 
 CELLPROFILER_VERSION = '4.2.8.1'
 
@@ -644,7 +645,35 @@ def plan_batches(image_sets, config, batch_size, destination):
     return plan
 
 
-def prepare(config_dir, samplesheet, staged, batch_size, destination):
+def stub_adapt(config_dir, output):
+    """Write stand-ins for the working copies and the contract, without CellProfiler.
+
+    For ``nextflow run -stub`` only (the stub: block of PREPARE). The copies are the original
+    pipelines, unchanged. The contract has only what the workflow channels read: ``segmentation``,
+    the objects of the enabled RunCellpose modules, found in the pipeline text.
+
+    Parameters
+    ----------
+    config_dir : Path
+        The folder with ``1_illumination.cppipe`` and ``2_analysis.cppipe``.
+    output : Path
+        The folder for the copies (``prepared/pipelines``).
+
+    Returns
+    -------
+    dict
+        The stub contract.
+    """
+    analysis = config_dir / '2_analysis.cppipe'
+    cellpose = [b for b in blocks(analysis) if b.startswith(f'{CELLPOSE}:') and '|enabled:True|' in b.splitlines()[0]]
+    shutil.copy(config_dir / '1_illumination.cppipe', output / 'illumination.cppipe')
+    shutil.copy(analysis, output / 'analysis.cppipe')
+    if cellpose:
+        shutil.copy(analysis, output / 'segmentation.cppipe')
+    return dict(stub=True, segmentation=[setting(b, 'Name the output object') for b in cellpose])
+
+
+def prepare(config_dir, samplesheet, staged, batch_size, destination, stub=False):
     """Check the inputs, then write the samplesheet, manifests, plan and pipeline copies.
 
     Parameters
@@ -659,6 +688,9 @@ def prepare(config_dir, samplesheet, staged, batch_size, destination):
         The number of image sets per ANALYSIS task.
     destination : Path
         The output folder ('prepared').
+    stub : bool
+        True for ``nextflow run -stub``: check the samplesheet and plan the batches as in a real
+        run, but write stand-ins for the pipeline copies and the contract (``stub_adapt()``).
 
     Raises
     ------
@@ -688,7 +720,10 @@ def prepare(config_dir, samplesheet, staged, batch_size, destination):
         plate = image_set['metadata']['Plate']
         if plate not in shapes:
             shapes[plate] = tiff_shape(next(iter(image_set['images'].values())))
-    contract = adapt(config_dir, destination / 'pipelines', shapes)
+    if stub:
+        contract = stub_adapt(config_dir, destination / 'pipelines')
+    else:
+        contract = adapt(config_dir, destination / 'pipelines', shapes)
     contract.update(config)
     contract['image_sets'] = len(image_sets)
     contract['input_fingerprints'] = {str(p): {'size': p.stat().st_size, 'mtime_ns': p.stat().st_mtime_ns} for p in sorted(listed)}
@@ -705,6 +740,7 @@ def main():
     parser.add_argument('--samplesheet', type=Path, required=True)
     parser.add_argument('--batch-size', type=int, required=True)
     parser.add_argument('--out', type=Path, default=Path('prepared'))
+    parser.add_argument('--stub', action='store_true', help='for nextflow run -stub: plan the batches without CellProfiler')
     args = parser.parse_args()
 
     # Inside Nextflow the images are the staged tracked*/ links. A manual run has none.
@@ -712,7 +748,7 @@ def main():
     try:
         if args.batch_size < 1:
             raise ValueError('Batch size must be positive')
-        prepare(args.configs, args.samplesheet, staged, args.batch_size, args.out)
+        prepare(args.configs, args.samplesheet, staged, args.batch_size, args.out, args.stub)
     except (ValueError, StopIteration, KeyError) as error:
         parser.exit(2, f'Input/pipeline validation failed: {error}\n')
 

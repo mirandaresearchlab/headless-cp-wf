@@ -100,6 +100,34 @@ The input, output, and merge tests can also run with their smaller NumPy/tifffil
 Keep documentation changes with the behavior changes they describe.
 See [pre-commit checks](#pre-commit-checks) to run the full suite automatically before each commit.
 
+### Test the whole workflow with stubs
+
+`tests/test_workflow_stub.py` runs `main.nf` from start to end with `nextflow run -stub`, on a
+samplesheet of tiny TIFFs (2 plates, 3 batches). Each process has a `stub:` block that writes
+small stand-in files instead of running CellProfiler, so the test takes less than a minute.
+It needs Nextflow and Java, and is skipped without them. GitHub runs it in the `workflow-stub` job.
+
+PREPARE runs `prepare.py --stub`: it checks the samplesheet and plans the batches as in a real run,
+but copies the pipelines unchanged and writes a short contract. The later stubs write which plate,
+batch, group and illumination folder each task got, and MERGE writes these records to
+`<plate>.parquet` (a text file in a stub run). The test checks that:
+
+- each batch gets the illumination folder of its own plate;
+- with RunCellpose, each batch gets the SEGMENT folder of its own plate and batch;
+- each batch reaches the MERGE task of its plate exactly once;
+- a new run with `--project` writes into `projects/<project>/`.
+
+Run it for both configurations (`cp-configs/` and `cp-configs-cellpose/`) after any change to
+`workflows/`, `modules/`, `main.nf` or the configs:
+
+```bash
+python -m pytest -q tests/test_workflow_stub.py
+```
+
+When you add a process or change its outputs, change its `stub:` block too, so that it writes the
+same output names as the `script:` block. A stub run does not test CellProfiler, the pipelines or
+the measurements: the other tests and a real run on the tutorial images do that.
+
 ### Tests of the Parquet output
 
 `tests/test_merge.py` also tests the Parquet table that MERGE writes. Each test has a one-line docstring:

@@ -37,4 +37,15 @@ process ANALYSIS {
         --manifest '${manifest}' --pipeline '${pipeline}' --contract '${contract}' \\
         --illumination '${illumination}' ${masks}
     """
+
+    stub:
+
+    // -stub: stub.txt records the plate, batch, manifest, illumination folder and SEGMENT folder
+    // that the task got. MERGE collects these lines, so the tests can check every join.
+    def segmented = segmentation ? "\$(cat '${segmentation}/stub.txt')" : 'none'
+    """
+    mkdir -p 'result/analysis/${batch}' result/masks result/logs
+    echo "plate=${plate} batch=${batch} manifest=\$(basename '${manifest}') illumination=\$(cat '${illumination}/plate.txt') segmentation=[${segmented}]" > 'result/analysis/${batch}/stub.txt'
+    touch 'result/masks/${plate}_${batch}_stub.tiff' result/logs/analysis.json
+    """
 }
