@@ -2,6 +2,12 @@
 
 This page records the scope of the documentation update.
 
+## No warning for an empty Cellpose model folder
+
+- Nextflow warned once for every task: ``Environment variable `CELLPOSE_LOCAL_MODELS_PATH` evaluates to an empty value``.
+  The workflow now sets the variable only when you give `--cellpose_models`. Without it, Cellpose uses
+  `~/.cellpose/models`, as before. The results do not change.
+
 ## Segmentation only
 
 - New parameter `--segmentation_only` (issue #3): the run stops after SEGMENT and publishes each

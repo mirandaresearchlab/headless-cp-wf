@@ -175,3 +175,25 @@ def test_segmentation_only_needs_runcellpose(tmp_path):
     """Without RunCellpose, segmentation is part of ANALYSIS, so --segmentation_only stops the run."""
     _, output = run_stub(tmp_path, ROOT / 'cp-configs', '--segmentation_only', fail=True)
     assert '--segmentation_only needs RunCellpose in 2_analysis.cppipe' in output
+
+
+def task_scripts(folder):
+    """The .command.run files of all tasks of a stub run. They hold the exported environment."""
+    return [path.read_text() for path in (folder / 'work').glob('*/*/.command.run')]
+
+
+def test_cellpose_models_variable_is_set_only_with_the_option(tmp_path):
+    """Without --cellpose_models, no task gets CELLPOSE_LOCAL_MODELS_PATH, and Nextflow does not warn
+    about an empty value once for every task. With the option, every task gets the folder."""
+    without, with_option = tmp_path / 'without', tmp_path / 'with'
+    for folder in (without, with_option):
+        folder.mkdir()
+    run_stub(without, ROOT / 'cp-configs-cellpose', *CELLPOSE)
+    run_stub(with_option, ROOT / 'cp-configs-cellpose', *CELLPOSE, '--cellpose_models', '/some/folder')
+
+    assert 'CELLPOSE_LOCAL_MODELS_PATH' not in (without / '.nextflow.log').read_text()
+    scripts = task_scripts(without)
+    assert scripts and not any('CELLPOSE_LOCAL_MODELS_PATH' in text for text in scripts)
+
+    scripts = task_scripts(with_option)
+    assert scripts and all('export CELLPOSE_LOCAL_MODELS_PATH="/some/folder"' in text for text in scripts)
