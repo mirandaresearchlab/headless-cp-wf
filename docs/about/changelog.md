@@ -8,6 +8,11 @@ This page records the scope of the documentation update.
   The workflow now sets the variable only when you give `--cellpose_models`. Without it, Cellpose uses
   `~/.cellpose/models`, as before. The results do not change.
 
+## Extra options for `berzelius-run-plates.sbatch`
+
+- New setting `NF_ARGS` passes extra Nextflow options to every plate, for example
+  `--segmentation gpu`. See [Run one plate at a time](../how-to/run-on-hpc.md#run-one-plate-at-a-time-when-disk-space-is-short).
+
 ## Segmentation only
 
 - New parameter `--segmentation_only` (issue #3): the run stops after SEGMENT and publishes each
