@@ -10,6 +10,8 @@
 # SHEET samplesheet CSV with one row per image file (see docs/reference/file-formats.md) (required)
 # OUT   folder for the results, one sub-folder per plate (required)
 # The other settings below can be set in the same way, for example MAX_JOBS=96.
+# NF_ARGS extra Nextflow options for every plate, for example NF_ARGS="--segmentation gpu --segmentation_workers 8"
+#         With CONFIGS=<folder with RunCellpose pipelines>, this runs Cellpose-SAM on the GPU partition.
 #
 # To continue after a stop (a failure or the 72-hour limit), submit the same command again.
 # The script skips plates that have a DONE file. The plate that stopped continues with -resume.
@@ -41,6 +43,8 @@ BATCH_SIZE="${BATCH_SIZE:-9}"
 TASK_MEMORY="${TASK_MEMORY:-14 GB}"
 TASK_TIME="${TASK_TIME:-4h}"
 MAX_JOBS="${MAX_JOBS:-96}"
+NF_ARGS="${NF_ARGS:-}"                                  # extra Nextflow options, split at spaces
+read -r -a nf_args <<< "$NF_ARGS"
 
 # Disk space check before a plate starts: image sets x GIB_PER_SET must be free under the quota.
 # Benchmark: about 49 MB for each image set (work files, final table and masks).
@@ -146,7 +150,7 @@ for plate in "${plates[@]}"; do
         --nf_work_dir "$dir/work" \
         --slurm_account "$SLURM_JOB_ACCOUNT" \
         --batch_size "$BATCH_SIZE" --task_memory "$TASK_MEMORY" \
-        --task_time "$TASK_TIME" --max_jobs "$MAX_JOBS"; then
+        --task_time "$TASK_TIME" --max_jobs "$MAX_JOBS" "${nf_args[@]}"; then
         echo "$plate: Nextflow failed. The work files stay for -resume. Fix the cause, then submit again." >&2
         exit 1
     fi
