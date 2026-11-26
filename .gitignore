@@ -23,3 +23,6 @@ site/
 
 # Local link to test images (each user makes their own)
 test-images
+
+# ignore log tiles
+*.log

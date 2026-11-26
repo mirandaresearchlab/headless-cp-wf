@@ -349,6 +349,7 @@ To run only some plates, add their names at the end of the command.
 Not tested yet: a full run of this script with a samplesheet. The split of the samplesheet into plates has a test.
 The settings `BATCH_SIZE`, `TASK_MEMORY` and `TASK_TIME` work in the same way.
 The script uses 9, 14 GB and 4 hours if you do not set them.
+To give extra Nextflow options to every plate, set `NF_ARGS`, for example `NF_ARGS="--segmentation gpu --segmentation_workers 8"`.
 See [Choose resources for a full screen](#choose-resources-for-a-full-screen).
 
 For each plate, in alphabetical order, the script does these steps:
